@@ -1,0 +1,16 @@
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+pydantic>=2.6
+pydantic-settings==2.1.0
+python-dotenv==1.0.1
+httpx==0.26.0
+openai>=1.0.0
+gitpython==3.1.42
+
+# Removed for Python 3.14 compatibility:
+# - neo4j (use docker container)
+# - chromadb (use docker container)
+# - asyncpg (not needed for MVP)
+# - sqlalchemy/alembic (not needed for MVP)
+# - pytest packages (can add later)
+# - python-gitlab (not needed for MVP)
