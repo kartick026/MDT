@@ -1,2 +1,1 @@
-"""Core package initialization"""
-from core.config import settings
+"""Core package"""

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     # GitHub
     GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "secret")
+    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")  # PAT for API diff fetching
 
     # AI/LLM
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

@@ -58,11 +58,12 @@ class ImpactEngine:
         """
         logger.info(f"Analyzing impact for {len(changes)} file changes")
 
-        # Step 1: Calculate deterministic risk
+        # Step 1: Calculate deterministic risk (partial — depth filled in step 2)
         risk_factors = self._calculate_deterministic_risk(changes)
 
-        # Step 2: Get impacted services from dependency graph
-        impacted_services = await self._get_impacted_services(changes)
+        # Step 2: Get impacted services + real dependency depth from graph
+        impacted_services, max_depth = await self._get_impacted_services_with_depth(changes)
+        risk_factors.dependency_depth = max_depth
 
         # Step 3: Retrieve relevant context from ChromaDB
         retrieved_context = await self._retrieve_context(changes)
@@ -85,17 +86,30 @@ class ImpactEngine:
         # Step 8: Suggest fixes
         suggested_fixes = await self._suggest_fixes(impacted_services, changes)
 
+        # Step 9: Confidence based on how much data we had
+        confidence = self._compute_confidence(impacted_services, max_depth)
+
+        # Step 10: Record analysis in graph for history
+        if impacted_services:
+            changed_files = [getattr(c, 'file_path', str(c)) for c in changes]
+            await self._record_to_graph(impacted_services, changes,
+                                        final_risk, severity, changed_files)
+
+        # Step 10: Index changed files into ChromaDB for future retrieval
+        await self._index_changes(changes, final_risk)
+
         return ImpactResult(
-            risk_score=final_risk,
+            risk_score=round(final_risk, 1),
             severity=severity,
             impacted_services=impacted_services,
-            confidence=0.85,  # Placeholder confidence
+            confidence=confidence,
             explanation=explanation,
             suggested_fixes=suggested_fixes,
             affected_files=[DiffFile(
                 path=c.file_path if hasattr(c, 'file_path') else str(c),
                 change_type=getattr(c, 'change_type', 'modified'),
-                lines_changed=getattr(c, 'additions', 0) + getattr(c, 'deletions', 0),
+                lines_changed=getattr(c, 'lines_changed',
+                               getattr(c, 'additions', 0) + getattr(c, 'deletions', 0)),
                 additions=getattr(c, 'additions', 0),
                 deletions=getattr(c, 'deletions', 0)
             ) for c in changes],
@@ -106,11 +120,24 @@ class ImpactEngine:
         """Calculate risk based on deterministic factors"""
         return RiskFactors(
             file_count=len(changes),
-            core_service_impact=False,  # Would check against known core files
+            core_service_impact=self._has_core_service_impact(changes),
             api_changes=self._has_api_changes(changes),
-            dependency_depth=2,  # Default depth
+            dependency_depth=2,  # updated later by _get_real_depth()
             semantic_risk=0.0
         )
+
+    def _has_core_service_impact(self, changes: List) -> bool:
+        """Check if any changed file belongs to a core service path."""
+        core_patterns = [
+            'user_service', 'user-service',
+            'payment_service', 'payment-service',
+            'order_service', 'order-service',
+        ]
+        for change in changes:
+            fp = getattr(change, 'file_path', str(change)).lower().replace("\\", "/")
+            if any(p in fp for p in core_patterns):
+                return True
+        return False
 
     def _has_api_changes(self, changes: List) -> bool:
         """Check if any changes are API-related files"""
@@ -121,14 +148,72 @@ class ImpactEngine:
                 return True
         return False
 
-    async def _get_impacted_services(self, changes: List) -> List[str]:
-        """Query dependency graph for impacted services"""
-        services = []
+    async def _get_impacted_services_with_depth(
+        self, changes: List
+    ) -> tuple[List[str], int]:
+        """
+        Query dependency graph for impacted services AND the max dependency
+        depth across all changed files.
+        Returns (services_list, max_depth).
+        """
+        services: set = set()
+        max_depth = 0
+
         for change in changes:
             file_path = getattr(change, 'file_path', str(change))
             impacted = await self.dep_graph.get_affected_services(file_path)
-            services.extend(impacted)
-        return list(set(services))  # Deduplicate
+            services.update(impacted)
+
+            # Get depth for each impacted service
+            for svc in impacted:
+                depth = await self.dep_graph.get_dependency_depth(svc)
+                max_depth = max(max_depth, depth)
+
+        return list(services), max_depth
+
+    async def _get_impacted_services(self, changes: List) -> List[str]:
+        """Legacy wrapper — used by tests."""
+        services, _ = await self._get_impacted_services_with_depth(changes)
+        return services
+
+    def _compute_confidence(
+        self, impacted_services: List[str], depth: int
+    ) -> float:
+        """
+        Confidence score based on:
+        - Whether we found real services (vs empty list = low confidence)
+        - Whether depth came from Neo4j (real) or static map (medium)
+        """
+        if not impacted_services:
+            return 0.5
+        if depth > 0:
+            return min(0.95, 0.75 + depth * 0.05)
+        return 0.70
+
+    async def _record_to_graph(
+        self,
+        impacted_services: List[str],
+        changes: List,
+        risk_score: float,
+        severity,
+        changed_files: List[str],
+    ):
+        """Persist analysis result to Neo4j for historical context."""
+        try:
+            import hashlib, json
+            commit_sha = hashlib.md5(
+                json.dumps(changed_files, sort_keys=True).encode()
+            ).hexdigest()[:12]
+            for svc in impacted_services:
+                await self.dep_graph.record_analysis(
+                    commit_sha=commit_sha,
+                    service_name=svc,
+                    risk_score=risk_score,
+                    severity=severity.value if hasattr(severity, 'value') else str(severity),
+                    changed_files=changed_files,
+                )
+        except Exception as exc:
+            logger.debug("Failed to record analysis to graph: %s", exc)
 
     async def _retrieve_context(self, changes: List) -> Dict[str, Any]:
         """Retrieve relevant context from vector database"""
@@ -179,6 +264,30 @@ class ImpactEngine:
             risk_score=risk_score,
             context=retrieved_context
         )
+
+    async def _index_changes(self, changes: List, risk_score: float):
+        """Index changed files into ChromaDB for future semantic retrieval."""
+        try:
+            from services.dependency_graph import _infer_service_from_path
+            for change in changes:
+                fp = getattr(change, 'file_path', '')
+                content = getattr(change, 'new_content', '') or getattr(change, 'old_content', '')
+                if not content:
+                    continue
+                ast_meta = getattr(change, 'ast_metadata', {})
+                service = _infer_service_from_path(fp) or "unknown"
+                await self.retrieval.index_change(
+                    file_path=fp,
+                    content=content,
+                    service=service,
+                    change_type=getattr(change, 'change_type', 'modified'),
+                    language=ast_meta.get('language', 'unknown'),
+                    functions=ast_meta.get('functions', []),
+                    classes=ast_meta.get('classes', []),
+                    risk_score=risk_score,
+                )
+        except Exception as exc:
+            logger.debug("Indexing failed (non-fatal): %s", exc)
 
     async def _suggest_fixes(
         self,

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from api.routes import webhook, analysis, services, health
+from api import webhook, analysis, services, health
 from core.config import settings
 from core.database import init_databases
 
@@ -18,11 +18,18 @@ from core.database import init_databases
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
-    # Startup
+    # Startup — databases first, then graph schema + seed
     await init_databases()
+
+    from services.dependency_graph import DependencyGraph
+    graph = DependencyGraph()
+    await graph.init_schema()   # creates constraints + seeds 4 known services
+
     yield
+
     # Shutdown
-    pass
+    from core.database import close_databases
+    await close_databases()
 
 
 app = FastAPI(
