@@ -10,6 +10,6 @@ gitpython==3.1.42
 # Re-added for local usage
 neo4j
 chromadb
-# - asyncpg (not needed for MVP)
+numpy<2.0.0
 # - sqlalchemy/alembic (not needed for MVP)
 # - pytest packages (added separately in tests)
