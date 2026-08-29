@@ -36,6 +36,7 @@ docker-compose up -d
 
 This starts:
 - **Backend API**: http://localhost:8000
+- **React Dashboard**: http://localhost:5173
 - **User Service**: http://localhost:8001
 - **Order Service**: http://localhost:8002
 - **Payment Service**: http://localhost:8003
@@ -49,13 +50,24 @@ This starts:
 # Backend
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn app:app --reload --port 8000
 
 # User Service
 cd services/user_service
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8001
 ```
+
+```bash
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
+
+For private GitHub repositories, set `GITHUB_TOKEN` in your shell before
+running Docker Compose. The token needs repository read access so the backend
+can fetch commit diffs.
 
 ## Microservices
 
@@ -74,6 +86,7 @@ uvicorn main:app --reload --port 8001
 - `POST /webhook/github` - GitHub webhook endpoint
 - `POST /analysis/analyze` - Manual impact analysis
 - `GET /services/{name}` - Service health
+- `GET /services/smells` - Evidence-backed architectural-smell findings
 
 ### User Service (8001)
 - `POST /users` - Create user

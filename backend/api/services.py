@@ -11,11 +11,13 @@ import httpx
 from fastapi import APIRouter
 
 from services.dependency_graph import DependencyGraph, KNOWN_SERVICES, KNOWN_DEPENDENCIES
+from services.smell_detector import SmellDetector
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 graph = DependencyGraph()
+smell_detector = SmellDetector()
 
 
 async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
@@ -48,8 +50,8 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
         "description": svc.get("description", ""),
         "dependencies": deps,
         "api_count": 0,
-        "risk_level": "UNKNOWN",
-        "risk_score": 0,
+        "risk_level": (svc.get("risk_level") or "UNKNOWN").upper(),
+        "risk_score": svc.get("risk_score") or 0,
     }
 
     # Ping the internal Docker URL
@@ -116,8 +118,8 @@ async def get_service_graph():
             "id": name,
             "label": name.replace("-service", "").replace("-", " ").title(),
             "port": merged.get("port", 0),
-            "risk_level": merged.get("risk_level", "UNKNOWN"),
-            "risk_score": merged.get("risk_score", 0),
+            "risk_level": (merged.get("risk_level") or "UNKNOWN").upper(),
+            "risk_score": merged.get("risk_score") or 0,
         })
 
     edges = [
@@ -126,6 +128,13 @@ async def get_service_graph():
     ]
 
     return {"nodes": nodes, "edges": edges}
+
+
+@router.get("/smells", summary="Detect architectural smells")
+async def get_architectural_smells():
+    """Run all heuristics and Cypher queries to detect architectural smells."""
+    smells = await smell_detector.detect_all_smells()
+    return {"smells": smells, "count": len(smells)}
 
 
 @router.get("/{service_name}", summary="Health check a specific service")

@@ -3,6 +3,7 @@ import ServiceGrid from './components/ServiceGrid';
 import ImpactForm from './components/ImpactForm';
 import DependencyGraph from './components/DependencyGraph';
 import AnalysisHistory from './components/AnalysisHistory';
+import ArchitecturalSmells from './components/ArchitecturalSmells';
 import { getServices, getHealth } from './api';
 import './App.css';
 
@@ -10,6 +11,7 @@ const TABS = [
   { id: 'overview',  label: 'Overview',         icon: '◈' },
   { id: 'impact',    label: 'Impact Analysis',   icon: '⚡' },
   { id: 'graph',     label: 'Dependency Graph',  icon: '⬡' },
+  { id: 'smells',    label: 'Architectural Smells', icon: '⚠' },
   { id: 'history',   label: 'Analysis History',  icon: '≡' },
 ];
 
@@ -174,6 +176,14 @@ export default function App() {
             <h1 className="page-title">Analysis History</h1>
             <p className="page-sub">All HMDA analyses run this session — auto-refreshes every 8 seconds</p>
             <AnalysisHistory />
+          </div>
+        )}
+
+        {tab === 'smells' && (
+          <div className="anim-fade-up">
+            <h1 className="page-title">Architectural Smells Detected</h1>
+            <p className="page-sub">DETECTION — Heuristic and Cypher analysis of structural risks</p>
+            <ArchitecturalSmells />
           </div>
         )}
       </div>

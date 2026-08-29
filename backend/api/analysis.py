@@ -7,10 +7,12 @@ from pydantic import BaseModel
 from schemas.analysis import ImpactResult, SeverityLevel
 from services.impact_engine import ImpactEngine
 from services.git_analyzer import GitAnalyzer
+from services.dependency_graph import DependencyGraph
 
 router = APIRouter()
 engine = ImpactEngine()
 git_analyzer = GitAnalyzer()
+graph = DependencyGraph()
 
 # In-process history store — persists for the lifetime of the container.
 # Entries are prepended so index 0 is always the most recent.
@@ -37,7 +39,7 @@ async def analyze_impact(request: AnalysisRequest):
             changed_files=request.changed_files
         )
 
-        result = await engine.analyze_impact(changes)
+        result = await engine.analyze_impact(changes, commit_sha=request.commit_sha)
 
         payload = {
             "status": "success",
@@ -51,7 +53,7 @@ async def analyze_impact(request: AnalysisRequest):
             "suggested_fixes": result.suggested_fixes,
             "affected_files": [
                 {
-                    "path": f.file_path,
+                    "path": f.path,
                     "change_type": f.change_type,
                     "lines_changed": f.lines_changed
                 }
@@ -86,9 +88,29 @@ async def get_analysis_history(
     service: Optional[str] = None
 ):
     """Return historical analysis results from the in-process store."""
-    results = _analysis_history
-    if service:
-        results = [r for r in results if r.get("service") == service]
+    persisted = await graph.get_analysis_history(limit=limit, service=service)
+    if persisted:
+        results = [
+            {
+                "commit": item["commit"],
+                "risk_score": item["risk_score"],
+                "severity": item["severity"],
+                "risk_level": (item["severity"] or "unknown").upper(),
+                "service": item["services"][0] if item["services"] else "unknown",
+                "downstream_services": item["services"],
+                "affected_files": [
+                    {"path": path, "change_type": "modified", "lines_changed": 0}
+                    for path in item["changed_files"]
+                ],
+                "timestamp": item["timestamp"],
+                "score_breakdown": {"file_count": len(item["changed_files"])},
+            }
+            for item in persisted
+        ]
+    else:
+        results = _analysis_history
+        if service:
+            results = [r for r in results if r.get("service") == service]
     return {
         "analyses": results[:limit],
         "total": len(results),

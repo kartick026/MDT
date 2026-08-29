@@ -35,9 +35,9 @@ function ScoreGauge({ score, level }) {
 
 export default function ImpactForm({ onAnalysis }) {
   const [repoUrl, setRepoUrl] = useState('https://github.com/kartick026/MDT');
-  const [commitSha, setCommitSha] = useState('HEAD');
+  const [commitSha, setCommitSha] = useState('main');
   const [files, setFiles] = useState('services/payment_service/main.py, services/user_service/main.py');
-  
+
   const [result,  setResult]  = useState(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
@@ -48,10 +48,10 @@ export default function ImpactForm({ onAnalysis }) {
     setLoading(true); setError(null);
     try {
       const changedFiles = files.split(',').map(f => f.trim()).filter(f => f);
-      const data = await analyzeImpact({ 
-        repo_url: repoUrl, 
-        commit_sha: commitSha, 
-        changed_files: changedFiles 
+      const data = await analyzeImpact({
+        repo_url: repoUrl,
+        commit_sha: commitSha,
+        changed_files: changedFiles,
       });
       setResult(data);
       onAnalysis?.();
@@ -64,7 +64,7 @@ export default function ImpactForm({ onAnalysis }) {
 
   const loadSample = () => {
     setRepoUrl('https://github.com/kartick026/MDT');
-    setCommitSha('HEAD');
+    setCommitSha('main');
     setFiles('services/payment_service/main.py');
   };
 

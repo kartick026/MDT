@@ -28,6 +28,9 @@ export const getServices = () =>
 export const getGraph = () =>
   api.get('/services/graph').then(r => r.data);
 
+export const getSmells = () =>
+  api.get('/services/smells').then(r => r.data.smells || []);
+
 export const getHistory = (limit = 20) =>
   api.get(`/analysis/history?limit=${limit}`).then(r => r.data.analyses || []);
 

@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     RISK_MEDIUM: int = 50
     RISK_HIGH: int = 75
 
+    # Architectural-smell thresholds.  Set these per environment instead of
+    # baking demo-sized limits into detector queries.
+    SMELL_BOTTLENECK_INBOUND_THRESHOLD: int = 3
+    SMELL_BOTTLENECK_TOTAL_DEGREE_THRESHOLD: int = 5
+    SMELL_HIGH_COUPLING_THRESHOLD: int = 3
+    SMELL_DEPENDENCY_GROWTH_THRESHOLD: int = 3
+    SMELL_API_CHURN_THRESHOLD: int = 3
+
     class Config:
         env_file = ".env"
 

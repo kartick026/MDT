@@ -195,7 +195,9 @@ async def github_webhook(
 
         # Run HMDA impact analysis
         engine = ImpactEngine()
-        impact_result = await engine.analyze_impact(enriched_changes)
+        impact_result = await engine.analyze_impact(
+            enriched_changes, commit_sha=commit_sha
+        )
 
         logger.info(
             "Analysis complete | commit=%s | risk=%.1f | severity=%s | services=%s",
@@ -273,7 +275,7 @@ async def simulate_push(
     )
 
     engine = ImpactEngine()
-    impact_result = await engine.analyze_impact(changes)
+    impact_result = await engine.analyze_impact(changes, commit_sha=commit_sha)
 
     return {
         "status": "simulated",

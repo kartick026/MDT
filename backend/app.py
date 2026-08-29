@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
     graph = DependencyGraph()
     await graph.init_schema()   # creates constraints + seeds 4 known services
 
+    from services.smell_detector import SmellDetector
+    await SmellDetector().snapshot_current_state()
+
     yield
 
     # Shutdown

@@ -313,15 +313,10 @@ class DependencyGraph:
             records = await _run_query(
                 self.driver,
                 """
-                OPTIONAL MATCH (f:File {path: $path})<-[:DEFINES_FILE]-(owner:Service)
-                WITH owner
-                WHERE owner IS NOT NULL
-                // The owner itself is affected
-                WITH collect(owner.name) AS direct
-                // Services that depend on the owner (up to 4 hops upstream)
-                MATCH (upstream:Service)-[:DEPENDS_ON*1..4]->(owner:Service)
-                WHERE owner.name IN direct
-                RETURN direct + collect(DISTINCT upstream.name) AS affected
+                MATCH (f:File {path: $path})<-[:DEFINES_FILE]-(owner:Service)
+                OPTIONAL MATCH (upstream:Service)-[:DEPENDS_ON*1..4]->(owner)
+                WITH owner, collect(DISTINCT upstream.name) AS upstream_names
+                RETURN [owner.name] + upstream_names AS affected
                 """,
                 path=file_path,
             )
@@ -396,7 +391,9 @@ class DependencyGraph:
         records = await _run_query(
             self.driver,
             "MATCH (s:Service) RETURN s.name AS name, s.port AS port, "
-            "s.url AS url, s.description AS description ORDER BY s.port",
+            "s.url AS url, s.description AS description, "
+            "s.risk_score AS risk_score, s.risk_level AS risk_level "
+            "ORDER BY s.port",
         )
         return records if records else KNOWN_SERVICES
 
@@ -439,13 +436,13 @@ class DependencyGraph:
     async def record_analysis(
         self,
         commit_sha: str,
-        service_name: str,
+        service_names: List[str],
         risk_score: float,
         severity: str,
         changed_files: List[str],
     ):
         """
-        Persist an analysis event node linked to the affected service.
+        Persist one analysis event linked to every affected service.
         Gives the graph a history of past analyses for future RAG retrieval.
         """
         self._refresh_driver()
@@ -455,7 +452,6 @@ class DependencyGraph:
         await _run_query(
             self.driver,
             """
-            MATCH (s:Service {name: $service})
             CREATE (a:Analysis {
                 commit_sha:    $commit,
                 risk_score:    $risk,
@@ -463,13 +459,46 @@ class DependencyGraph:
                 changed_files: $files,
                 created_at:    $ts
             })
+            WITH a
+            UNWIND $services AS service_name
+            MATCH (s:Service {name: service_name})
             CREATE (s)-[:HAS_ANALYSIS]->(a)
+            SET s.risk_score       = $risk,
+                s.risk_level       = $severity,
+                s.last_analyzed_at = $ts
             """,
-            service=service_name,
+            services=service_names,
             commit=commit_sha,
             risk=risk_score,
             severity=severity,
             files=changed_files,
             ts=_now_iso(),
         )
-        logger.debug("Recorded analysis for %s commit=%s", service_name, commit_sha)
+        logger.debug("Recorded analysis for %s commit=%s", service_names, commit_sha)
+
+    async def get_analysis_history(
+        self, limit: int = 20, service: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Return persisted analysis events, newest first."""
+        self._refresh_driver()
+        if not self.driver:
+            return []
+
+        return await _run_query(
+            self.driver,
+            """
+            MATCH (s:Service)-[:HAS_ANALYSIS]->(a:Analysis)
+            WITH a, collect(s.name) AS services
+            WHERE $service IS NULL OR $service IN services
+            RETURN a.commit_sha AS commit,
+                   a.risk_score AS risk_score,
+                   a.severity AS severity,
+                   a.changed_files AS changed_files,
+                   a.created_at AS timestamp,
+                   services
+            ORDER BY timestamp DESC
+            LIMIT $limit
+            """,
+            limit=limit,
+            service=service,
+        )

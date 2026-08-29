@@ -1,6 +1,4 @@
 # Microservice Drift Tracker - Docker Compose
-version: '3.8'
-
 services:
   # Main Backend API
   backend:
@@ -14,9 +12,23 @@ services:
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=password
       - CHROMADB_HOST=chroma
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     depends_on:
       - neo4j
       - chroma
+    networks:
+      - mdt-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
     networks:
       - mdt-network
 

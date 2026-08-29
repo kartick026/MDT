@@ -46,7 +46,9 @@ class ImpactEngine:
             "high": settings.RISK_HIGH
         }
 
-    async def analyze_impact(self, changes: List) -> ImpactResult:
+    async def analyze_impact(
+        self, changes: List, commit_sha: Optional[str] = None
+    ) -> ImpactResult:
         """
         Main entry point for impact analysis
 
@@ -92,8 +94,10 @@ class ImpactEngine:
         # Step 10: Record analysis in graph for history
         if impacted_services:
             changed_files = [getattr(c, 'file_path', str(c)) for c in changes]
-            await self._record_to_graph(impacted_services, changes,
-                                        final_risk, severity, changed_files)
+            await self._record_to_graph(
+                impacted_services, changes, final_risk, severity,
+                changed_files, commit_sha,
+            )
 
         # Step 10: Index changed files into ChromaDB for future retrieval
         await self._index_changes(changes, final_risk)
@@ -197,21 +201,21 @@ class ImpactEngine:
         risk_score: float,
         severity,
         changed_files: List[str],
+        commit_sha: Optional[str],
     ):
         """Persist analysis result to Neo4j for historical context."""
         try:
             import hashlib, json
-            commit_sha = hashlib.md5(
+            analysis_id = commit_sha or hashlib.md5(
                 json.dumps(changed_files, sort_keys=True).encode()
             ).hexdigest()[:12]
-            for svc in impacted_services:
-                await self.dep_graph.record_analysis(
-                    commit_sha=commit_sha,
-                    service_name=svc,
-                    risk_score=risk_score,
-                    severity=severity.value if hasattr(severity, 'value') else str(severity),
-                    changed_files=changed_files,
-                )
+            await self.dep_graph.record_analysis(
+                commit_sha=analysis_id,
+                service_names=impacted_services,
+                risk_score=risk_score,
+                severity=severity.value if hasattr(severity, 'value') else str(severity),
+                changed_files=changed_files,
+            )
         except Exception as exc:
             logger.debug("Failed to record analysis to graph: %s", exc)
 

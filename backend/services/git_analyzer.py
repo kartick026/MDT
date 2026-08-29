@@ -179,10 +179,12 @@ class GitHubAPIClient:
         owner: str,
         repo: str,
         commit_sha: str,
-    ) -> Dict[str, str]:
+    ) -> Optional[Dict[str, str]]:
         """
         Return a dict of {file_path: diff_text} for all files in a commit.
-        Falls back to empty dict on error.
+        Returns ``None`` when the commit cannot be read.  An empty dict is a
+        valid response for a commit with no textual file changes, so callers
+        can distinguish that case from an authentication or lookup failure.
         """
         url = f"{_GH_API}/repos/{owner}/{repo}/commits/{commit_sha}"
         try:
@@ -196,7 +198,7 @@ class GitHubAPIClient:
                 logger.warning("GitHub commit diff API → %d", resp.status_code)
         except Exception as exc:
             logger.warning("get_commit_diff failed: %s", exc)
-        return {}
+        return None
 
 
 def _split_diff_by_file(full_diff: str) -> Dict[str, str]:
@@ -412,8 +414,16 @@ class GitAnalyzer:
         gh_coords = _parse_github_url(repo_url)
 
         if gh_coords:
-            return await self._analyze_via_github_api(
+            api_changes = await self._analyze_via_github_api(
                 gh_coords[0], gh_coords[1], commit_sha, files)
+            if api_changes is not None:
+                return api_changes
+            logger.warning(
+                "GitHub API could not read %s at %s; falling back to git clone",
+                repo_url, commit_sha,
+            )
+            return await self._analyze_via_local_repo(
+                repo_url, commit_sha, files)
         else:
             return await self._analyze_via_local_repo(
                 repo_url, commit_sha, files)
@@ -428,12 +438,14 @@ class GitAnalyzer:
         repo: str,
         commit_sha: str,
         files: List[str],
-    ) -> List[ChangeInfo]:
+    ) -> Optional[List[ChangeInfo]]:
         """Fetch diffs + file contents via GitHub REST API."""
         logger.info("Using GitHub API | owner=%s repo=%s", owner, repo)
 
         # Fetch the full commit diff once (covers all files in one request)
         file_diffs = await self._gh.get_commit_diff(owner, repo, commit_sha)
+        if file_diffs is None:
+            return None
 
         # Derive the parent SHA for fetching old content
         parent_sha = await self._get_parent_sha(owner, repo, commit_sha)
