@@ -30,9 +30,9 @@
 | 6 | 7 | ChromaDB Retrieval — chunking, TF-IDF/OpenAI embeddings, risk_modifier | ✅ Done |
 | 7 | 8 | HMDA risk engine — fully wired (depth from graph, confidence dynamic) | ✅ Done |
 | 8 | 9 | LLM Explainer — OpenAI + fallback rule-based | ✅ Done (needs real API key) |
-| 9 | 10 | React Dashboard | ❌ Not built |
-| 10 | 11 | Testing suite | ❌ Not built |
-| 11 | 12 | Final deployment docs / demo | ❌ Not built |
+| 9 | 10 | React Dashboard | ✅ Done |
+| 10 | 11 | Testing suite | ✅ Done |
+| 11 | 12 | Final deployment docs / demo | ✅ Done |
 
 ---
 
@@ -406,12 +406,6 @@ notification-service (8004)
 
 ## 9. Remaining TODOs
 
-| Location | Gap | Priority |
-|---|---|---|
-| `api/analysis.py:get_analysis_history` | Returns empty list — no persistence | Phase 9 |
-| `frontend/src/` | React dashboard not built | Phase 9 |
-| `tests/` | Zero test files | Phase 10 |
-| CORS `allow_origins=["*"]` | Must be restricted before production | Pre-deploy |
 | `services/user_service/requirements.txt` | Has `sqlalchemy` but uses in-memory dict | Low |
 
 ---

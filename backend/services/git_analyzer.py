@@ -398,8 +398,16 @@ class GitAnalyzer:
             changed_files: List of file paths that changed.
 
         Returns:
-            List[ChangeInfo] — one per file whose extension is supported.
+            List of ChangeInfo populated with parsed metadata.
         """
+        from services.github_app import GitHubAppAuth
+        
+        # Dynamically fetch installation token for the repo (falls back to PAT)
+        dynamic_token = await GitHubAppAuth.get_installation_token_for_repo(repo_url)
+        if dynamic_token:
+            self._gh._token = dynamic_token
+            self._gh._headers["Authorization"] = f"Bearer {dynamic_token}"
+
         logger.info("analyze_push | repo=%s commit=%s files=%d",
                     repo_url, commit_sha, len(changed_files))
 

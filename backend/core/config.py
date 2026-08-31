@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Microservice Drift Tracker"
     VERSION: str = "1.0.0"
     DEBUG: bool = True
+    ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # Neo4j
     NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -23,7 +24,9 @@ class Settings(BaseSettings):
 
     # GitHub
     GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "secret")
-    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")  # PAT for API diff fetching
+    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")  # PAT fallback
+    GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
+    GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
 
     # AI/LLM
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

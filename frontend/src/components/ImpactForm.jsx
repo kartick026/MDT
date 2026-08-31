@@ -34,26 +34,30 @@ function ScoreGauge({ score, level }) {
 }
 
 export default function ImpactForm({ onAnalysis }) {
-  const [repoUrl, setRepoUrl] = useState('https://github.com/kartick026/MDT');
+  const [repoUrls, setRepoUrls] = useState('https://github.com/kartick026/MDT');
   const [commitSha, setCommitSha] = useState('main');
   const [files, setFiles] = useState('services/payment_service/main.py, services/user_service/main.py');
 
-  const [result,  setResult]  = useState(null);
+  const [results,  setResults]  = useState(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!repoUrl || !commitSha || !files) return;
+    if (!repoUrls || !commitSha || !files) return;
     setLoading(true); setError(null);
     try {
+      const repos = repoUrls.split(',').map(r => r.trim()).filter(r => r);
       const changedFiles = files.split(',').map(f => f.trim()).filter(f => f);
-      const data = await analyzeImpact({
-        repo_url: repoUrl,
+      
+      const promises = repos.map(repo => analyzeImpact({
+        repo_url: repo,
         commit_sha: commitSha,
         changed_files: changedFiles,
-      });
-      setResult(data);
+      }));
+      
+      const data = await Promise.all(promises);
+      setResults(data);
       onAnalysis?.();
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Backend unreachable — is it running on :8000?');
@@ -63,7 +67,7 @@ export default function ImpactForm({ onAnalysis }) {
   };
 
   const loadSample = () => {
-    setRepoUrl('https://github.com/kartick026/MDT');
+    setRepoUrls('https://github.com/kartick026/MDT');
     setCommitSha('main');
     setFiles('services/payment_service/main.py');
   };
@@ -79,8 +83,8 @@ export default function ImpactForm({ onAnalysis }) {
 
         <form onSubmit={submit} style={{display:'flex',flexDirection:'column',gap:18}}>
           <div className="form-field">
-            <label className="form-label">Repository URL</label>
-            <input className="form-input" type="url" value={repoUrl} onChange={e => setRepoUrl(e.target.value)} required />
+            <label className="form-label">Repository URLs (comma separated)</label>
+            <input className="form-input" type="text" value={repoUrls} onChange={e => setRepoUrls(e.target.value)} required />
           </div>
 
           <div className="form-field">
@@ -117,7 +121,7 @@ export default function ImpactForm({ onAnalysis }) {
           <div className="text-dim text-sm">Live output from the HMDA engine</div>
         </div>
 
-        {!result && !loading && (
+        {!results && !loading && (
           <div className="result-placeholder">
             <div className="result-placeholder-icon">⚡</div>
             <p className="text-sm">Submit a commit to see the impact report</p>
@@ -131,53 +135,57 @@ export default function ImpactForm({ onAnalysis }) {
           </div>
         )}
 
-        {result && !loading && (
-          <div className="result-panel anim-fade-in">
-            <div className="result-header">
-              <div className="result-meta">
-                <div className="result-service">Commit {result.commit?.substring(0, 7)}</div>
-                <div className="result-ts text-dim text-xs">Confidence: {(result.confidence * 100).toFixed(0)}%</div>
-              </div>
-              <ScoreGauge score={Math.round(result.risk_score)} level={result.severity} />
-            </div>
-
-            {result.explanation && (
-              <div className="explain-box">{result.explanation.replace(/\*\*/g,'')}</div>
-            )}
-
-            {result.impacted_services?.length > 0 && (
-              <div>
-                <div className="section-label">Downstream Impact</div>
-                <div className="downstream-tags">
-                  {result.impacted_services.map(s => <span key={s} className="dtag">{s.replace('_service','')}</span>)}
+        {results && !loading && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {results.map((result, idx) => (
+              <div key={idx} className="result-panel anim-fade-in">
+                <div className="result-header">
+                  <div className="result-meta">
+                    <div className="result-service">{result.repo_url ? result.repo_url.split('/').slice(-2).join('/') : ''} — Commit {result.commit?.substring(0, 7)}</div>
+                    <div className="result-ts text-dim text-xs">Confidence: {(result.confidence * 100).toFixed(0)}%</div>
+                  </div>
+                  <ScoreGauge score={Math.round(result.risk_score)} level={result.severity} />
                 </div>
-              </div>
-            )}
 
-            {result.affected_files?.length > 0 && (
-              <div style={{ marginTop: '1.5rem' }}>
-                <div className="section-label">Affected Files</div>
-                <div className="recs-list" style={{ gap: '0.25rem' }}>
-                  {result.affected_files.map((f, i) => (
-                    <div key={i} className="rec-item" style={{ fontSize: '0.85rem', padding: '0.5rem' }}>
-                      <span style={{ color: f.change_type === 'added' ? 'var(--green)' : f.change_type === 'deleted' ? 'var(--red)' : 'var(--yellow)', marginRight: '0.5rem', fontWeight: 'bold' }}>
-                        [{f.change_type.toUpperCase()}]
-                      </span>
-                      {f.path} ({f.lines_changed} lines changed)
+                {result.explanation && (
+                  <div className="explain-box">{result.explanation.replace(/\*\*/g,'')}</div>
+                )}
+
+                {result.impacted_services?.length > 0 && (
+                  <div>
+                    <div className="section-label">Downstream Impact</div>
+                    <div className="downstream-tags">
+                      {result.impacted_services.map(s => <span key={s} className="dtag">{s.replace('_service','')}</span>)}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  </div>
+                )}
 
-            {result.suggested_fixes?.length > 0 && (
-              <div style={{ marginTop: '1.5rem' }}>
-                <div className="section-label">Recommendations</div>
-                <div className="recs-list">
-                  {result.suggested_fixes.map((r,i) => <div key={i} className="rec-item">{r}</div>)}
-                </div>
+                {result.affected_files?.length > 0 && (
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <div className="section-label">Affected Files</div>
+                    <div className="recs-list" style={{ gap: '0.25rem' }}>
+                      {result.affected_files.map((f, i) => (
+                        <div key={i} className="rec-item" style={{ fontSize: '0.85rem', padding: '0.5rem' }}>
+                          <span style={{ color: f.change_type === 'added' ? 'var(--green)' : f.change_type === 'deleted' ? 'var(--red)' : 'var(--yellow)', marginRight: '0.5rem', fontWeight: 'bold' }}>
+                            [{f.change_type.toUpperCase()}]
+                          </span>
+                          {f.path} ({f.lines_changed} lines changed)
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {result.suggested_fixes?.length > 0 && (
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <div className="section-label">Recommendations</div>
+                    <div className="recs-list">
+                      {result.suggested_fixes.map((r,i) => <div key={i} className="rec-item">{r}</div>)}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+            ))}
           </div>
         )}
       </div>

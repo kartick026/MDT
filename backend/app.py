@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from api import webhook, analysis, services, health
+from api import webhook, analysis, services, health, registry
 from core.config import settings
 from core.database import init_databases
 
@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
 
     from services.dependency_graph import DependencyGraph
     graph = DependencyGraph()
-    await graph.init_schema()   # creates constraints + seeds 4 known services
+    await graph.init_schema()   # creates constraints + seeds known services
 
     from services.smell_detector import SmellDetector
     await SmellDetector().snapshot_current_state()
@@ -45,7 +45,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,6 +56,7 @@ app.include_router(health.router, prefix="/health", tags=["Health"])
 app.include_router(webhook.router, prefix="/webhook", tags=["Webhook"])
 app.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
 app.include_router(services.router, prefix="/services", tags=["Services"])
+app.include_router(registry.router, prefix="/registry", tags=["Registry"])
 
 
 @app.get("/")

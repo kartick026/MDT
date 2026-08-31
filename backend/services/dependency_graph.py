@@ -29,59 +29,11 @@ from core.database import get_neo4j_driver
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Known MDT demo services — used to seed the graph on first startup
-# ---------------------------------------------------------------------------
-KNOWN_SERVICES: List[Dict[str, Any]] = [
-    {
-        "name": "user-service",
-        "port": 8001,
-        "url": "http://user-service:8001",
-        "language": "python",
-        "description": "User management — CRUD for user accounts",
-    },
-    {
-        "name": "order-service",
-        "port": 8002,
-        "url": "http://order-service:8002",
-        "language": "python",
-        "description": "Order processing — depends on user-service",
-    },
-    {
-        "name": "payment-service",
-        "port": 8003,
-        "url": "http://payment-service:8003",
-        "language": "python",
-        "description": "Payment processing — depends on order-service",
-    },
-    {
-        "name": "notification-service",
-        "port": 8004,
-        "url": "http://notification-service:8004",
-        "language": "python",
-        "description": "Notifications — depends on order-service and payment-service",
-    },
-]
+from core.registry import RegistryManager
 
-# Real HTTP dependency edges between the demo services
-KNOWN_DEPENDENCIES: List[Dict[str, str]] = [
-    {"from": "order-service",        "to": "user-service",    "type": "http",
-     "endpoint": "/users/{user_id}"},
-    {"from": "payment-service",      "to": "order-service",   "type": "http",
-     "endpoint": "/orders/{order_id}"},
-    {"from": "notification-service", "to": "order-service",   "type": "http",
-     "endpoint": "/orders/{order_id}"},
-    {"from": "notification-service", "to": "payment-service", "type": "http",
-     "endpoint": "/payments/{payment_id}"},
-]
-
-# Map file-path prefixes → owning service
-FILE_SERVICE_MAP: Dict[str, str] = {
-    "services/user_service":        "user-service",
-    "services/order_service":       "order-service",
-    "services/payment_service":     "payment-service",
-    "services/notification_service":"notification-service",
-}
+def _get_known_services(): return RegistryManager.get_services()
+def _get_known_dependencies(): return RegistryManager.get_dependencies()
+def _get_file_service_map(): return RegistryManager.get_file_mappings()
 
 
 def _now_iso() -> str:
@@ -90,7 +42,7 @@ def _now_iso() -> str:
 
 def _infer_service_from_path(file_path: str) -> Optional[str]:
     """Return the owning service name for a file path, or None."""
-    for prefix, service in FILE_SERVICE_MAP.items():
+    for prefix, service in _get_file_service_map().items():
         if file_path.replace("\\", "/").startswith(prefix):
             return service
     return None
@@ -185,7 +137,7 @@ class DependencyGraph:
             return
 
         # Upsert service nodes
-        for svc in KNOWN_SERVICES:
+        for svc in _get_known_services():
             await _run_query(
                 self.driver,
                 """
@@ -205,7 +157,7 @@ class DependencyGraph:
             )
 
         # Upsert dependency edges
-        for dep in KNOWN_DEPENDENCIES:
+        for dep in _get_known_dependencies():
             await _run_query(
                 self.driver,
                 """
@@ -223,7 +175,7 @@ class DependencyGraph:
             )
 
         logger.info("Graph seeded with %d services and %d dependency edges",
-                    len(KNOWN_SERVICES), len(KNOWN_DEPENDENCIES))
+                    len(_get_known_services()), len(_get_known_dependencies()))
 
     # ------------------------------------------------------------------ #
     #  Service node operations
@@ -330,18 +282,18 @@ class DependencyGraph:
 
         # Step 3 — safe maximum fallback
         logger.debug("Cannot determine service for %s — returning all services", file_path)
-        return [s["name"] for s in KNOWN_SERVICES]
+        return [s["name"] for s in _get_known_services()]
 
     def _get_dependants_from_static_map(self, service_name: str) -> List[str]:
         """
-        Using the hardcoded KNOWN_DEPENDENCIES, return the given service
+        Using the hardcoded _get_known_dependencies(), return the given service
         plus every service that transitively depends on it.
         """
         affected = {service_name}
         changed = True
         while changed:
             changed = False
-            for dep in KNOWN_DEPENDENCIES:
+            for dep in _get_known_dependencies():
                 if dep["to"] in affected and dep["from"] not in affected:
                     affected.add(dep["from"])
                     changed = True
@@ -378,7 +330,7 @@ class DependencyGraph:
         return [
             {"from": d["from"], "to": d["to"],
              "type": d["type"], "endpoint": d.get("endpoint", "")}
-            for d in KNOWN_DEPENDENCIES
+            for d in _get_known_dependencies()
             if d["from"] == service_name
         ]
 
@@ -386,7 +338,7 @@ class DependencyGraph:
         """Return all Service nodes from the graph."""
         self._refresh_driver()
         if not self.driver:
-            return KNOWN_SERVICES
+            return _get_known_services()
 
         records = await _run_query(
             self.driver,
@@ -395,13 +347,13 @@ class DependencyGraph:
             "s.risk_score AS risk_score, s.risk_level AS risk_level "
             "ORDER BY s.port",
         )
-        return records if records else KNOWN_SERVICES
+        return records if records else _get_known_services()
 
     async def get_service_info(self, name: str) -> Optional[Dict[str, Any]]:
         """Return a single service node's properties."""
         self._refresh_driver()
         if not self.driver:
-            return next((s for s in KNOWN_SERVICES if s["name"] == name), None)
+            return next((s for s in _get_known_services() if s["name"] == name), None)
 
         records = await _run_query(
             self.driver,

@@ -1,0 +1,34 @@
+# Docker Compose - Databases Only
+# Run this on your OTHER laptop!
+
+services:
+  # Neo4j Database
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - mdt-network
+
+  # ChromaDB Vector Database
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8005:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - mdt-network
+
+networks:
+  mdt-network:
+    driver: bridge
+
+volumes:
+  neo4j_data:
+  chroma_data:

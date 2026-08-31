@@ -83,101 +83,23 @@ def _extract_change_infos(push: GitHubPushPayload) -> list[ChangeInfo]:
 # Routes
 # ---------------------------------------------------------------------------
 
-@router.post("/github", summary="Receive GitHub webhook events")
-async def github_webhook(
-    request: Request,
-    x_hub_signature_256: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
-    x_github_event: Optional[str] = Header(None, alias="X-GitHub-Event"),
-    x_github_delivery: Optional[str] = Header(None, alias="X-GitHub-Delivery"),
-):
-    """
-    Main GitHub webhook endpoint.
+from fastapi import BackgroundTasks
 
-    GitHub delivers all events here. MDT processes:
-      - **push**  — triggers the full impact analysis pipeline
-      - **ping**  — returned on initial webhook registration; always 200 OK
-
-    All other event types receive a 200 with `event_not_processed`.
-
-    Security: in production (DEBUG=False) the payload signature is verified
-    before any processing occurs. A 401 is returned on mismatch.
-    """
-    # 1. Read raw body once — must happen before any JSON parsing
-    body = await request.body()
-
-    logger.info(
-        "GitHub webhook received | event=%s | delivery=%s | size=%d bytes",
-        x_github_event,
-        x_github_delivery,
-        len(body),
-    )
-
-    # 2. Signature verification
-    if not settings.DEBUG:
-        if not _verify_signature(body, x_hub_signature_256, settings.GITHUB_WEBHOOK_SECRET):
-            logger.warning(
-                "Webhook signature verification failed | delivery=%s", x_github_delivery
-            )
-            raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    else:
-        logger.debug("DEBUG mode: skipping signature verification")
-
-    # 3. Parse JSON payload
+async def _process_push_background(push, x_github_delivery):
     try:
-        payload_dict = json.loads(body)
-    except json.JSONDecodeError as exc:
-        logger.error("Failed to parse webhook body as JSON: %s", exc)
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-
-    # 4. Route by event type
-    event = (x_github_event or "").lower()
-
-    # --- ping (GitHub sends this when a webhook is first saved) ---
-    if event == "ping":
-        try:
-            ping = GitHubPingPayload(**payload_dict)
-        except ValidationError:
-            ping = GitHubPingPayload()
-
-        logger.info("Webhook ping received | hook_id=%s | zen=%s", ping.hook_id, ping.zen)
-        return {
-            "status": "pong",
-            "message": "Webhook configured successfully",
-            "hook_id": ping.hook_id,
-            "zen": ping.zen,
-        }
-
-    # --- push ---
-    if event == "push":
-        try:
-            push = GitHubPushPayload(**payload_dict)
-        except ValidationError as exc:
-            logger.error("Failed to parse push payload: %s", exc)
-            raise HTTPException(status_code=422, detail=f"Invalid push payload: {exc}")
-
         branch = push.branch
         commit_sha = push.commit_sha
         repo_url = push.repo_url
 
         logger.info(
-            "Processing push | repo=%s | branch=%s | commit=%s | commits=%d",
-            repo_url,
-            branch,
-            commit_sha,
-            len(push.commits),
+            "Processing push (Background) | repo=%s | branch=%s | commit=%s | commits=%d",
+            repo_url, branch, commit_sha, len(push.commits)
         )
 
-        # Build ChangeInfo list from the payload (file paths + change types)
         change_infos = _extract_change_infos(push)
-
         if not change_infos:
             logger.info("Push event has no analysable file changes, skipping analysis")
-            return {
-                "status": "skipped",
-                "reason": "no_analysable_files",
-                "commit": commit_sha,
-                "branch": branch,
-            }
+            return
 
         # Enrich with actual diffs via GitAnalyzer
         analyzer = GitAnalyzer()
@@ -199,29 +121,117 @@ async def github_webhook(
             enriched_changes, commit_sha=commit_sha
         )
 
+        # Prepend to in-memory history (so /history works if no Neo4j)
+        from api.analysis import _analysis_history
+        from datetime import datetime, timezone
+        payload = {
+            "status": "success",
+            "commit": commit_sha,
+            "repo_url": repo_url,
+            "risk_score": impact_result.risk_score,
+            "severity": impact_result.severity.value if hasattr(impact_result.severity, 'value') else impact_result.severity,
+            "impacted_services": impact_result.impacted_services,
+            "confidence": impact_result.confidence,
+            "explanation": impact_result.explanation,
+            "suggested_fixes": impact_result.suggested_fixes,
+            "affected_files": [
+                {
+                    "path": f.path,
+                    "change_type": f.change_type,
+                    "lines_changed": f.lines_changed
+                }
+                for f in impact_result.affected_files
+            ],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "risk_level": str(impact_result.severity).upper(),
+            "service": impact_result.impacted_services[0] if impact_result.impacted_services else "unknown",
+            "downstream_services": impact_result.impacted_services,
+            "score_breakdown": {
+                "file_count": len(impact_result.affected_files),
+                "impacted_services": len(impact_result.impacted_services),
+                "confidence": round(impact_result.confidence * 100),
+            }
+        }
+        _analysis_history.insert(0, payload)
+        if len(_analysis_history) > 100:
+            _analysis_history.pop()
+
         logger.info(
-            "Analysis complete | commit=%s | risk=%.1f | severity=%s | services=%s",
+            "Background Analysis complete | commit=%s | risk=%.1f | severity=%s | services=%s",
             commit_sha,
             impact_result.risk_score,
             impact_result.severity,
             impact_result.impacted_services,
         )
+    except Exception as exc:
+        logger.error("Background analysis failed: %s", exc)
 
+
+@router.post("/github", summary="Receive GitHub webhook events")
+async def github_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_hub_signature_256: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
+    x_github_event: Optional[str] = Header(None, alias="X-GitHub-Event"),
+    x_github_delivery: Optional[str] = Header(None, alias="X-GitHub-Delivery"),
+):
+    """
+    Main GitHub webhook endpoint.
+
+    GitHub delivers all events here. MDT processes:
+      - **push**  — triggers the full impact analysis pipeline in the background
+      - **ping**  — returned on initial webhook registration; always 200 OK
+    """
+    body = await request.body()
+
+    logger.info(
+        "GitHub webhook received | event=%s | delivery=%s | size=%d bytes",
+        x_github_event,
+        x_github_delivery,
+        len(body),
+    )
+
+    if not settings.DEBUG:
+        if not _verify_signature(body, x_hub_signature_256, settings.GITHUB_WEBHOOK_SECRET):
+            logger.warning("Webhook signature verification failed")
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    else:
+        logger.debug("DEBUG mode: skipping signature verification")
+
+    try:
+        payload_dict = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    event = (x_github_event or "").lower()
+
+    if event == "ping":
+        try:
+            ping = GitHubPingPayload(**payload_dict)
+        except ValidationError:
+            ping = GitHubPingPayload()
         return {
-            "status": "analyzed",
+            "status": "pong",
+            "message": "Webhook configured successfully",
+            "hook_id": ping.hook_id,
+            "zen": ping.zen,
+        }
+
+    if event == "push":
+        try:
+            push = GitHubPushPayload(**payload_dict)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid push payload: {exc}")
+
+        # Dispatch the actual heavy lifting to a background task
+        background_tasks.add_task(_process_push_background, push, x_github_delivery)
+        
+        return {
+            "status": "accepted",
+            "message": "Push event received and queued for background processing",
             "delivery_id": x_github_delivery,
-            "repo": repo_url,
-            "branch": branch,
-            "commit": commit_sha,
-            "commit_message": push.commit_message,
-            "author": push.author,
-            "files_analysed": len(enriched_changes),
-            "risk_score": impact_result.risk_score,
-            "severity": impact_result.severity,
-            "impacted_services": impact_result.impacted_services,
-            "confidence": impact_result.confidence,
-            "explanation": impact_result.explanation,
-            "suggested_fixes": impact_result.suggested_fixes,
+            "repo": push.repo_url,
+            "commit": push.commit_sha
         }
 
     # --- unhandled event type ---
