@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { getGraph } from '../api';
 
 const RISK_COLOR = {
@@ -11,13 +11,42 @@ const RISK_COLOR = {
 
 const NODE_W = 160, NODE_H = 52;
 
-/* Fixed layout positions keyed by service name */
-const POS = {
+/* Predefined positions for known services */
+const PRESET_POS = {
   'user-service':         { x: 230, y: 40  },
   'order-service':        { x: 230, y: 175 },
   'payment-service':      { x: 80,  y: 310 },
   'notification-service': { x: 380, y: 310 },
 };
+
+/**
+ * Build a position map for all nodes.
+ * Known services use their preset positions.
+ * Unknown / dynamically added services get laid out in a circular arc
+ * below the existing graph so they always appear rather than being hidden.
+ */
+function buildPositions(nodes) {
+  const positions = {};
+  const unknown = [];
+
+  for (const node of nodes) {
+    if (PRESET_POS[node.id]) {
+      positions[node.id] = PRESET_POS[node.id];
+    } else {
+      unknown.push(node.id);
+    }
+  }
+
+  // Lay unknown nodes out in a horizontal row starting below the main graph
+  const startY = 420;
+  const startX = 40;
+  const stepX  = NODE_W + 30;
+  unknown.forEach((id, i) => {
+    positions[id] = { x: startX + i * stepX, y: startY };
+  });
+
+  return positions;
+}
 
 /* Animated dashed arrow between two nodes */
 function Edge({ from, to, idx }) {
@@ -52,11 +81,19 @@ export default function DependencyGraph() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="state-loading"><div className="spinner" /><span>Loading graph…</span></div>;
-  if (error)   return <div className="state-error"><span>⚠</span><span>{error}</span></div>;
-
   const nodes = data?.nodes || [];
   const edges = data?.edges || [];
+
+  /* Build position map once whenever nodes change */
+  const POS = useMemo(() => buildPositions(nodes), [nodes]);
+
+  /* Compute SVG height to accommodate extra dynamically positioned nodes */
+  const extraRows = nodes.filter(n => !PRESET_POS[n.id]).length > 0 ? 1 : 0;
+  const svgHeight = 420 + extraRows * (NODE_H + 40);
+  const viewBox   = `0 0 620 ${svgHeight}`;
+
+  if (loading) return <div className="state-loading"><div className="spinner" /><span>Loading graph…</span></div>;
+  if (error)   return <div className="state-error"><span>⚠</span><span>{error}</span></div>;
 
   if (!nodes.length) {
     return (
@@ -73,7 +110,7 @@ export default function DependencyGraph() {
       </p>
 
       <div style={{ overflowX: 'auto' }}>
-        <svg className="graph-svg" viewBox="0 0 620 420" preserveAspectRatio="xMidYMid meet">
+        <svg className="graph-svg" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
           <defs>
             {edges.map((_, i) => (
               <style key={i}>{`
@@ -92,7 +129,7 @@ export default function DependencyGraph() {
 
           {/* Nodes */}
           {nodes.map(node => {
-            const pos      = POS[node.id];
+            const pos       = POS[node.id];
             const riskLevel = (node.risk_level || 'UNKNOWN').toUpperCase();
             const color     = RISK_COLOR[riskLevel] || RISK_COLOR.UNKNOWN;
             const analyzed  = riskLevel !== 'UNKNOWN';

@@ -10,7 +10,8 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter
 
-from services.dependency_graph import DependencyGraph, KNOWN_SERVICES, KNOWN_DEPENDENCIES
+from core.registry import RegistryManager
+from services.dependency_graph import DependencyGraph
 from services.smell_detector import SmellDetector
 
 router = APIRouter()
@@ -35,10 +36,10 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
             .title() + " Service"
     )
 
-    # Attempt to resolve dependencies from the static map
+    # Resolve dependencies dynamically from the registry
     deps = [
         d["to"]
-        for d in KNOWN_DEPENDENCIES
+        for d in RegistryManager.get_dependencies()
         if d["from"] == name
     ]
 
@@ -82,11 +83,11 @@ async def list_services():
     Return all services from the dependency graph enriched with live health status.
     Pings each service's /health endpoint concurrently.
     """
-    # Get the service list from Neo4j (falls back to KNOWN_SERVICES if Neo4j is down)
+    # Get the service list from Neo4j (falls back to registry if Neo4j is down)
     raw_services = await graph.get_all_services()
 
-    # Merge with KNOWN_SERVICES to ensure we always have URL/port info
-    known_map = {s["name"]: s for s in KNOWN_SERVICES}
+    # Merge with registry to ensure we always have URL/port info
+    known_map = {s["name"]: s for s in RegistryManager.get_services()}
     merged = []
     for svc in raw_services:
         known = known_map.get(svc.get("name", ""), {})
@@ -104,10 +105,10 @@ async def list_services():
 async def get_service_graph():
     """
     Returns the full dependency graph as nodes + edges.
-    Nodes come from Neo4j (or the static seed); edges come from KNOWN_DEPENDENCIES.
+    Nodes come from Neo4j (or the registry seed); edges come from the registry.
     """
     raw_services = await graph.get_all_services()
-    known_map = {s["name"]: s for s in KNOWN_SERVICES}
+    known_map = {s["name"]: s for s in RegistryManager.get_services()}
 
     nodes = []
     for svc in raw_services:
@@ -124,7 +125,7 @@ async def get_service_graph():
 
     edges = [
         {"from": d["from"], "to": d["to"], "type": d.get("type", "http")}
-        for d in KNOWN_DEPENDENCIES
+        for d in RegistryManager.get_dependencies()
     ]
 
     return {"nodes": nodes, "edges": edges}
@@ -142,11 +143,12 @@ async def get_service_health(service_name: str):
     """Ping a microservice's /health endpoint and return its status."""
     info = await graph.get_service_info(service_name)
     if not info:
-        known = next((s for s in KNOWN_SERVICES if s["name"] == service_name), None)
+        known_services = RegistryManager.get_services()
+        known = next((s for s in known_services if s["name"] == service_name), None)
         if not known:
             return {
                 "error": "Service not found",
-                "available": [s["name"] for s in KNOWN_SERVICES],
+                "available": [s["name"] for s in known_services],
             }
         info = known
 

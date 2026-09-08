@@ -19,10 +19,10 @@ class LLMExplainer:
     def __init__(self):
         self.client = None
         if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "your_openai_api_key_here":
-            self.client = AsyncOpenAI(
-                api_key=settings.OPENAI_API_KEY,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-            )
+            kwargs = {"api_key": settings.OPENAI_API_KEY}
+            if settings.LLM_BASE_URL:
+                kwargs["base_url"] = settings.LLM_BASE_URL
+            self.client = AsyncOpenAI(**kwargs)
 
     async def explain(
         self,

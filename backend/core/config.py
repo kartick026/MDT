@@ -30,7 +30,8 @@ class Settings(BaseSettings):
 
     # AI/LLM
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    LLM_MODEL: str = "gpt-4"
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "")   # leave blank for OpenAI; set to Gemini endpoint for Google
     EMBEDDING_MODEL: str = "text-embedding-ada-002"
 
     # Microservice URLs

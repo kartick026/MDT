@@ -35,6 +35,20 @@ def _get_known_services(): return RegistryManager.get_services()
 def _get_known_dependencies(): return RegistryManager.get_dependencies()
 def _get_file_service_map(): return RegistryManager.get_file_mappings()
 
+# Public accessors and backwards-compatibility aliases
+get_known_services = _get_known_services
+get_known_dependencies = _get_known_dependencies
+get_file_service_map = _get_file_service_map
+
+def __getattr__(name: str):
+    if name == "KNOWN_SERVICES":
+        return _get_known_services()
+    if name == "KNOWN_DEPENDENCIES":
+        return _get_known_dependencies()
+    if name == "FILE_SERVICE_MAP":
+        return _get_file_service_map()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
