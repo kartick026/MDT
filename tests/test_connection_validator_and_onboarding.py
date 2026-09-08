@@ -83,6 +83,21 @@ resp = requests.get("http://localhost:8001/users/42")
         self.assertIn("localhost", bugs[0].description)
         self.assertIn("user-service", bugs[0].suggestion)
 
+    def test_ignore_cors_whitelists_and_unknown_files(self):
+        services = [
+            {"name": "user-service", "port": 8001, "url": "http://user-service:8001"},
+        ]
+        # CORS whitelist array in config
+        config_code = """
+ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]
+"""
+        service_files = {
+            "unknown": {"backend/core/config.py": config_code},
+        }
+
+        bugs = ConnectionValidator.validate_topology(services, service_files)
+        self.assertEqual(len(bugs), 0)
+
 
 class TestRepoOnboarder(unittest.TestCase):
 

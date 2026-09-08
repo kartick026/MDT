@@ -73,6 +73,10 @@ class ConnectionValidator:
             if trimmed.startswith("#") or trimmed.startswith("//"):
                 continue
 
+            # Ignore CORS origin whitelists, allowed hosts lists, and configuration arrays
+            if re.search(r"\b(allowed_origins|allow_origins|origins|cors|whitelist|allowed_hosts)\b", trimmed, re.IGNORECASE):
+                continue
+
             for pattern in cls.URL_CALL_PATTERNS:
                 for match in pattern.finditer(line):
                     groups = match.groups()
@@ -123,6 +127,9 @@ class ConnectionValidator:
         bugs: List[ConnectionBug] = []
 
         for source_svc, files in service_files.items():
+            if source_svc == "unknown":
+                # Files not belonging to any recognized microservice (e.g. backend config, scripts)
+                continue
             for fpath, content in files.items():
                 calls = cls.extract_outbound_calls(content, file_path=fpath)
                 for call in calls:

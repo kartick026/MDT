@@ -350,49 +350,38 @@ Respond as a JSON array of objects, each with "text" (string) and
                         edits_for_smell.append(all_edits[edit_idx].model_dump())
                         edit_idx += 1
                     else:
+                        from services.remediation_simulator import _find_best_remediation_target
+                        target_hub = _find_best_remediation_target(services[0])
                         edits_for_smell.append(
-                            GraphEdit(action="add_edge", from_service="order-service", to_service=services[0]).model_dump()
+                            GraphEdit(action="add_edge", from_service=target_hub, to_service=services[0]).model_dump()
                         )
 
             if text and edits_for_smell:
                 results.append({"text": text, "edits": edits_for_smell})
 
-        # 2. Connection bugs remediations
+        # 2. Connection bugs remediations (code/configuration fixes — no graph edits)
         if connection_bugs:
-            for bug in connection_bugs[:2]:
+            for bug in connection_bugs[:3]:
                 btype = getattr(bug, "bug_type", "") if not isinstance(bug, dict) else bug.get("bug_type", "")
-                btarget = getattr(bug, "target_service", "") if not isinstance(bug, dict) else bug.get("target_service", "")
-                source_svc = getattr(bug, "source_service", "") if not isinstance(bug, dict) else bug.get("source_service", "")
-                caller = source_svc or (impacted_services[0] if impacted_services else "orders-maker-service")
-                text = f"Resolve {btype}: Register '{btarget or 'service'}' or configure endpoint proxy in network topology."
-                bug_edits = [
-                    GraphEdit(action="add_node", from_service=btarget or "service_proxy").model_dump(),
-                    GraphEdit(action="add_edge", from_service=caller, to_service=btarget or "service_proxy").model_dump(),
-                ]
+                suggestion = getattr(bug, "suggestion", "") if not isinstance(bug, dict) else bug.get("suggestion", "")
+                desc = getattr(bug, "description", "") if not isinstance(bug, dict) else bug.get("description", "")
+                text = f"Fix {btype}: {suggestion or desc}"
                 results.append({
                     "text": text,
-                    "edits": bug_edits
+                    "edits": []  # Code-level fix; not a Neo4j graph topology mutation
                 })
 
-        # 3. Impacted services architecture remediations (circuit breaker / resilience facade)
-        impacted = [s for s in (impacted_services or []) if s and s != "unknown"]
-        primary_svc = impacted[0] if impacted else "order-service"
-
-        results.append({
-            "text": f"Introduce circuit breaker / resilience facade for '{primary_svc}' to isolate downstream failure propagation.",
-            "edits": [
-                GraphEdit(action="add_node", from_service=f"{primary_svc}_facade").model_dump(),
-                GraphEdit(action="add_edge", from_service=f"{primary_svc}_facade", to_service=primary_svc).model_dump(),
-            ]
-        })
-
-        if risk_score >= 30.0:
-            results.append({
-                "text": f"Decouple '{primary_svc}' with an asynchronous message queue (e.g. event-bus) to eliminate synchronous blocking.",
-                "edits": [
-                    GraphEdit(action="add_node", from_service="event_broker").model_dump(),
-                    GraphEdit(action="add_edge", from_service=primary_svc, to_service="event_broker").model_dump(),
-                ]
-            })
+        # 3. Architectural resilience recommendations (when topological smells are present)
+        if smells:
+            impacted = [s for s in (impacted_services or []) if s and s != "unknown"]
+            if impacted:
+                primary_svc = impacted[0]
+                results.append({
+                    "text": f"Introduce circuit breaker / resilience facade for '{primary_svc}' to isolate downstream failure propagation.",
+                    "edits": [
+                        GraphEdit(action="add_node", from_service=f"{primary_svc}_facade").model_dump(),
+                        GraphEdit(action="add_edge", from_service=f"{primary_svc}_facade", to_service=primary_svc).model_dump(),
+                    ]
+                })
 
         return results

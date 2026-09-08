@@ -109,30 +109,12 @@ export default function ImpactForm({ onAnalysis }) {
     setFiles('services/payment_service/main.py, services/user_service/main.py');
   };
 
-  // Parse structured edits from suggestion, with contextual fallback so preview is always available
-  const tryParseEdits = (suggestion, res) => {
-    if (typeof suggestion === 'object' && suggestion.edits && suggestion.edits.length > 0) {
+  // Parse structured edits from suggestion if explicitly provided for graph remediations
+  const tryParseEdits = (suggestion) => {
+    if (typeof suggestion === 'object' && suggestion.edits && Array.isArray(suggestion.edits) && suggestion.edits.length > 0) {
       return suggestion.edits;
     }
-    const primarySvc = (res?.impacted_services && res.impacted_services.length > 0 && res.impacted_services[0] !== 'unknown')
-      ? res.impacted_services[0]
-      : 'order-service';
-
-    const text = (typeof suggestion === 'string' ? suggestion : suggestion?.text || '').toLowerCase();
-
-    if (text.includes('circular') || text.includes('cycle')) {
-      return [{ action: 'remove_edge', from_service: primarySvc, to_service: 'user-service' }];
-    }
-    if (text.includes('review') || text.includes('facade') || text.includes('service')) {
-      return [
-        { action: 'add_node', from_service: `${primarySvc}_facade` },
-        { action: 'add_edge', from_service: `${primarySvc}_facade`, to_service: primarySvc }
-      ];
-    }
-    return [
-      { action: 'add_node', from_service: `${primarySvc}_circuit_breaker` },
-      { action: 'add_edge', from_service: `${primarySvc}_circuit_breaker`, to_service: primarySvc }
-    ];
+    return null;
   };
 
   return (
