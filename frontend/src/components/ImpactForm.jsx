@@ -498,11 +498,14 @@ export default function ImpactForm({ onAnalysis }) {
                               }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                                   <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--cyan)', textTransform: 'uppercase' }}>
-                                    ⚡ What-If Remediation Preview
+                                    ⚡ What-If Architectural Smell Preview
                                   </span>
                                   <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--green)', background: 'rgba(0, 255, 136, 0.08)', border: '1px solid rgba(0, 255, 136, 0.25)', padding: '2px 10px', borderRadius: '12px' }}>
                                     ✓ Sandbox Mode (Live Graph Unchanged)
                                   </span>
+                                </div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '-8px' }}>
+                                  Simulates architectural smell risk reduction on sandbox graph (0–100 scale, distinct from commit drift score)
                                 </div>
 
                                 {/* Comparison Gauge Row */}
@@ -519,7 +522,7 @@ export default function ImpactForm({ onAnalysis }) {
                                 }}>
                                   {/* Before */}
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ fontSize: '10.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)' }}>Before</span>
+                                    <span style={{ fontSize: '10.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)' }}>Before (Smell Risk)</span>
                                     <ScoreGauge score={Math.round(previewData.before.score)} level={previewData.before.severity} size={82} />
                                     <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
                                       {previewData.before.total_smells} smell{previewData.before.total_smells !== 1 ? 's' : ''}
@@ -546,13 +549,30 @@ export default function ImpactForm({ onAnalysis }) {
 
                                   {/* After */}
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ fontSize: '10.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)' }}>After</span>
+                                    <span style={{ fontSize: '10.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)' }}>After (Smell Risk)</span>
                                     <ScoreGauge score={Math.round(previewData.after.score)} level={previewData.after.severity} size={82} />
                                     <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
                                       {previewData.after.total_smells} smell{previewData.after.total_smells !== 1 ? 's' : ''}
                                     </span>
                                   </div>
                                 </div>
+
+                                {previewData.delta?.measurable_change === false && (
+                                  <div style={{
+                                    fontSize: '11.5px',
+                                    color: 'var(--text-dim)',
+                                    background: 'rgba(255, 255, 255, 0.03)',
+                                    border: '1px dashed rgba(255, 255, 255, 0.15)',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}>
+                                    <span>ℹ</span>
+                                    <span>No measurable change in tracked architectural smells (0 → 0). The previewed edit does not affect the 4 tracked topological smells.</span>
+                                  </div>
+                                )}
 
                                 {/* Smells Breakdown List */}
                                 <div style={{

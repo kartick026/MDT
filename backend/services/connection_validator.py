@@ -133,7 +133,34 @@ class ConnectionValidator:
                     if not cls._is_internal_service_host(target_host, list(service_info.keys())):
                         continue
 
+                    is_localhost = target_host.lower() in ("localhost", "127.0.0.1", "0.0.0.0")
                     target_svc_name = cls._resolve_host_to_service(target_host, target_port, service_info)
+
+                    if is_localhost:
+                        target_svc_obj = service_info.get(target_svc_name, {}) if target_svc_name else {}
+                        resolved_port = target_port or target_svc_obj.get("port", 8000)
+                        suggestion = (
+                            f"Replace '{target_host}' with container service DNS '{target_svc_name}' "
+                            f"(e.g., http://{target_svc_name}:{resolved_port}) so requests route through the Docker container network."
+                            if target_svc_name else
+                            f"Replace '{target_host}' with the target container service name (e.g., http://<service-name>:<port>)."
+                        )
+                        bugs.append(ConnectionBug(
+                            source_service=source_svc,
+                            target_service=target_svc_name,
+                            target_url=call["raw_url"],
+                            bug_type="UNRESOLVED_SERVICE_HOST",
+                            severity="CRITICAL",
+                            description=(
+                                f"Service '{source_svc}' makes an HTTP call to '{target_host}' on port {target_port}. "
+                                f"In Docker container networking, 'localhost' points to the container's internal loopback interface "
+                                f"and cannot reach {target_svc_name or 'other services'}."
+                            ),
+                            file_path=fpath,
+                            line_number=call["line_number"],
+                            suggestion=suggestion,
+                        ))
+                        continue
 
                     if not target_svc_name:
                         bugs.append(ConnectionBug(

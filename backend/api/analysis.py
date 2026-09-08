@@ -1,8 +1,11 @@
 """Analysis API routes — all data is live, nothing hardcoded."""
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from schemas.analysis import ImpactResult, SeverityLevel
 from services.impact_engine import ImpactEngine

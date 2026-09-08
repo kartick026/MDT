@@ -108,6 +108,20 @@ class GenerateEditsTests(unittest.TestCase):
         self.assertEqual(edits[0].action, "add_node")
         self.assertIn("gateway", edits[0].from_service)
 
+    def test_isolated_generates_edge_to_dynamic_target(self):
+        smells = [{
+            "type": "Dead / Isolated Service",
+            "services": ["orphan_service"],
+            "evidence": {"degree": 0},
+        }]
+        edits = generate_edits_for_smells(smells)
+        self.assertEqual(len(edits), 1)
+        self.assertEqual(edits[0].action, "add_edge")
+        self.assertEqual(edits[0].to_service, "orphan_service")
+        # Should dynamically pick an existing service from registry or api-gateway
+        self.assertIsNotNone(edits[0].from_service)
+        self.assertNotEqual(edits[0].from_service, "orphan_service")
+
     def test_empty_smells_yields_no_edits(self):
         self.assertEqual(generate_edits_for_smells([]), [])
 
@@ -124,15 +138,16 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         edits = [GraphEdit(action="remove_edge", from_service="A", to_service="B")]
         result = await sim.simulate_fix(edits)
 
+        self.assertTrue(result["sandbox"])
         self.assertIn("before", result)
         self.assertIn("after", result)
         self.assertIn("delta", result)
-        self.assertTrue(result["sandbox"])
         self.assertIn("score", result["before"])
         self.assertIn("severity", result["before"])
         self.assertIn("smells", result["before"])
         self.assertIn("score_reduction", result["delta"])
         self.assertIn("smells_resolved", result["delta"])
+        self.assertEqual(result["metric"], "Architectural Smell Risk")
 
     @patch("services.remediation_simulator.get_neo4j_driver")
     async def test_mock_mode_with_no_smells(self, mock_get_driver):
@@ -143,9 +158,13 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         edits = [GraphEdit(action="add_node", from_service="new_service")]
         result = await sim.simulate_fix(edits)
 
-        self.assertEqual(result["before"]["score"], 40.0)
-        self.assertEqual(result["after"]["score"], 15.0)
-        self.assertEqual(result["delta"]["score_reduction"], 25.0)
+        # Honest reporting when no tracked smells change
+        self.assertEqual(result["before"]["score"], 0.0)
+        self.assertEqual(result["after"]["score"], 0.0)
+        self.assertEqual(result["delta"]["score_reduction"], 0.0)
+        self.assertEqual(result["delta"]["smells_resolved"], 0)
+        self.assertFalse(result["delta"]["measurable_change"])
+        self.assertFalse(result["measurable_change"])
 
     @patch("services.remediation_simulator.get_neo4j_driver")
     async def test_null_driver_uses_mock_mode(self, mock_get_driver):

@@ -94,11 +94,11 @@ The **HMDA Engine** is MDT's core risk algorithm. It evaluates code modification
 
 $$\text{Total Risk Score} = \min(100, \text{Deterministic Score} + \text{Semantic Modifier})$$
 
-#### 1. Deterministic Graph & Code Factors (Base 0–80 pts)
-- **File Impact Factor (up to 30 pts):** Evaluates number of changed files and line change volumes ($5 \times \text{files}$).
-- **Core Service Modification (30 pts):** Extra weighting applied if the modified service acts as a primary dependency sink (high fan-in).
-- **API Signature Changes (25 pts):** AST parser checks if function definitions, route decorators, or request schemas changed.
-- **Dependency Graph Depth:** Cypher shortest-path queries calculate the maximum depth of cascading downstream impact.
+#### 1. Deterministic Graph & Code Factors (Base 0–100 pts)
+- **File Impact Factor (up to 30 pts):** Evaluates number of changed files and line change volumes ($\min(30, \text{files} \times 5)$).
+- **Core Service Modification (adds 30 pts):** Extra weighting applied if the modified service acts as a primary dependency sink (high fan-in).
+- **API Signature Changes (adds 25 pts):** AST parser checks if function definitions, route decorators, or request schemas changed.
+- **Dependency Graph Depth (up to 15 pts):** Cypher shortest-path queries calculate the maximum depth of cascading downstream impact ($\min(15, \text{depth} \times 5)$).
 
 #### 2. Semantic Code Retrieval (ChromaDB RAG)
 - Changed code snippets are embedded and matched against historical PR changes in ChromaDB.
@@ -106,11 +106,11 @@ $$\text{Total Risk Score} = \min(100, \text{Deterministic Score} + \text{Semanti
 
 #### 3. AI-Assisted Reasoning (LLM Explainer)
 - Generates natural-language executive summaries explaining the exact cause of the risk score.
-- Categorizes risk into 4 standardized tiers:
-  - **`LOW` (0–29):** Localized edits, no downstream callers affected.
-  - **`MEDIUM` (30–59):** Moderate blast radius, non-breaking downstream calls.
-  - **`HIGH` (60–84):** Broad blast radius or breaking API schema changes.
-  - **`CRITICAL` (85–100):** Circular dependencies, core bottleneck modification, or connection breaks.
+- Categorizes risk into 4 standardized tiers matching `config.py` (`RISK_LOW=25`, `RISK_MEDIUM=50`, `RISK_HIGH=75`):
+  - **`LOW` (0–24):** Localized edits, minimal downstream caller exposure.
+  - **`MEDIUM` (25–49):** Moderate blast radius or intermediate dependency depth.
+  - **`HIGH` (50–74):** Broad blast radius or breaking API schema changes.
+  - **`CRITICAL` (75–100):** Core dependency sink modification, severe call cascades, or connection integrity failures.
 
 ---
 
@@ -122,15 +122,23 @@ MDT allows architects to test architectural remediations in a **zero-risk sandbo
 - **Non-Destructive Simulation (`POST /analysis/preview-fix`):**
   - Executes proposed graph modifications inside an isolated Neo4j transaction that is **automatically rolled back**.
   - Live graph topology is never modified during simulation.
+- **Architectural Smell Risk Metric:**
+  - Evaluates topological anti-patterns (circular dependencies $\times 30$, bottlenecks $\times 20$, excessive coupling $\times 15$, isolated services $\times 5$, capped at 100).
+  - Explicitly disambiguated in the UI as **Architectural Smell Risk** to avoid confusion with the commit-level HMDA drift risk score.
+- **Verified Measurement Honesty (Zero Fabrication):**
+  - If a simulated graph edit does not resolve any tracked anti-patterns, the system honestly reports `0.0 → 0.0` with `measurable_change: false` and a `"No measurable change in tracked architectural smells"` notice.
+  - No synthetic or invented improvements are ever presented to developers or auditors.
 - **Dual-Mode Simulator:**
-  - Works with live Neo4j database connections or in a fallback heuristic mode.
+  - Operates against live Neo4j database transactions or a deterministic in-memory heuristic when running in offline/mock mode.
+- **Dynamic Service Resolution:**
+  - Reconnecting dead or isolated services dynamically binds to an active central hub service detected in the architecture registry, adapting seamlessly to any imported GitHub repository without hardcoding.
 - **Supported Graph Edits:**
   - `add_node`: Adds proxy nodes (e.g. resilience facades or circuit breakers).
   - `add_edge`: Re-routes callers through fault-tolerant paths.
   - `remove_edge`: Sever unneeded or circular links.
 - **Visual Sandbox Comparison:**
-  - **Dual SVG Gauges:** Renders `Before` vs `After` risk scores side-by-side.
-  - **Delta Reduction Badge:** Prominently highlights points reduction (e.g. `▼ 5 pts Reduction`).
+  - **Dual SVG Gauges:** Renders `Before (Smell Risk)` vs `After (Smell Risk)` scores side-by-side.
+  - **Delta Reduction Badge:** Prominently highlights points reduction (e.g. `▼ 5 pts Reduction` or `— Unchanged`).
   - **Smells Resolution Table:** Displays exact anti-patterns resolved (e.g., `Isolated Service: 2 → 1 (-1 resolved)`).
 
 ---

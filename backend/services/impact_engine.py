@@ -1,5 +1,5 @@
 """
-HMDA - Hybrid Microservice Drift Algorithm
+HMDA - Hierarchical Microservice Drift Analysis
 Deterministic + AI-assisted risk scoring engine
 """
 import logging
@@ -28,7 +28,7 @@ class RiskFactors:
 
 class ImpactEngine:
     """
-    HMDA - Hybrid Microservice Drift Algorithm
+    HMDA - Hierarchical Microservice Drift Analysis
 
     Combines:
     - Deterministic risk scoring (file count, change type, dependency depth)

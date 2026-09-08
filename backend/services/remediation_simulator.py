@@ -245,12 +245,94 @@ def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
                     to_service=coupled,
                 ))
 
+def _find_best_remediation_target(exclude_service: str) -> str:
+    """Dynamically select a hub or active non-isolated service to re-link an isolated service."""
+    try:
+        from core.registry import RegistryManager
+        registered = [
+            s["name"] for s in RegistryManager.get_services()
+            if s.get("name") and s.get("name") != exclude_service
+        ]
+        if not registered:
+            return "api-gateway"
+
+        # Check degree in existing dependencies
+        deps = RegistryManager.get_dependencies()
+        degree: Dict[str, int] = {s: 0 for s in registered}
+        for d in deps:
+            src = d.get("from")
+            dst = d.get("to")
+            if src in degree:
+                degree[src] += 1
+            if dst in degree:
+                degree[dst] += 1
+
+        sorted_by_degree = sorted(degree.items(), key=lambda x: x[1], reverse=True)
+        return sorted_by_degree[0][0]
+    except Exception as exc:
+        logger.debug("Failed to find dynamic remediation target from registry: %s", exc)
+        return "api-gateway"
+
+
+def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
+    """
+    Deterministic rule-based mapping from detected smells to graph edits.
+
+    - Circular: remove the back-edge that closes the cycle.
+    - God/Bottleneck: insert a facade node and rewire callers.
+    - High Coupling: insert a gateway facade.
+    - Dead/Isolated: reconnect the isolated node to an active hub service.
+    """
+    edits: List[GraphEdit] = []
+
+    for smell in smells:
+        stype = smell.get("type", "")
+        services = smell.get("services", [])
+
+        if "Circular" in stype:
+            cycle = smell.get("evidence", {}).get("cycle", [])
+            if len(cycle) >= 2:
+                edits.append(GraphEdit(
+                    action="remove_edge",
+                    from_service=cycle[-2],
+                    to_service=cycle[-1] if cycle[-1] != cycle[-2] else cycle[0],
+                ))
+            elif len(services) >= 2:
+                edits.append(GraphEdit(
+                    action="remove_edge",
+                    from_service=services[1],
+                    to_service=services[0],
+                ))
+
+        elif "Bottleneck" in stype or "God" in stype:
+            if services:
+                target = services[0]
+                facade_name = f"{target}_facade"
+                edits.append(GraphEdit(action="add_node", from_service=facade_name))
+                edits.append(GraphEdit(
+                    action="add_edge",
+                    from_service=facade_name,
+                    to_service=target,
+                ))
+
+        elif "Coupling" in stype:
+            if services:
+                coupled = services[0]
+                facade_name = f"{coupled}_gateway"
+                edits.append(GraphEdit(action="add_node", from_service=facade_name))
+                edits.append(GraphEdit(
+                    action="add_edge",
+                    from_service=facade_name,
+                    to_service=coupled,
+                ))
+
         elif "Dead" in stype or "Isolated" in stype:
             if services:
                 isolated = services[0]
+                target_hub = _find_best_remediation_target(isolated)
                 edits.append(GraphEdit(
                     action="add_edge",
-                    from_service="order-service",
+                    from_service=target_hub,
                     to_service=isolated,
                 ))
 
@@ -316,14 +398,7 @@ class RemediationSimulator:
 
         before_total = sum(before_smells.values())
         after_total = sum(after_smells.values())
-
-        if before_score == 0 and after_score == 0 and edits:
-            before_score = 40.0
-            after_score = 15.0
-            before_smells = {"unmitigated_coupling": 1}
-            after_smells = {"unmitigated_coupling": 0}
-            before_total = 1
-            after_total = 0
+        measurable_change = (before_score != after_score) or (before_total != after_total)
 
         return {
             "before": {
@@ -341,7 +416,16 @@ class RemediationSimulator:
             "delta": {
                 "score_reduction": round(before_score - after_score, 1),
                 "smells_resolved": before_total - after_total,
+                "measurable_change": measurable_change,
+                "message": (
+                    "Smell reduction verified"
+                    if measurable_change
+                    else "No measurable change in tracked architectural smells"
+                ),
             },
+            "measurable_change": measurable_change,
+            "metric": "Architectural Smell Risk",
+            "description": "Evaluates architectural anti-patterns (cycles, bottlenecks, coupling, isolation) on the dependency graph.",
             "sandbox": True,
         }
 
@@ -395,14 +479,7 @@ class RemediationSimulator:
         after_score = _compute_score_from_smells(after_counts)
         before_total = sum(before_counts.values())
         after_total = sum(after_counts.values())
-
-        if before_score == 0 and after_score == 0 and edits:
-            before_score = 40.0
-            after_score = 15.0
-            before_counts = {"unmitigated_coupling": 1}
-            after_counts = {"unmitigated_coupling": 0}
-            before_total = 1
-            after_total = 0
+        measurable_change = (before_score != after_score) or (before_total != after_total)
 
         return {
             "before": {
@@ -420,6 +497,15 @@ class RemediationSimulator:
             "delta": {
                 "score_reduction": round(before_score - after_score, 1),
                 "smells_resolved": before_total - after_total,
+                "measurable_change": measurable_change,
+                "message": (
+                    "Smell reduction verified"
+                    if measurable_change
+                    else "No measurable change in tracked architectural smells"
+                ),
             },
+            "measurable_change": measurable_change,
+            "metric": "Architectural Smell Risk",
+            "description": "Evaluates architectural anti-patterns (cycles, bottlenecks, coupling, isolation) on the dependency graph.",
             "sandbox": True,
         }

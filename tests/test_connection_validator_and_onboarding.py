@@ -62,6 +62,27 @@ resp3 = httpx.get("http://phantom-service:9000/api")
         self.assertIn("PORT_MISMATCH", bug_types)
         self.assertIn("UNRESOLVED_SERVICE_HOST", bug_types)
 
+    def test_detect_localhost_container_networking_bug(self):
+        services = [
+            {"name": "user-service", "port": 8001, "url": "http://user-service:8001"},
+            {"name": "order-service", "port": 8002, "url": "http://order-service:8002"},
+        ]
+        # order-service calls user-service via http://localhost:8001 which is invalid inside Docker networks
+        order_code = """
+import requests
+resp = requests.get("http://localhost:8001/users/42")
+"""
+        service_files = {
+            "order-service": {"api.py": order_code},
+        }
+
+        bugs = ConnectionValidator.validate_topology(services, service_files)
+        self.assertEqual(len(bugs), 1)
+        self.assertEqual(bugs[0].bug_type, "UNRESOLVED_SERVICE_HOST")
+        self.assertEqual(bugs[0].severity, "CRITICAL")
+        self.assertIn("localhost", bugs[0].description)
+        self.assertIn("user-service", bugs[0].suggestion)
+
 
 class TestRepoOnboarder(unittest.TestCase):
 

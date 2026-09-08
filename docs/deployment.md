@@ -33,7 +33,7 @@ NEO4J_PASSWORD=StrongProductionPassword123!
 
 # ── CHROMADB VECTOR DATABASE ──
 CHROMADB_HOST=chroma
-CHROMADB_PORT=8005
+CHROMADB_PORT=8000 # Internal container port inside Docker network (use 8005 only if running backend directly on host machine)
 
 # ── OPENAI / AI REASONING (OPTIONAL FOR LLM EXPLAINER) ──
 OPENAI_API_KEY=sk-proj-your-openai-api-key
