@@ -22,49 +22,67 @@ const PRESET_POS = {
 /**
  * Build a position map for all nodes.
  * Known services use their preset positions.
- * Unknown / dynamically added services get laid out in a circular arc
+ * Unknown / dynamically added services get laid out in a horizontal row
  * below the existing graph so they always appear rather than being hidden.
  */
 function buildPositions(nodes) {
   const positions = {};
   const unknown = [];
+  let hasPresets = false;
 
   for (const node of nodes) {
     if (PRESET_POS[node.id]) {
       positions[node.id] = PRESET_POS[node.id];
+      hasPresets = true;
     } else {
       unknown.push(node.id);
     }
   }
 
-  // Lay unknown nodes out in a horizontal row starting below the main graph
-  const startY = 420;
-  const startX = 40;
-  const stepX  = NODE_W + 30;
+  // Lay unknown nodes out in a clean multi-column grid
+  const cols = unknown.length > 4 ? 3 : 2;
+  const startY = hasPresets ? 420 : 60;
+  const colSpacing = cols === 3 ? 200 : 260;
+  const rowSpacing = 130;
+  const startX = cols === 3 ? 25 : 80;
+
   unknown.forEach((id, i) => {
-    positions[id] = { x: startX + i * stepX, y: startY };
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    positions[id] = {
+      x: startX + c * colSpacing,
+      y: startY + r * rowSpacing,
+    };
   });
 
   return positions;
 }
 
 /* Animated dashed arrow between two nodes */
-function Edge({ from, to, idx }) {
+function Edge({ from, to, idx, hasBug }) {
   const fx = from.x + NODE_W / 2, fy = from.y + NODE_H;
   const tx = to.x   + NODE_W / 2, ty = to.y;
   const mx = (fx + tx) / 2,       my = (fy + ty) / 2 - 20;
   const d = `M ${fx} ${fy} Q ${mx} ${my} ${tx} ${ty}`;
+  const strokeColor = hasBug ? '#ff2d55' : 'rgba(0,212,255,0.18)';
+  const strokeWidth = hasBug ? '2.5' : '1.5';
+  const fillColor   = hasBug ? '#ff2d55' : 'rgba(0,212,255,0.4)';
   return (
     <g>
       <path
-        d={d} fill="none" stroke="rgba(0,212,255,0.18)" strokeWidth="1.5"
-        strokeDasharray="6 5"
-        style={{ animation: `graphDash${idx} 3s linear infinite` }}
+        d={d} fill="none" stroke={strokeColor} strokeWidth={strokeWidth}
+        strokeDasharray={hasBug ? "4 4" : "6 5"}
+        style={{ animation: `graphDash${idx} ${hasBug ? '1.5s' : '3s'} linear infinite` }}
       />
       <polygon
         points={`${tx},${ty} ${tx - 5},${ty - 10} ${tx + 5},${ty - 10}`}
-        fill="rgba(0,212,255,0.4)"
+        fill={fillColor}
       />
+      {hasBug && (
+        <text x={mx} y={my} fill="#ff2d55" fontSize="10" fontWeight="bold" textAnchor="middle">
+          ⚠ Broken Link
+        </text>
+      )}
     </g>
   );
 }
@@ -87,10 +105,10 @@ export default function DependencyGraph() {
   /* Build position map once whenever nodes change */
   const POS = useMemo(() => buildPositions(nodes), [nodes]);
 
-  /* Compute SVG height to accommodate extra dynamically positioned nodes */
-  const extraRows = nodes.filter(n => !PRESET_POS[n.id]).length > 0 ? 1 : 0;
-  const svgHeight = 420 + extraRows * (NODE_H + 40);
-  const viewBox   = `0 0 620 ${svgHeight}`;
+  /* Compute SVG dimensions dynamically based on actual node bounds */
+  const maxY = Object.values(POS).reduce((m, p) => Math.max(m, p.y + NODE_H + 40), 450);
+  const maxX = Object.values(POS).reduce((m, p) => Math.max(m, p.x + NODE_W + 40), 620);
+  const viewBox = `0 0 ${maxX} ${maxY}`;
 
   if (loading) return <div className="state-loading"><div className="spinner" /><span>Loading graph…</span></div>;
   if (error)   return <div className="state-error"><span>⚠</span><span>{error}</span></div>;
@@ -124,7 +142,7 @@ export default function DependencyGraph() {
             const fromPos = POS[e.from];
             const toPos   = POS[e.to];
             if (!fromPos || !toPos) return null;
-            return <Edge key={i} from={fromPos} to={toPos} idx={i} />;
+            return <Edge key={i} from={fromPos} to={toPos} idx={i} hasBug={Boolean(e.has_bug)} />;
           })}
 
           {/* Nodes */}
@@ -162,7 +180,7 @@ export default function DependencyGraph() {
                 >
                   {analyzed
                     ? `${riskLevel} · ${node.risk_score}/100`
-                    : node.port ? `port :${node.port}` : 'Not analysed yet'}
+                    : `UNANALYZED · :${node.port || 8000}`}
                 </text>
               </g>
             );
@@ -171,6 +189,10 @@ export default function DependencyGraph() {
       </div>
 
       <div className="graph-legend">
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--text-dim)' }}>
+          <span className="legend-dot" style={{ background: '#3a3f5c', border: '1px solid rgba(255,255,255,0.2)' }} />
+          UNANALYZED
+        </span>
         {Object.entries(RISK_COLOR)
           .filter(([k]) => k !== 'UNKNOWN')
           .map(([level, color]) => (
@@ -179,6 +201,10 @@ export default function DependencyGraph() {
               {level}
             </span>
           ))}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--red)', fontWeight: '600' }}>
+          <span style={{ width: 14, height: 2, background: 'var(--red)', display: 'inline-block' }} />
+          Broken Connection (404/Port Mismatch)
+        </span>
       </div>
     </div>
   );

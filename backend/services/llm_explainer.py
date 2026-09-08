@@ -202,3 +202,197 @@ Focus on testing, coordination, and safeguards. Be specific and actionable.
         suggestions.append("Enable gradual rollout with canary deployment")
 
         return suggestions
+
+    async def suggest_remediation_with_edits(
+        self,
+        smells: List[Dict[str, Any]],
+        impacted_services: List[str],
+        changes: List,
+        risk_score: float,
+        connection_bugs: Optional[List[Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Suggest remediations with structured GraphEdit actions.
+
+        Each returned dict has:
+          - ``text``: human-readable recommendation string
+          - ``edits``: list of GraphEdit-compatible dicts
+
+        Falls back to deterministic edits when LLM is offline.
+        """
+        from services.remediation_simulator import GraphEdit, generate_edits_for_smells
+
+        if not self.client:
+            return self._fallback_remediation_with_edits(
+                smells, impacted_services, risk_score, connection_bugs
+            )
+
+        try:
+            smell_summary = "\n".join(
+                f"- [{s.get('severity', '?')}] {s.get('type', '?')}: "
+                f"{s.get('description', '')}"
+                for s in smells[:6]
+            )
+
+            prompt = f"""
+Risk Score: {risk_score}/100
+Impacted Services: {', '.join(impacted_services)}
+Detected Architectural Smells:
+{smell_summary or 'None detected'}
+
+For the architecture and impacted services above, suggest specific remediations and provide the
+corresponding graph edits as JSON.  Each edit is one of:
+  {{"action": "remove_edge", "from_service": "X", "to_service": "Y"}}
+  {{"action": "add_edge",    "from_service": "X", "to_service": "Y"}}
+  {{"action": "add_node",    "from_service": "NEW_SERVICE_NAME"}}
+
+Respond as a JSON array of objects, each with "text" (string) and
+"edits" (array of edit objects).  Return ONLY the JSON array.
+"""
+
+            response = await self.client.chat.completions.create(
+                model=settings.LLM_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a software architect. Output valid JSON only."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=600,
+                temperature=0.3,
+            )
+
+            import json
+
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0]
+            parsed = json.loads(raw)
+            if isinstance(parsed, list) and parsed:
+                results = []
+                for item in parsed:
+                    text = item.get("text", "")
+                    edits = []
+                    for e in item.get("edits", []):
+                        try:
+                            edits.append(GraphEdit(**e).model_dump())
+                        except Exception:
+                            pass
+                    if text and edits:
+                        results.append({"text": text, "edits": edits})
+                if results:
+                    return results
+
+        except Exception as e:
+            logger.error(f"Structured remediation suggestion failed: {e}")
+
+        return self._fallback_remediation_with_edits(
+            smells, impacted_services, risk_score, connection_bugs
+        )
+
+    def _fallback_remediation_with_edits(
+        self,
+        smells: List[Dict[str, Any]],
+        impacted_services: Optional[List[str]] = None,
+        risk_score: float = 0.0,
+        connection_bugs: Optional[List[Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Deterministic remediation with graph edits — no LLM needed."""
+        from services.remediation_simulator import GraphEdit, generate_edits_for_smells
+
+        all_edits = generate_edits_for_smells(smells)
+        results: List[Dict[str, Any]] = []
+
+        # 1. Group edits by smell
+        edit_idx = 0
+        for smell in smells:
+            stype = smell.get("type", "")
+            services = smell.get("services", [])
+            text = ""
+            edits_for_smell: List[Dict[str, Any]] = []
+
+            if "Circular" in stype:
+                text = (
+                    f"Break the circular dependency involving "
+                    f"{', '.join(services)} by removing the back-edge."
+                )
+                while edit_idx < len(all_edits) and all_edits[edit_idx].action == "remove_edge":
+                    edits_for_smell.append(all_edits[edit_idx].model_dump())
+                    edit_idx += 1
+                    break
+
+            elif "Bottleneck" in stype or "God" in stype:
+                text = (
+                    f"Introduce a facade service in front of {services[0]} "
+                    f"to redistribute incoming traffic."
+                )
+                for _ in range(2):
+                    if edit_idx < len(all_edits):
+                        edits_for_smell.append(all_edits[edit_idx].model_dump())
+                        edit_idx += 1
+
+            elif "Coupling" in stype:
+                text = (
+                    f"Add a gateway in front of {services[0]} to reduce "
+                    f"direct coupling."
+                )
+                for _ in range(2):
+                    if edit_idx < len(all_edits):
+                        edits_for_smell.append(all_edits[edit_idx].model_dump())
+                        edit_idx += 1
+
+            elif "Dead" in stype or "Isolated" in stype:
+                if services:
+                    text = f"Integrate isolated service '{services[0]}' into topology or decommission unused service."
+                    if edit_idx < len(all_edits):
+                        edits_for_smell.append(all_edits[edit_idx].model_dump())
+                        edit_idx += 1
+                    else:
+                        edits_for_smell.append(
+                            GraphEdit(action="add_edge", from_service="order-service", to_service=services[0]).model_dump()
+                        )
+
+            if text and edits_for_smell:
+                results.append({"text": text, "edits": edits_for_smell})
+
+        # 2. Connection bugs remediations
+        if connection_bugs:
+            for bug in connection_bugs[:2]:
+                btype = getattr(bug, "bug_type", "") if not isinstance(bug, dict) else bug.get("bug_type", "")
+                btarget = getattr(bug, "target_service", "") if not isinstance(bug, dict) else bug.get("target_service", "")
+                source_svc = getattr(bug, "source_service", "") if not isinstance(bug, dict) else bug.get("source_service", "")
+                caller = source_svc or (impacted_services[0] if impacted_services else "orders-maker-service")
+                text = f"Resolve {btype}: Register '{btarget or 'service'}' or configure endpoint proxy in network topology."
+                bug_edits = [
+                    GraphEdit(action="add_node", from_service=btarget or "service_proxy").model_dump(),
+                    GraphEdit(action="add_edge", from_service=caller, to_service=btarget or "service_proxy").model_dump(),
+                ]
+                results.append({
+                    "text": text,
+                    "edits": bug_edits
+                })
+
+        # 3. Impacted services architecture remediations (circuit breaker / resilience facade)
+        impacted = [s for s in (impacted_services or []) if s and s != "unknown"]
+        primary_svc = impacted[0] if impacted else "order-service"
+
+        results.append({
+            "text": f"Introduce circuit breaker / resilience facade for '{primary_svc}' to isolate downstream failure propagation.",
+            "edits": [
+                GraphEdit(action="add_node", from_service=f"{primary_svc}_facade").model_dump(),
+                GraphEdit(action="add_edge", from_service=f"{primary_svc}_facade", to_service=primary_svc).model_dump(),
+            ]
+        })
+
+        if risk_score >= 30.0:
+            results.append({
+                "text": f"Decouple '{primary_svc}' with an asynchronous message queue (e.g. event-bus) to eliminate synchronous blocking.",
+                "edits": [
+                    GraphEdit(action="add_node", from_service="event_broker").model_dump(),
+                    GraphEdit(action="add_edge", from_service=primary_svc, to_service="event_broker").model_dump(),
+                ]
+            })
+
+        return results

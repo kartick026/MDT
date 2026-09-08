@@ -139,6 +139,7 @@ class GitHubAPIClient:
     Thin async wrapper around the GitHub REST API.
     Used to fetch file contents and commit diffs without cloning.
     """
+    _is_globally_rate_limited = False
 
     def __init__(self, token: Optional[str] = None):
         self._token = token or settings.GITHUB_TOKEN or os.getenv("GITHUB_TOKEN", "")
@@ -156,9 +157,17 @@ class GitHubAPIClient:
         ref: str,
     ) -> str:
         """Return raw file content at a specific commit/ref. Empty string on error."""
-        url = f"{_GH_API}/repos/{owner}/{repo}/contents/{path}"
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                # Fast path: If unauthenticated and already rate-limited, directly use raw.githubusercontent.com
+                if not self._token and GitHubAPIClient._is_globally_rate_limited:
+                    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
+                    fallback_resp = await client.get(raw_url)
+                    if fallback_resp.status_code == 200:
+                        return fallback_resp.text
+                    return ""
+
+                url = f"{_GH_API}/repos/{owner}/{repo}/contents/{path}"
                 resp = await client.get(url, headers=self._headers,
                                         params={"ref": ref})
                 if resp.status_code == 200:
@@ -169,6 +178,14 @@ class GitHubAPIClient:
                                                                         errors="replace")
                 elif resp.status_code == 404:
                     return ""   # file didn't exist at this ref
+                elif resp.status_code in (403, 429):
+                    GitHubAPIClient._is_globally_rate_limited = True
+                    # Rate limit exceeded, fallback to raw.githubusercontent.com
+                    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
+                    logger.warning("GitHub API rate limited, falling back to %s", raw_url)
+                    fallback_resp = await client.get(raw_url)
+                    if fallback_resp.status_code == 200:
+                        return fallback_resp.text
                 logger.warning("GitHub contents API %s → %d", path, resp.status_code)
         except Exception as exc:
             logger.warning("get_file_content failed for %s: %s", path, exc)
@@ -186,15 +203,30 @@ class GitHubAPIClient:
         valid response for a commit with no textual file changes, so callers
         can distinguish that case from an authentication or lookup failure.
         """
-        url = f"{_GH_API}/repos/{owner}/{repo}/commits/{commit_sha}"
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                if not self._token and GitHubAPIClient._is_globally_rate_limited:
+                    patch_url = f"https://github.com/{owner}/{repo}/commit/{commit_sha}.patch"
+                    fallback_resp = await client.get(patch_url)
+                    if fallback_resp.status_code == 200:
+                        return _split_diff_by_file(fallback_resp.text)
+                    return None
+
+                url = f"{_GH_API}/repos/{owner}/{repo}/commits/{commit_sha}"
                 resp = await client.get(
                     url, headers={**self._headers,
                                   "Accept": "application/vnd.github.diff"}
                 )
                 if resp.status_code == 200:
                     return _split_diff_by_file(resp.text)
+                elif resp.status_code in (403, 429):
+                    GitHubAPIClient._is_globally_rate_limited = True
+                    # Rate limit exceeded, fallback to github.com commit patch
+                    patch_url = f"https://github.com/{owner}/{repo}/commit/{commit_sha}.patch"
+                    logger.warning("GitHub API rate limited, falling back to %s", patch_url)
+                    fallback_resp = await client.get(patch_url)
+                    if fallback_resp.status_code == 200:
+                        return _split_diff_by_file(fallback_resp.text)
                 logger.warning("GitHub commit diff API → %d", resp.status_code)
         except Exception as exc:
             logger.warning("get_commit_diff failed: %s", exc)
@@ -387,18 +419,11 @@ class GitAnalyzer:
         self,
         repo_url: str,
         commit_sha: str,
-        changed_files: List[str],
+        changed_files: Optional[List[str]] = None,
     ) -> List[ChangeInfo]:
         """
-        Analyse all changed files for a push event.
-
-        Args:
-            repo_url:      Clone URL or HTML URL of the repository.
-            commit_sha:    The HEAD commit SHA of the push.
-            changed_files: List of file paths that changed.
-
-        Returns:
-            List of ChangeInfo populated with parsed metadata.
+        Analyse changed files for a commit or push event.
+        If changed_files is omitted or empty, all files in the commit are automatically detected.
         """
         from services.github_app import GitHubAppAuth
         
@@ -408,16 +433,17 @@ class GitAnalyzer:
             self._gh._token = dynamic_token
             self._gh._headers["Authorization"] = f"Bearer {dynamic_token}"
 
-        logger.info("analyze_push | repo=%s commit=%s files=%d",
-                    repo_url, commit_sha, len(changed_files))
+        logger.info("analyze_push | repo=%s commit=%s files=%s",
+                    repo_url, commit_sha, len(changed_files) if changed_files is not None else "auto-detect")
 
-        # Filter to supported extensions up-front
-        files = [f for f in changed_files
-                 if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
-
-        if not files:
-            logger.info("No supported-extension files in push, skipping")
-            return []
+        # If files explicitly provided, filter to supported extensions
+        files = None
+        if changed_files:
+            files = [f for f in changed_files
+                     if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
+            if not files:
+                logger.info("No supported-extension files in specified list, skipping")
+                return []
 
         gh_coords = _parse_github_url(repo_url)
 
@@ -431,10 +457,10 @@ class GitAnalyzer:
                 repo_url, commit_sha,
             )
             return await self._analyze_via_local_repo(
-                repo_url, commit_sha, files)
+                repo_url, commit_sha, files or [])
         else:
             return await self._analyze_via_local_repo(
-                repo_url, commit_sha, files)
+                repo_url, commit_sha, files or [])
 
     # ------------------------------------------------------------------ #
     #  Strategy 1 — GitHub API (preferred, no clone)
@@ -445,7 +471,7 @@ class GitAnalyzer:
         owner: str,
         repo: str,
         commit_sha: str,
-        files: List[str],
+        files: Optional[List[str]] = None,
     ) -> Optional[List[ChangeInfo]]:
         """Fetch diffs + file contents via GitHub REST API."""
         logger.info("Using GitHub API | owner=%s repo=%s", owner, repo)
@@ -454,6 +480,15 @@ class GitAnalyzer:
         file_diffs = await self._gh.get_commit_diff(owner, repo, commit_sha)
         if file_diffs is None:
             return None
+
+        # If files was not specified, auto-detect all supported files in this commit
+        if not files:
+            files = [f for f in file_diffs.keys()
+                     if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
+            logger.info("Auto-detected %d changed files from commit diff", len(files))
+
+        if not files:
+            return []
 
         # Derive the parent SHA for fetching old content
         parent_sha = await self._get_parent_sha(owner, repo, commit_sha)
@@ -557,6 +592,15 @@ class GitAnalyzer:
         try:
             repo = await asyncio.to_thread(
                 self._clone_repo, repo_url, tmp_dir, commit_sha)
+            if not files:
+                try:
+                    c = repo.commit(commit_sha)
+                    diffs = c.parents[0].diff(c) if c.parents else c.diff(None)
+                    files = [d.a_path or d.b_path for d in diffs if (d.a_path or d.b_path)]
+                    files = [f for f in files if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
+                except Exception:
+                    files = []
+
             changes = []
             for f in files:
                 try:

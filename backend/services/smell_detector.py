@@ -98,6 +98,19 @@ class SmellDetector:
 
     async def detect_all_smells(self) -> List[Dict[str, Any]]:
         self._refresh_driver()
+        try:
+            from core.registry import RegistryManager
+            reg = RegistryManager.get_services()
+            if reg and self.driver:
+                active = [s["name"] for s in reg]
+                await _run_query(
+                    self.driver,
+                    "MATCH (s:Service) WHERE NOT (s.name IN $active) DETACH DELETE s",
+                    active=active,
+                )
+        except Exception:
+            pass
+
         return [
             *await self._detect_circular_dependencies(),
             *await self._detect_bottleneck_services(),
@@ -135,6 +148,7 @@ class SmellDetector:
             return []
         records = await _run_query(self.driver, """
             MATCH (s:Service)
+            WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
             OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
             OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
             WITH s, count(DISTINCT incoming) AS incoming_count,

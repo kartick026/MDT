@@ -63,11 +63,14 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
             base["status"] = "healthy"
         else:
             base["status"] = "unhealthy"
-        # Try to extract more info if the health endpoint is rich
+        # Try to extract endpoint count from /openapi.json or health data
         try:
-            data = resp.json()
-            if "endpoints" in data:
-                base["api_count"] = len(data["endpoints"])
+            openapi_resp = await client.get(f"{url}/openapi.json", timeout=1.5)
+            if openapi_resp.status_code == 200:
+                paths = openapi_resp.json().get("paths", {})
+                base["api_count"] = len(paths)
+            elif "endpoints" in resp.json():
+                base["api_count"] = len(resp.json()["endpoints"])
         except Exception:
             pass
     except Exception as exc:
@@ -83,19 +86,26 @@ async def list_services():
     Return all services from the dependency graph enriched with live health status.
     Pings each service's /health endpoint concurrently.
     """
-    # Get the service list from Neo4j (falls back to registry if Neo4j is down)
-    raw_services = await graph.get_all_services()
+    reg_services = RegistryManager.get_services()
+    try:
+        graph_services = await graph.get_all_services()
+        graph_map = {s["name"]: s for s in graph_services}
+    except Exception:
+        graph_map = {}
 
-    # Merge with registry to ensure we always have URL/port info
-    known_map = {s["name"]: s for s in RegistryManager.get_services()}
-    merged = []
-    for svc in raw_services:
-        known = known_map.get(svc.get("name", ""), {})
-        merged.append({**known, **svc})
+    services = []
+    for s in (reg_services or list(graph_map.values())):
+        merged = {**s}
+        gm = graph_map.get(s.get("name", ""), {})
+        if gm.get("risk_level"):
+            merged["risk_level"] = gm["risk_level"]
+        if gm.get("risk_score") is not None:
+            merged["risk_score"] = gm["risk_score"]
+        services.append(merged)
 
     # Ping all services concurrently
     async with httpx.AsyncClient() as client:
-        tasks = [_ping_service(client, svc) for svc in merged]
+        tasks = [_ping_service(client, svc) for svc in services]
         enriched = await asyncio.gather(*tasks)
 
     return {"services": list(enriched), "total": len(enriched)}
@@ -123,8 +133,16 @@ async def get_service_graph():
             "risk_score": merged.get("risk_score") or 0,
         })
 
+    from api.registry import _latest_connection_bugs
+    bugged_pairs = {(b["source_service"], b.get("target_service")) for b in _latest_connection_bugs if b.get("target_service")}
+
     edges = [
-        {"from": d["from"], "to": d["to"], "type": d.get("type", "http")}
+        {
+            "from": d["from"],
+            "to": d["to"],
+            "type": d.get("type", "http"),
+            "has_bug": (d["from"], d["to"]) in bugged_pairs
+        }
         for d in RegistryManager.get_dependencies()
     ]
 

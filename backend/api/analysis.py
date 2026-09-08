@@ -8,6 +8,9 @@ from schemas.analysis import ImpactResult, SeverityLevel
 from services.impact_engine import ImpactEngine
 from services.git_analyzer import GitAnalyzer
 from services.dependency_graph import DependencyGraph
+from services.remediation_simulator import GraphEdit, RemediationSimulator
+from core.registry import RegistryManager
+from services.connection_validator import ConnectionValidator
 
 router = APIRouter()
 engine = ImpactEngine()
@@ -23,14 +26,15 @@ class AnalysisRequest(BaseModel):
     """Manual analysis request"""
     repo_url: str
     commit_sha: str
-    changed_files: List[str]
+    changed_files: Optional[List[str]] = None
 
 
 @router.post("/analyze")
 async def analyze_impact(request: AnalysisRequest):
     """
     Trigger impact analysis for a commit.
-    Stores the result in the in-process history so /history can return it.
+    If changed_files is omitted, automatically detects all files in the commit.
+    Also validates inter-service connections to flag broken endpoints.
     """
     try:
         changes = await git_analyzer.analyze_push(
@@ -41,6 +45,40 @@ async def analyze_impact(request: AnalysisRequest):
 
         result = await engine.analyze_impact(changes, commit_sha=request.commit_sha)
 
+        # Validate connection integrity on changed files
+        service_files = {}
+        mappings = RegistryManager.get_file_mappings()
+        for ch in changes:
+            matched_svc = "unknown"
+            for prefix, sname in mappings.items():
+                if ch.file_path.startswith(prefix):
+                    matched_svc = sname
+                    break
+            if matched_svc not in service_files:
+                service_files[matched_svc] = {}
+            service_files[matched_svc][ch.file_path] = ch.new_content or ch.old_content
+
+        connection_bugs = ConnectionValidator.validate_topology(
+            RegistryManager.get_services(), service_files
+        )
+
+        # Generate structured remediation with graph edits from smells
+        try:
+            from services.smell_detector import SmellDetector
+            detector = SmellDetector()
+            smells = await detector.detect_all_smells()
+            structured_fixes = await engine.explainer.suggest_remediation_with_edits(
+                smells=smells,
+                impacted_services=result.impacted_services,
+                changes=changes,
+                risk_score=result.risk_score,
+                connection_bugs=connection_bugs,
+            )
+            all_fixes = structured_fixes + result.suggested_fixes
+        except Exception as exc:
+            logger.warning("Failed to generate structured fixes with edits: %s", exc)
+            all_fixes = result.suggested_fixes
+
         payload = {
             "status": "success",
             "commit": request.commit_sha,
@@ -50,7 +88,8 @@ async def analyze_impact(request: AnalysisRequest):
             "impacted_services": result.impacted_services,
             "confidence": result.confidence,
             "explanation": result.explanation,
-            "suggested_fixes": result.suggested_fixes,
+            "suggested_fixes": all_fixes,
+            "connection_bugs": [b.to_dict() for b in connection_bugs],
             "affected_files": [
                 {
                     "path": f.path,
@@ -68,6 +107,7 @@ async def analyze_impact(request: AnalysisRequest):
                 "file_count": len(result.affected_files),
                 "impacted_services": len(result.impacted_services),
                 "confidence": round(result.confidence * 100),
+                "connection_bugs": len(connection_bugs),
             }
         }
 
@@ -128,3 +168,22 @@ async def get_severity_thresholds():
         "high":     {"max": 75,  "color": "orange"},
         "critical": {"max": 100, "color": "red"},
     }
+
+
+class PreviewFixRequest(BaseModel):
+    """What-If remediation preview request."""
+    edits: List[GraphEdit]
+
+
+@router.post("/preview-fix")
+async def preview_fix(request: PreviewFixRequest):
+    """
+    Simulate graph edits in a sandbox transaction and return
+    before/after risk comparison.  The live graph is never modified.
+    """
+    try:
+        simulator = RemediationSimulator()
+        result = await simulator.simulate_fix(request.edits)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

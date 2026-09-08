@@ -53,14 +53,20 @@ export default function AnalysisHistory() {
           const color  = RISK_COLORS[level] || 'var(--text-faint)';
           const icon   = RISK_ICONS[level]  || '⚪';
           const score  = item.risk_score ?? 0;
-          const svc    = (item.service || item.impacted_services?.[0] || 'unknown').replace(/_/g, ' ');
+          const repoName = item.repo_url
+            ? item.repo_url.replace(/\.git$/i, '').split('/').slice(-2).join('/')
+            : (item.service || item.impacted_services?.[0] || 'unknown').replace(/_/g, ' ');
+          const commitRef = item.commit ? item.commit.substring(0, 7) : '';
           const open   = expanded === i;
 
           return (
             <div key={i} className="h-card">
               <div className="h-row" onClick={() => setExpanded(open ? null : i)}>
                 <span className="h-score-badge" style={{ color }}>{score}</span>
-                <span className="h-service">{svc}</span>
+                <span className="h-service" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{repoName}</span>
+                  {commitRef && <span className="text-dim text-xs font-mono" style={{ opacity: 0.8 }}>({commitRef})</span>}
+                </span>
                 <span className="h-level" style={{ color }}>{icon} {level}</span>
                 <span className="h-time">
                   {item.timestamp
@@ -78,7 +84,7 @@ export default function AnalysisHistory() {
 
                   {item.downstream_services?.length > 0 && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
-                      <span className="text-xs text-dim">Affected:</span>
+                      <span className="text-xs text-dim">Affected Services:</span>
                       {item.downstream_services.map(s => (
                         <span key={s} className="dtag">{s.replace('-service', '').replace('_service', '')}</span>
                       ))}
@@ -86,13 +92,27 @@ export default function AnalysisHistory() {
                   )}
 
                   {item.affected_files?.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                      <span className="text-xs text-dim">Files changed: </span>
-                      {item.affected_files.map((f, fi) => (
-                        <span key={fi} className="h-chip" style={{ marginLeft: 4 }}>
-                          {typeof f === 'string' ? f : f.path}
-                        </span>
-                      ))}
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span className="text-xs text-dim" style={{ fontWeight: 600 }}>Affected Files ({item.affected_files.length}):</span>
+                      </div>
+                      <div style={{
+                        maxHeight: '160px',
+                        overflowY: 'auto',
+                        background: 'rgba(0,0,0,0.3)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px',
+                        border: '1px solid var(--border)'
+                      }}>
+                        {item.affected_files.map((f, fi) => (
+                          <div key={fi} className="text-xs text-mono" style={{ color: '#7ee787', lineHeight: '1.4' }}>
+                            {typeof f === 'string' ? f : f.path}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 

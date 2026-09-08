@@ -34,8 +34,8 @@ function AnimatedNumber({ target, duration = 1200 }) {
 
 export default function App() {
   const [tab, setTab] = useState('overview');
-  const [stats, setStats] = useState({ total: 4, healthy: 0, analyses: 0, avgRisk: 0 });
-  const [sysHealth, setSysHealth] = useState('loading');
+  const [stats, setStats] = useState({ total: 4, healthy: 0, analyses: 0, avgRisk: 0, scoreCount: 0 });
+  const [sysHealth, setSysHealth] = useState({ state: 'loading', label: '… Connecting' });
   const [detailedHealth, setDetailedHealth] = useState(null);
 
   useEffect(() => {
@@ -46,22 +46,37 @@ export default function App() {
         setDetailedHealth(healthDetails);
         
         const healthy = services.filter(s => s.status === 'healthy').length;
+        const total = services.length;
         const scores = services.map(s => s.risk_score).filter(Boolean);
         const avgRisk = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-        const hasCritical = services.some(s => s.risk_level === 'CRITICAL');
-        const hasOffline  = services.some(s => s.status === 'offline') || healthDetails.status !== 'healthy';
-        setSysHealth(hasCritical || hasOffline ? 'critical' : healthy < 4 ? 'degraded' : 'healthy');
-        setStats(s => ({ ...s, total: services.length, healthy, avgRisk }));
+        
+        let healthState = 'healthy';
+        let label = '● All Systems Go';
+
+        if (healthDetails?.status !== 'healthy') {
+          healthState = 'offline';
+          label = '✕ Backend Offline';
+        } else if (total > 0 && healthy === 0) {
+          healthState = 'idle';
+          label = `○ ${total} Services Imported (Offline)`;
+        } else if (healthy < total) {
+          healthState = 'degraded';
+          label = `◐ ${healthy}/${total} Services Online`;
+        } else {
+          healthState = 'healthy';
+          label = `● All ${total} Services Online`;
+        }
+
+        setSysHealth({ state: healthState, label });
+        setStats(s => ({ ...s, total, healthy, avgRisk, scoreCount: scores.length }));
       } catch {
-        setSysHealth('offline');
+        setSysHealth({ state: 'offline', label: '✕ Backend Offline' });
       }
     };
     poll();
     const id = setInterval(poll, 6000);
     return () => clearInterval(id);
   }, []);
-
-  const sysLabel = { healthy: '● All Systems Go', degraded: '◐ Degraded', critical: '● Critical', offline: '✕ Backend Offline', loading: '… Loading' };
 
   return (
     <div className="app">
@@ -89,9 +104,9 @@ export default function App() {
         </div>
 
         <div className="nav-right">
-          <div className={`health-badge ${sysHealth === 'healthy' ? '' : sysHealth}`}>
+          <div className={`health-badge ${sysHealth.state || 'loading'}`} title="Operational Service Status">
             <span className="health-dot" />
-            {sysLabel[sysHealth] || sysLabel.loading}
+            {sysHealth.label}
           </div>
           <span className="api-chip">:8000</span>
         </div>
@@ -125,12 +140,14 @@ export default function App() {
                 </div>
                 <div className="stat-delta text-dim text-xs">this session</div>
               </div>
-              <div className="stat-card" style={{'--accent': stats.avgRisk > 60 ? 'var(--red)' : stats.avgRisk > 30 ? 'var(--yellow)' : 'var(--green)'}}>
-                <div className="stat-label">Avg Risk Score</div>
-                <div className="stat-value" style={{color: stats.avgRisk > 60 ? 'var(--red)' : stats.avgRisk > 30 ? 'var(--yellow)' : 'var(--green)'}}>
-                  <AnimatedNumber target={stats.avgRisk} />
+              <div className="stat-card" style={{'--accent': stats.analyses === 0 && stats.scoreCount === 0 ? 'var(--text-dim)' : stats.avgRisk > 60 ? 'var(--red)' : stats.avgRisk > 30 ? 'var(--yellow)' : 'var(--green)'}}>
+                <div className="stat-label">Avg Drift Risk</div>
+                <div className="stat-value" style={{color: stats.analyses === 0 && stats.scoreCount === 0 ? 'var(--text-dim)' : stats.avgRisk > 60 ? 'var(--red)' : stats.avgRisk > 30 ? 'var(--yellow)' : 'var(--green)'}}>
+                  {stats.analyses === 0 && stats.scoreCount === 0 ? '0' : <AnimatedNumber target={stats.avgRisk} />}
                 </div>
-                <div className="stat-delta text-dim text-xs">out of 100</div>
+                <div className="stat-delta text-dim text-xs">
+                  {stats.analyses === 0 && stats.scoreCount === 0 ? 'No drift analyzed yet' : 'out of 100'}
+                </div>
               </div>
             </div>
 

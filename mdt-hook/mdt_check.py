@@ -16,6 +16,13 @@ import subprocess
 import urllib.request
 import urllib.error
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 BASE_URL = os.environ.get("MDT_API_URL", "http://localhost:8000")
 FORCE    = os.environ.get("MDT_FORCE", "0") == "1"
 SKIP     = os.environ.get("MDT_SKIP",  "0") == "1"

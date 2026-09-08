@@ -141,6 +141,14 @@ class DependencyGraph:
         logger.info("Neo4j schema initialised")
         await self.seed_known_services()
 
+    async def clear_graph(self):
+        """Delete all nodes and relationships."""
+        self._refresh_driver()
+        if not self.driver:
+            return
+        await _run_query(self.driver, "MATCH (n) DETACH DELETE n")
+        logger.info("Graph cleared")
+
     async def seed_known_services(self):
         """
         Idempotently populate the graph with the 4 demo microservices
@@ -348,11 +356,28 @@ class DependencyGraph:
             if d["from"] == service_name
         ]
 
+    async def purge_unregistered_services(self, active_names: List[str]):
+        """Remove any Service nodes in Neo4j that are not in the active registry."""
+        self._refresh_driver()
+        if not self.driver or not active_names:
+            return
+        await _run_query(
+            self.driver,
+            "MATCH (s:Service) WHERE NOT (s.name IN $active) DETACH DELETE s",
+            active=active_names,
+        )
+
     async def get_all_services(self) -> List[Dict[str, Any]]:
         """Return all Service nodes from the graph."""
         self._refresh_driver()
         if not self.driver:
             return _get_known_services()
+
+        from core.registry import RegistryManager
+        reg_services = RegistryManager.get_services()
+        if reg_services:
+            active_names = [s["name"] for s in reg_services]
+            await self.purge_unregistered_services(active_names)
 
         records = await _run_query(
             self.driver,

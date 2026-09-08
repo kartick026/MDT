@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const api = axios.create({ baseURL: BASE, timeout: 15000 });
+const api = axios.create({ baseURL: BASE, timeout: 60000 });
 
 export const getHealth = () =>
   api.get('/health/detailed').then(r => r.data);
@@ -35,6 +35,15 @@ export const getHistory = (limit = 20) =>
   api.get(`/analysis/history?limit=${limit}`).then(r => r.data.analyses || []);
 
 export const analyzeImpact = payload =>
-  api.post('/analysis/analyze', payload).then(r => r.data);
+  api.post('/analysis/analyze', payload, { timeout: 120000 }).then(r => r.data);
+
+export const importRepo = payload =>
+  api.post('/registry/import-repo', payload, { timeout: 120000 }).then(r => r.data);
+
+export const getConnectionBugs = () =>
+  api.get('/registry/connection-bugs').then(r => r.data.bugs || []);
+
+export const previewFix = (payload) =>
+  api.post('/analysis/preview-fix', payload, { timeout: 120000 }).then(r => r.data);
 
 export default api;
