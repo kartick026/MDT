@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from core.config import settings
 from core.database import get_neo4j_driver
+from core.utils import now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def __getattr__(name: str):
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_iso()
 
 
 def _infer_service_from_path(file_path: str) -> Optional[str]:
@@ -329,13 +330,20 @@ class DependencyGraph:
         Each dict: {from, to, type, endpoint}
         """
         self._refresh_driver()
+        try:
+            depth_int = int(depth)
+            if not 1 <= depth_int <= 10:
+                depth_int = 4
+        except (ValueError, TypeError):
+            depth_int = 4
+
         if not self.driver:
             return self._static_dependency_chain(service_name)
 
         records = await _run_query(
             self.driver,
             f"""
-            MATCH (s:Service {{name: $name}})-[r:DEPENDS_ON*1..{depth}]->(dep:Service)
+            MATCH (s:Service {{name: $name}})-[r:DEPENDS_ON*1..{depth_int}]->(dep:Service)
             UNWIND r AS rel
             WITH startNode(rel) AS from_node, endNode(rel) AS to_node, rel
             RETURN from_node.name AS from,

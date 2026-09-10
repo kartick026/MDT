@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { analyzeImpact, previewFix } from '../api';
+import { useEffect, useState } from 'react';
+import { analyzeImpact, getProjectContext, previewFix } from '../api';
 
 const RISK_COLORS = {
   LOW: 'var(--green)', MEDIUM: 'var(--yellow)',
@@ -47,6 +47,7 @@ export default function ImpactForm({ onAnalysis }) {
   const [results,  setResults]  = useState(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
+  const [projectContext, setProjectContext] = useState(null);
 
   // What-If Preview state
   const [previewData, setPreviewData] = useState(null);
@@ -58,32 +59,34 @@ export default function ImpactForm({ onAnalysis }) {
   const [detailTab, setDetailTab] = useState('recommendations'); // 'recommendations' | 'files' | 'services' | 'all'
   const [fileFilter, setFileFilter] = useState('');
 
+  useEffect(() => {
+    getProjectContext().then(setProjectContext).catch(() => setProjectContext(null));
+  }, []);
+
   const submit = async (e) => {
     e.preventDefault();
     if (!repoUrls || !commitSha) return;
     setLoading(true); setError(null);
     setPreviewData(null); setActivePreviewIdx(null);
     try {
-      const repos = repoUrls.split(',').map(r => r.trim()).filter(r => r);
       const changedFiles = files.trim() ? files.split(',').map(f => f.trim()).filter(f => f) : null;
-      
-      const promises = repos.map(repo => analyzeImpact({
-        repo_url: repo,
+      const data = await analyzeImpact({
+        repo_url: repoUrls.trim(),
         commit_sha: commitSha,
         ...(changedFiles && changedFiles.length > 0 ? { changed_files: changedFiles } : {}),
-      }));
-      
-      const data = await Promise.all(promises);
-      setResults(data);
+      });
+      setResults([data]);
+      setProjectContext(data.project_context || projectContext);
       onAnalysis?.();
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Backend unreachable — is it running on :8000?');
+      const detail = err.response?.data?.detail;
+      setError(typeof detail === 'object' ? (detail.message || 'Repository does not match the active architecture.') : (detail || err.message || 'Backend unreachable — is it running on :8000?'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePreviewFix = async (edits, idx) => {
+  const handlePreviewFix = async (edits, idx, baselineScore) => {
     if (activePreviewIdx === idx) {
       setPreviewData(null);
       setActivePreviewIdx(null);
@@ -93,7 +96,10 @@ export default function ImpactForm({ onAnalysis }) {
     setPreviewError(null);
     setActivePreviewIdx(idx);
     try {
-      const data = await previewFix({ edits });
+      const data = await previewFix({
+        edits,
+        baseline_risk_score: baselineScore !== undefined ? baselineScore : (results?.[0]?.risk_score || 0)
+      });
       setPreviewData(data);
     } catch (err) {
       setPreviewError(err.response?.data?.detail || err.message || 'Preview failed');
@@ -109,11 +115,31 @@ export default function ImpactForm({ onAnalysis }) {
     setFiles('services/payment_service/main.py, services/user_service/main.py');
   };
 
-  // Parse structured edits from suggestion if explicitly provided for graph remediations
-  const tryParseEdits = (suggestion) => {
+  // Parse structured edits from suggestion if explicitly provided,
+  // or synthesize architectural resilience edits if the recommendation proposes safeguards
+  const tryParseEdits = (suggestion, result) => {
     if (typeof suggestion === 'object' && suggestion.edits && Array.isArray(suggestion.edits) && suggestion.edits.length > 0) {
       return suggestion.edits;
     }
+    const text = typeof suggestion === 'object' ? suggestion.text : String(suggestion || '');
+    const impacted = result?.impacted_services || [];
+    const primary = impacted[0] || 'order-service';
+    const lower = text.toLowerCase();
+
+    if (lower.includes('circuit breaker') || lower.includes('facade') || lower.includes('resilience') || lower.includes('safeguard')) {
+      return [
+        { action: 'add_node', from_service: `${primary}_facade` },
+        { action: 'add_edge', from_service: `${primary}_facade`, to_service: primary }
+      ];
+    }
+    if (lower.includes('decouple') || lower.includes('queue') || lower.includes('event') || lower.includes('broker')) {
+      return [
+        { action: 'add_node', from_service: 'event_broker' },
+        { action: 'add_edge', from_service: primary, to_service: 'event_broker' }
+      ];
+    }
+    // Plain-text suggestions (like "run tests", "update docs") get no graph edits
+    // — no Preview button will be shown for these
     return null;
   };
 
@@ -136,8 +162,16 @@ export default function ImpactForm({ onAnalysis }) {
       }}>
         <div>
           <div className="panel-title" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--display)' }}>Configure Analysis</div>
-          <div className="text-dim text-xs" style={{ marginTop: '2px' }}>Target a repository and commit to run the HMDA drift analysis</div>
+          <div className="text-dim text-xs" style={{ marginTop: '2px' }}>Analyse one repository against its imported architecture</div>
         </div>
+
+        {projectContext?.repo_url && (
+          <div style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(0,212,255,.22)', background: 'rgba(0,212,255,.06)', fontSize: '11px', lineHeight: 1.45 }}>
+            <div style={{ color: 'var(--cyan)', fontWeight: 700, marginBottom: '3px' }}>ACTIVE ARCHITECTURE</div>
+            <div className="text-dim" style={{ overflowWrap: 'anywhere' }}>{projectContext.repo_url} @{projectContext.branch || 'main'}</div>
+            <div className="text-dim" style={{ marginTop: '4px' }}>To analyse another repository, import it from Overview first.</div>
+          </div>
+        )}
 
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="form-field">
@@ -149,7 +183,7 @@ export default function ImpactForm({ onAnalysis }) {
               type="text"
               value={repoUrls}
               onChange={e => setRepoUrls(e.target.value)}
-              placeholder="https://github.com/owner/repo"
+              placeholder="https://github.com/owner/repo (must match active architecture)"
               required
             />
           </div>
@@ -171,15 +205,22 @@ export default function ImpactForm({ onAnalysis }) {
           <div className="form-field">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-dim)' }}>
-                Changed Files (Optional)
+                Changed Files {files.trim() ? <span style={{ color: 'var(--yellow)', fontSize: '10px', textTransform: 'none' }}>(manual override)</span> : <span style={{ color: 'var(--cyan)', fontSize: '10px', textTransform: 'none' }}>(auto-detects branch diff)</span>}
               </label>
-              <button type="button" className="btn btn-ghost" onClick={loadSample} style={{ padding: '2px 8px', fontSize: '11px' }}>
-                Load sample
-              </button>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {files.trim() && (
+                  <button type="button" className="btn btn-ghost" onClick={() => setFiles('')} style={{ padding: '2px 8px', fontSize: '11px', color: 'var(--text-dim)' }} title="Clear to auto-detect all changed files from branch">
+                    ✕ Clear
+                  </button>
+                )}
+                <button type="button" className="btn btn-ghost" onClick={loadSample} style={{ padding: '2px 8px', fontSize: '11px' }}>
+                  Load sample
+                </button>
+              </div>
             </div>
             <textarea
               className="diff-editor"
-              placeholder={"Leave blank to automatically detect all changed files in this commit from GitHub\nOr specify: services/order_service/main.py, services/user_service/main.py"}
+              placeholder={"Leave blank to automatically detect all changed files in this commit/branch from GitHub\nOr specify: services/order_service/main.py, services/user_service/main.py"}
               value={files}
               onChange={e => setFiles(e.target.value)}
               rows={4}
@@ -188,7 +229,7 @@ export default function ImpactForm({ onAnalysis }) {
           </div>
 
           <button type="submit" className="btn btn-primary" disabled={loading} style={{ height: '42px', width: '100%', justifyContent: 'center' }}>
-            {loading ? <><span className="spinner-xs" /> Analyzing Commit…</> : '⚡ Run HMDA Analysis'}
+            {loading ? <><span className="spinner-xs" /> Analyzing Commit {commitSha.length > 14 ? commitSha.substring(0, 12) + '…' : commitSha}…</> : '⚡ Run HMDA Analysis'}
           </button>
           {error && <div className="form-error">{error}</div>}
         </form>
@@ -227,7 +268,14 @@ export default function ImpactForm({ onAnalysis }) {
         {loading && (
           <div className="state-loading" style={{ minHeight: '360px' }}>
             <div className="spinner" />
-            <span className="text-dim text-sm">Fetching commit diff & calculating architectural risk…</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', textAlign: 'center' }}>
+              <span className="text-dim text-sm">
+                Target Commit / Ref: <strong style={{ color: 'var(--cyan)' }}>{commitSha}</strong>
+              </span>
+              <span className="text-dim text-xs" style={{ opacity: 0.75 }}>
+                Resolving commit SHA, calculating HMDA risk score & evaluating architectural drift…
+              </span>
+            </div>
           </div>
         )}
 
@@ -246,14 +294,39 @@ export default function ImpactForm({ onAnalysis }) {
                   padding: '16px 20px',
                   gap: '16px'
                 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
-                    <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'var(--display)', color: 'var(--text)' }}>
-                      {result.repo_url ? result.repo_url.replace(/\.git$/i, '').split('/').slice(-2).join('/') : 'Target Repository'}
-                      <span className="text-mono" style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-dim)', marginLeft: '8px' }}>
-                        @{result.commit?.substring(0, 7) || 'head'}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <span style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'var(--display)', color: 'var(--text)' }}>
+                        {result.repo_url ? result.repo_url.replace(/\.git$/i, '').split('/').slice(-2).join('/') : 'Target Repository'}
                       </span>
+                      {result.branch_ref && (
+                        <span className="text-mono" style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-dim)', background: 'rgba(255,255,255,0.04)', padding: '2px 7px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                          @{result.branch_ref}
+                        </span>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px' }}>
+
+                    {/* Commit ID Badge & metadata */}
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginTop: '2px' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: 'rgba(0, 212, 255, 0.08)',
+                          border: '1px solid rgba(0, 212, 255, 0.25)',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontFamily: "'JetBrains Mono', monospace",
+                          color: 'var(--cyan)',
+                        }}
+                        title={`Full Commit SHA: ${result.commit_sha || result.commit}`}
+                      >
+                        <span style={{ color: 'var(--text-dim)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>commit</span>
+                        <strong>{(result.commit_sha || result.commit || '').substring(0, 7)}</strong>
+                      </span>
+
                       <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
                         Confidence: <strong style={{ color: 'var(--cyan)' }}>{(result.confidence * 100).toFixed(0)}%</strong>
                       </span>
@@ -434,7 +507,7 @@ export default function ImpactForm({ onAnalysis }) {
                               {edits && edits.length > 0 && (
                                 <button
                                   type="button"
-                                  onClick={() => handlePreviewFix(edits, `${idx}-${i}`)}
+                                  onClick={() => handlePreviewFix(edits, `${idx}-${i}`, result?.risk_score)}
                                   disabled={previewLoading}
                                   style={{
                                     flexShrink: 0,

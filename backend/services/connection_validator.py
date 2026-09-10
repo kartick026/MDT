@@ -36,7 +36,7 @@ class ConnectionValidator:
     Identifies 404 dead endpoints, unresolved service hosts, and port mismatches.
     """
 
-    # Patterns to match route definitions in Python, JS/TS
+    # Patterns to match route definitions in Python, JS/TS, Go, Ruby, PHP, C#, Rust, Kotlin
     ROUTE_PATTERNS = [
         # FastAPI / Flask: @app.get('/users/{id}'), @router.post('/orders')
         re.compile(r"@(app|router|api_router)\.(get|post|put|delete|patch)\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
@@ -44,7 +44,22 @@ class ConnectionValidator:
         re.compile(r"\b(app|router)\.(get|post|put|delete|patch)\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
         # Spring Boot: @GetMapping('/users/{id}'), @PostMapping('/orders')
         re.compile(r"@(Get|Post|Put|Delete|Patch)Mapping\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
+        # Go Gin / net/http: r.GET("/api/v1/users", ...), http.HandleFunc("/healthz", ...)
+        re.compile(r"\b(?:r|router|engine|http)\.(?:GET|POST|PUT|DELETE|PATCH|HandleFunc|Handle)\s*\(\s*['\"]([^'\"\?]+)['\"]"),
+        # Ruby on Rails: get '/products', to: ...
+        re.compile(r"^\s*(?:get|post|put|patch|delete)\s+['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
+        # PHP Laravel: Route::get('/api/customers', ...), $app->post('/api/invoices', ...)
+        re.compile(r"(?:Route::|\$app->|\$router->)(?:get|post|put|patch|delete)\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
+        # C# ASP.NET Core & Minimal API: [HttpGet("/api/accounts")], app.MapGet("/status", ...)
+        re.compile(r"\[Http(?:Get|Post|Put|Patch|Delete)\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
+        re.compile(r"\b(?:app|endpoints)\.Map(?:Get|Post|Put|Patch|Delete)\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
+        # Rust Actix & Axum: #[get("/inventory")], .route("/ping", get(...))
+        re.compile(r"#\[(?:get|post|put|patch|delete)\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
+        re.compile(r"\.route\s*\(\s*['\"]([^'\"\?]+)['\"]", re.IGNORECASE),
+        # Kotlin Ktor: get("/api/catalog") { ... }
+        re.compile(r"\b(?:get|post|put|patch|delete)\s*\(\s*['\"]([^'\"\?]+)['\"]\s*\)", re.IGNORECASE),
     ]
+
 
     # Patterns to match outbound HTTP calls / URLs: group(1)=host, group(2)=port, group(3)=path
     URL_CALL_PATTERNS = [

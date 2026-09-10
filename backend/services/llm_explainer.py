@@ -4,7 +4,11 @@ Generates human-readable explanations using LLM
 """
 import logging
 from typing import List, Dict, Any, Optional
-from openai import AsyncOpenAI
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None
+
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -19,10 +23,13 @@ class LLMExplainer:
     def __init__(self):
         self.client = None
         if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "your_openai_api_key_here":
-            kwargs = {"api_key": settings.OPENAI_API_KEY}
-            if settings.LLM_BASE_URL:
-                kwargs["base_url"] = settings.LLM_BASE_URL
-            self.client = AsyncOpenAI(**kwargs)
+            if AsyncOpenAI is not None:
+                kwargs = {"api_key": settings.OPENAI_API_KEY}
+                if settings.LLM_BASE_URL:
+                    kwargs["base_url"] = settings.LLM_BASE_URL
+                self.client = AsyncOpenAI(**kwargs)
+            else:
+                logger.warning("openai package not installed; LLM will operate in deterministic fallback mode.")
 
     async def explain(
         self,

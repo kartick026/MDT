@@ -61,4 +61,10 @@ htmlcov/
 
 # Temporary
 *.tmp
-.temp/
+*.temp/
+
+# Databases & local runtime data
+chroma_db/
+backend/chroma_db/
+backend/data/
+*.sqlite3

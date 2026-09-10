@@ -4,6 +4,44 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({ baseURL: BASE, timeout: 60000 });
 
+// Attach JWT access token if present in localStorage
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('mdt_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => Promise.reject(error));
+
+// Global response interceptor for session expiry handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // If token expired or invalid, clear stored session
+      if (localStorage.getItem('mdt_token')) {
+        localStorage.removeItem('mdt_token');
+        localStorage.removeItem('mdt_user');
+        window.dispatchEvent(new CustomEvent('mdt_auth_expired'));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Auth endpoints
+export const loginUser = (username, password) =>
+  api.post('/auth/login', { username, password }).then(r => r.data);
+
+export const registerUser = (username, password) =>
+  api.post('/auth/register', { username, password }).then(r => r.data);
+
+export const getCurrentUser = () =>
+  api.get('/auth/me').then(r => r.data);
+
+export const refreshToken = () =>
+  api.post('/auth/refresh').then(r => r.data);
+
 export const getHealth = () =>
   api.get('/health/detailed').then(r => r.data);
 
@@ -28,6 +66,9 @@ export const getServices = () =>
 export const getGraph = () =>
   api.get('/services/graph').then(r => r.data);
 
+export const getProjectContext = () =>
+  api.get('/registry/context').then(r => r.data);
+
 export const getSmells = () =>
   api.get('/services/smells').then(r => r.data.smells || []);
 
@@ -45,5 +86,8 @@ export const getConnectionBugs = () =>
 
 export const previewFix = (payload) =>
   api.post('/analysis/preview-fix', payload, { timeout: 120000 }).then(r => r.data);
+
+export const resetDefaultRegistry = () =>
+  api.post('/registry/reset-default').then(r => r.data);
 
 export default api;

@@ -177,6 +177,40 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["sandbox"])
         self.assertIn("before", result)
 
+    @patch("services.remediation_simulator.get_neo4j_driver")
+    async def test_baseline_risk_score_with_resilience_facade(self, mock_get_driver):
+        from core.database import MockNeo4jDriver
+        mock_get_driver.return_value = MockNeo4jDriver()
+
+        sim = RemediationSimulator()
+        edits = [
+            GraphEdit(action="add_node", from_service="order-service_facade"),
+            GraphEdit(action="add_edge", from_service="order-service_facade", to_service="order-service"),
+        ]
+        result = await sim.simulate_fix(edits, baseline_risk_score=85.0)
+
+        self.assertEqual(result["before"]["score"], 85.0)
+        self.assertEqual(result["before"]["severity"], "CRITICAL")
+        self.assertEqual(result["after"]["score"], 60.0)
+        self.assertEqual(result["after"]["severity"], "HIGH")
+        self.assertEqual(result["delta"]["score_reduction"], 25.0)
+        self.assertTrue(result["delta"]["measurable_change"])
+        self.assertEqual(result["metric"], "Drift Risk Score (HMDA)")
+
+    @patch("services.remediation_simulator.get_neo4j_driver")
+    async def test_baseline_risk_score_with_no_resilience_edits(self, mock_get_driver):
+        from core.database import MockNeo4jDriver
+        mock_get_driver.return_value = MockNeo4jDriver()
+
+        sim = RemediationSimulator()
+        edits = [GraphEdit(action="add_node", from_service="unrelated_node")]
+        result = await sim.simulate_fix(edits, baseline_risk_score=85.0)
+
+        self.assertEqual(result["before"]["score"], 85.0)
+        self.assertEqual(result["after"]["score"], 85.0)
+        self.assertEqual(result["delta"]["score_reduction"], 0.0)
+        self.assertFalse(result["delta"]["measurable_change"])
+
 
 if __name__ == "__main__":
     unittest.main()

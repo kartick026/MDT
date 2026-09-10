@@ -20,6 +20,7 @@ import asyncio
 import logging
 import os
 import re
+import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -149,6 +150,91 @@ class GitHubAPIClient:
             headers["Authorization"] = f"Bearer {self._token}"
         self._headers = headers
 
+    async def _request_with_retry(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        max_retries: int = 3,
+    ) -> httpx.Response:
+        """Make an HTTP GET request with exponential backoff for transient failures."""
+        req_headers = headers if headers is not None else self._headers
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                resp = await client.get(url, headers=req_headers, params=params)
+                if resp.status_code >= 500 and attempt < max_retries - 1:
+                    backoff = 0.3 * (2 ** attempt)
+                    logger.debug("GitHub transient status %d on attempt %d for %s. Backoff %.1fs", resp.status_code, attempt + 1, url, backoff)
+                    await asyncio.sleep(backoff)
+                    continue
+                return resp
+            except (httpx.TransportError, httpx.TimeoutException) as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    backoff = 0.3 * (2 ** attempt)
+                    logger.debug("GitHub transport error %s on attempt %d. Backoff %.1fs", exc, attempt + 1, backoff)
+                    await asyncio.sleep(backoff)
+                else:
+                    raise
+        if last_exc:
+            raise last_exc
+        return resp
+
+    async def get_repo_tree(
+        self,
+        owner: str,
+        repo: str,
+        tree_sha: str = "main",
+    ) -> List[str]:
+        """Fetch the full recursive git tree paths for a repository branch or commit."""
+        # 1. Try GitHub REST API if not globally rate-limited or if token present
+        if self._token or not GitHubAPIClient._is_globally_rate_limited:
+            for branch_candidate in ([tree_sha, "master"] if tree_sha == "main" else [tree_sha]):
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        url = f"{_GH_API}/repos/{owner}/{repo}/git/trees/{branch_candidate}?recursive=1"
+                        resp = await self._request_with_retry(client, url)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            return [item["path"] for item in data.get("tree", []) if "path" in item]
+                        if resp.status_code in (403, 429):
+                            GitHubAPIClient._is_globally_rate_limited = True
+                            logger.warning("GitHub git tree API rate limited for %s/%s, falling back to shallow clone", owner, repo)
+                            break
+                        logger.warning("GitHub git tree API %s/%s (ref=%s) → %d", owner, repo, branch_candidate, resp.status_code)
+                except Exception as exc:
+                    logger.warning("get_repo_tree REST failed for %s/%s: %s", owner, repo, exc)
+                    break
+
+        # 2. Resilient fallback: shallow clone without hitting REST API rate limits
+        try:
+            logger.info("Executing shallow clone fallback for %s/%s", owner, repo)
+            loop = asyncio.get_running_loop()
+
+            def _clone_and_list() -> List[str]:
+                with tempfile.TemporaryDirectory() as td:
+                    clone_url = f"https://github.com/{owner}/{repo}.git"
+                    try:
+                        r = Repo.clone_from(clone_url, td, depth=1, branch=tree_sha)
+                    except Exception:
+                        try:
+                            # Try remote default branch if tree_sha failed
+                            r = Repo.clone_from(clone_url, td, depth=1)
+                        except Exception as e:
+                            logger.warning("Shallow clone fallback failed for %s/%s: %s", owner, repo, e)
+                            return []
+                    return r.git.ls_files().splitlines()
+
+            file_list = await loop.run_in_executor(None, _clone_and_list)
+            if file_list:
+                return file_list
+        except Exception as exc:
+            logger.warning("Shallow clone fallback error for %s/%s: %s", owner, repo, exc)
+
+        return []
+
     async def get_file_content(
         self,
         owner: str,
@@ -157,19 +243,20 @@ class GitHubAPIClient:
         ref: str,
     ) -> str:
         """Return raw file content at a specific commit/ref. Empty string on error."""
+        clean_path = path.lstrip("/")
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
                 # Fast path: If unauthenticated and already rate-limited, directly use raw.githubusercontent.com
                 if not self._token and GitHubAPIClient._is_globally_rate_limited:
-                    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
-                    fallback_resp = await client.get(raw_url)
-                    if fallback_resp.status_code == 200:
-                        return fallback_resp.text
+                    for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
+                        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
+                        fallback_resp = await client.get(raw_url)
+                        if fallback_resp.status_code == 200:
+                            return fallback_resp.text
                     return ""
 
-                url = f"{_GH_API}/repos/{owner}/{repo}/contents/{path}"
-                resp = await client.get(url, headers=self._headers,
-                                        params={"ref": ref})
+                url = f"{_GH_API}/repos/{owner}/{repo}/contents/{clean_path}"
+                resp = await self._request_with_retry(client, url, params={"ref": ref})
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("encoding") == "base64":
@@ -177,18 +264,35 @@ class GitHubAPIClient:
                         return base64.b64decode(data["content"]).decode("utf-8",
                                                                         errors="replace")
                 elif resp.status_code == 404:
+                    if ref == "main":
+                        resp_m = await self._request_with_retry(client, url, params={"ref": "master"})
+                        if resp_m.status_code == 200:
+                            data = resp_m.json()
+                            if data.get("encoding") == "base64":
+                                import base64
+                                return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
                     return ""   # file didn't exist at this ref
                 elif resp.status_code in (403, 429):
                     GitHubAPIClient._is_globally_rate_limited = True
                     # Rate limit exceeded, fallback to raw.githubusercontent.com
-                    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
-                    logger.warning("GitHub API rate limited, falling back to %s", raw_url)
-                    fallback_resp = await client.get(raw_url)
-                    if fallback_resp.status_code == 200:
-                        return fallback_resp.text
-                logger.warning("GitHub contents API %s → %d", path, resp.status_code)
+                    for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
+                        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
+                        logger.warning("GitHub API rate limited, falling back to %s", raw_url)
+                        fallback_resp = await client.get(raw_url)
+                        if fallback_resp.status_code == 200:
+                            return fallback_resp.text
+                logger.warning("GitHub contents API %s → %d", clean_path, resp.status_code)
         except Exception as exc:
-            logger.warning("get_file_content failed for %s: %s", path, exc)
+            logger.warning("get_file_content failed for %s: %s", clean_path, exc)
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
+                        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
+                        r = await client.get(raw_url)
+                        if r.status_code == 200:
+                            return r.text
+            except Exception:
+                pass
         return ""
 
     async def get_commit_diff(
@@ -213,9 +317,10 @@ class GitHubAPIClient:
                     return None
 
                 url = f"{_GH_API}/repos/{owner}/{repo}/commits/{commit_sha}"
-                resp = await client.get(
-                    url, headers={**self._headers,
-                                  "Accept": "application/vnd.github.diff"}
+                resp = await self._request_with_retry(
+                    client,
+                    url,
+                    headers={**self._headers, "Accept": "application/vnd.github.diff"}
                 )
                 if resp.status_code == 200:
                     return _split_diff_by_file(resp.text)
@@ -231,6 +336,7 @@ class GitHubAPIClient:
         except Exception as exc:
             logger.warning("get_commit_diff failed: %s", exc)
         return None
+
 
 
 def _split_diff_by_file(full_diff: str) -> Dict[str, str]:
@@ -414,6 +520,111 @@ class GitAnalyzer:
     # ------------------------------------------------------------------ #
     #  Public entry point
     # ------------------------------------------------------------------ #
+
+    async def resolve_commit_sha(
+        self,
+        repo_url: str,
+        ref: str,
+    ) -> Optional[str]:
+        """
+        Resolve a git reference (e.g. 'main', 'master', branch tag, or commit hash)
+        to a full 40-character commit SHA.
+        """
+        clean_ref = (ref or "").strip()
+        if not clean_ref:
+            return None
+
+        # 1. Already a full 40-character hex commit SHA
+        if re.match(r"^[0-9a-fA-F]{40}$", clean_ref):
+            return clean_ref.lower()
+
+        # 2. Local directory handling
+        if os.path.isdir(repo_url):
+            try:
+                def _resolve_local() -> Optional[str]:
+                    try:
+                        r = Repo(repo_url)
+                        return r.commit(clean_ref).hexsha
+                    except Exception:
+                        return None
+                local_sha = await asyncio.to_thread(_resolve_local)
+                if local_sha:
+                    return local_sha.lower()
+            except Exception as exc:
+                logger.debug("Local repo SHA resolution failed: %s", exc)
+
+        # 3. git ls-remote (fast, rate-limit free for any remote git repository)
+        try:
+            def _run_ls_remote() -> Optional[str]:
+                # Try specific query refs first
+                for query_ref in [clean_ref, f"refs/heads/{clean_ref}", f"refs/tags/{clean_ref}", "HEAD"]:
+                    try:
+                        cmd = ["git", "ls-remote", repo_url, query_ref]
+                        res = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+                        if res.returncode == 0 and res.stdout:
+                            for line in res.stdout.strip().splitlines():
+                                parts = line.strip().split()
+                                if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
+                                    return parts[0].lower()
+                    except Exception:
+                        continue
+
+                # If specific ref query returned nothing, list all refs to match
+                try:
+                    res = subprocess.run(["git", "ls-remote", repo_url], capture_output=True, text=True, timeout=15)
+                    if res.returncode == 0 and res.stdout:
+                        lines = res.stdout.strip().splitlines()
+                        target_suffixes = (f"/heads/{clean_ref}", f"/tags/{clean_ref}", f"/{clean_ref}")
+                        for line in lines:
+                            parts = line.strip().split()
+                            if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
+                                if any(parts[1].endswith(suf) for suf in target_suffixes):
+                                    return parts[0].lower()
+                        for line in lines:
+                            parts = line.strip().split()
+                            if len(parts) >= 2 and parts[1] in ("HEAD", "refs/heads/main", "refs/heads/master"):
+                                return parts[0].lower()
+                except Exception:
+                    pass
+                return None
+
+            sha = await asyncio.to_thread(_run_ls_remote)
+            if sha:
+                logger.info("Resolved %s on %s -> %s via git ls-remote", clean_ref, repo_url, sha)
+                return sha
+        except Exception as exc:
+            logger.warning("git ls-remote failed for %s: %s", repo_url, exc)
+
+        # 4. GitHub REST API fallback
+        gh_coords = _parse_github_url(repo_url)
+        if gh_coords:
+            owner, repo = gh_coords
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    for branch_cand in ([clean_ref, "master"] if clean_ref == "main" else [clean_ref]):
+                        api_url = f"{_GH_API}/repos/{owner}/{repo}/commits/{branch_cand}"
+                        resp = await client.get(api_url, headers=self._gh._headers)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            if "sha" in data:
+                                return data["sha"].lower()
+            except Exception as exc:
+                logger.warning("GitHub API commit SHA resolution failed: %s", exc)
+
+            # 5. Fallback: Check commit patch header
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    for branch_cand in ([clean_ref, "master"] if clean_ref == "main" else [clean_ref]):
+                        patch_url = f"https://github.com/{owner}/{repo}/commit/{branch_cand}.patch"
+                        resp = await client.get(patch_url, headers={"User-Agent": "MDT-GitAnalyzer"})
+                        if resp.status_code == 200:
+                            match = re.search(r"^From\s+([0-9a-fA-F]{40})", resp.text, re.MULTILINE)
+                            if match:
+                                return match.group(1).lower()
+            except Exception as exc:
+                logger.warning("GitHub patch SHA resolution fallback failed: %s", exc)
+
+        return clean_ref
 
     async def analyze_push(
         self,

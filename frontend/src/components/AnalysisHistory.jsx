@@ -56,16 +56,20 @@ export default function AnalysisHistory() {
           const repoName = item.repo_url
             ? item.repo_url.replace(/\.git$/i, '').split('/').slice(-2).join('/')
             : (item.service || item.impacted_services?.[0] || 'unknown').replace(/_/g, ' ');
-          const commitRef = item.commit ? item.commit.substring(0, 7) : '';
+          const rawCommit = item.commit_sha || item.commit || '';
+          const commitRef = rawCommit.length >= 7 ? rawCommit.substring(0, 7) : rawCommit;
+          const branchRef = item.branch_ref || null;
           const open   = expanded === i;
 
           return (
             <div key={i} className="h-card">
               <div className="h-row" onClick={() => setExpanded(open ? null : i)}>
                 <span className="h-score-badge" style={{ color }}>{score}</span>
-                <span className="h-service" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="h-service" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                   <span>{repoName}</span>
-                  {commitRef && <span className="text-dim text-xs font-mono" style={{ opacity: 0.8 }}>({commitRef})</span>}
+                  {branchRef && <span className="text-dim text-xs" style={{ opacity: 0.7 }}>@{branchRef}</span>}
+                  {commitRef && <span className="text-mono text-xs" style={{ color: 'var(--cyan)', background: 'rgba(0, 212, 255, 0.08)', padding: '1px 6px', borderRadius: '4px' }} title={`Commit SHA: ${rawCommit}`}>{commitRef}</span>}
+                  {item.triggered_by && <span className="text-dim text-xs" style={{ background: 'rgba(255,255,255,0.04)', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>👤 {item.triggered_by}</span>}
                 </span>
                 <span className="h-level" style={{ color }}>{icon} {level}</span>
                 <span className="h-time">

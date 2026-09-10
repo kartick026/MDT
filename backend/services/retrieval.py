@@ -186,6 +186,7 @@ class RetrievalEngine:
         functions: List[str],
         classes: List[str],
         risk_score: float = 0.0,
+        repository_key: str = "",
     ):
         """
         Chunk a file and index every chunk into ChromaDB.
@@ -206,7 +207,10 @@ class RetrievalEngine:
             logger.warning("Embedding generation failed: %s", exc)
             return
 
-        ids = [c["chunk_id"] for c in chunks]
+        # File paths repeat across repositories.  Namespace IDs and metadata
+        # so an import/analysis of repository B cannot overwrite or retrieve
+        # repository A's historical code context.
+        ids = [hashlib.md5(f"{repository_key}:{c['chunk_id']}".encode()).hexdigest() for c in chunks]
         metadatas = [
             {
                 "file_path":   file_path,
@@ -216,6 +220,7 @@ class RetrievalEngine:
                 "functions":   ",".join(functions[:20]),
                 "classes":     ",".join(classes[:10]),
                 "risk_score":  risk_score,
+                "repository_key": repository_key,
                 "start_line":  c["start_line"],
                 "end_line":    c["end_line"],
             }
@@ -232,7 +237,40 @@ class RetrievalEngine:
             )
             logger.debug("Indexed %d chunks for %s", len(chunks), file_path)
         except Exception as exc:
-            logger.warning("ChromaDB upsert failed for %s: %s", file_path, exc)
+            err_msg = str(exc).lower()
+            if "dimension" in err_msg or "does not match collection" in err_msg:
+                logger.warning("ChromaDB dimension mismatch detected. Purging and recreating collection: %s", exc)
+                self.purge_collection()
+                coll = self._get_collection()
+                if coll:
+                    try:
+                        await asyncio.to_thread(
+                            coll.upsert,
+                            ids=ids,
+                            embeddings=embeddings,
+                            documents=texts,
+                            metadatas=metadatas,
+                        )
+                        logger.info("Successfully re-indexed %d chunks after collection purge", len(chunks))
+                    except Exception as retry_exc:
+                        logger.error("Failed to re-index after collection purge: %s", retry_exc)
+            else:
+                logger.warning("ChromaDB upsert failed for %s: %s", file_path, exc)
+
+    def purge_collection(self) -> bool:
+        """Purge and reset the ChromaDB collection (useful if embedding dimensions change)."""
+        client = get_chroma_client()
+        if client is None:
+            return False
+        try:
+            client.delete_collection(name=COLLECTION_NAME)
+            self._collection = None
+            logger.info("ChromaDB collection purged successfully: %s", COLLECTION_NAME)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to purge ChromaDB collection: %s", exc)
+            return False
+
 
     # ------------------------------------------------------------------ #
     #  Retrieval
@@ -242,6 +280,7 @@ class RetrievalEngine:
         self,
         changes: List,
         top_k: int = 5,
+        repository_key: str = "",
     ) -> Dict[str, Any]:
         """
         Given a list of ChangeInfo objects, return the most semantically
@@ -268,6 +307,11 @@ class RetrievalEngine:
             query_parts.extend(ast_meta.get('classes', [])[:3])
         query_text = " ".join(query_parts) or "code change"
 
+        if not repository_key:
+            # Historical records without an owner must never be used as RAG
+            # context for an active repository.
+            return {"documents": [], "metadatas": [], "risk_modifier": 0}
+
         try:
             # Generate query embedding
             query_embeddings = await _embed([query_text])
@@ -275,7 +319,8 @@ class RetrievalEngine:
             results = await asyncio.to_thread(
                 collection.query,
                 query_embeddings=query_embeddings,
-                n_results=min(top_k, max(1, collection.count())),
+                n_results=top_k,
+                where={"repository_key": repository_key},
                 include=["documents", "metadatas", "distances"],
             )
         except Exception as exc:

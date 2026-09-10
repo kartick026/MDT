@@ -9,7 +9,7 @@ Supported events:
 Signature verification:
   GitHub signs every payload with HMAC-SHA256 using the webhook secret.
   The signature is in the X-Hub-Signature-256 header as "sha256=<hex>".
-  Verification is skipped when DEBUG=True to ease local development.
+  Verification is enforced when WEBHOOK_SIGNATURE_REQUIRED=True.
 
 Body-read ordering:
   FastAPI body parsing and request.body() compete for the same stream.
@@ -20,15 +20,19 @@ import hmac
 import hashlib
 import json
 import logging
+import time
+from collections import defaultdict
 from typing import Optional
 
-from fastapi import APIRouter, Request, HTTPException, Header, Body
+from fastapi import APIRouter, Request, HTTPException, Header, Body, BackgroundTasks
 from pydantic import ValidationError
 
 from schemas.webhook import GitHubPushPayload, GitHubPingPayload
 from services.git_analyzer import GitAnalyzer, ChangeInfo
 from services.impact_engine import ImpactEngine
 from core.config import settings
+from core.history import history_store
+from core.utils import now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -37,6 +41,27 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_rate_limit_records = defaultdict(list)
+
+
+def _check_rate_limit(client_ip: str, max_requests: int = 30, window_seconds: int = 60) -> bool:
+    """Return True if allowed, False if rate limit exceeded in the time window."""
+    now = time.time()
+    # Prune stale records if tracking dictionary grows large
+    if len(_rate_limit_records) > 500:
+        stale_ips = [ip for ip, ts in _rate_limit_records.items() if not ts or (now - ts[-1] > window_seconds * 2)]
+        for ip in stale_ips:
+            _rate_limit_records.pop(ip, None)
+
+    timestamps = _rate_limit_records[client_ip]
+    valid = [t for t in timestamps if now - t < window_seconds]
+    _rate_limit_records[client_ip] = valid
+    if len(valid) >= max_requests:
+        return False
+    valid.append(now)
+    return True
+
 
 def _verify_signature(payload: bytes, signature: Optional[str], secret: str) -> bool:
     """
@@ -60,8 +85,6 @@ def _extract_change_infos(push: GitHubPushPayload) -> list[ChangeInfo]:
     Build ChangeInfo objects from the push payload's commit list.
     Each file is only returned once; the last change_type seen wins.
     """
-    from dataclasses import replace
-
     changed = push.all_changed_files()
     result: list[ChangeInfo] = []
     for entry in changed:
@@ -82,8 +105,6 @@ def _extract_change_infos(push: GitHubPushPayload) -> list[ChangeInfo]:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
-from fastapi import BackgroundTasks
 
 async def _process_push_background(push, x_github_delivery):
     try:
@@ -122,14 +143,14 @@ async def _process_push_background(push, x_github_delivery):
         )
 
         # Prepend to in-memory history (so /history works if no Neo4j)
-        from api.analysis import _analysis_history
-        from datetime import datetime, timezone
+        sev_str = impact_result.severity.value if hasattr(impact_result.severity, 'value') else str(impact_result.severity)
         payload = {
             "status": "success",
-            "commit": commit_sha,
+            "commit": commit_sha[:7] if (len(commit_sha) == 40 and all(c in "0123456789abcdefABCDEF" for c in commit_sha)) else commit_sha,
+            "commit_sha": commit_sha,
             "repo_url": repo_url,
             "risk_score": impact_result.risk_score,
-            "severity": impact_result.severity.value if hasattr(impact_result.severity, 'value') else impact_result.severity,
+            "severity": sev_str,
             "impacted_services": impact_result.impacted_services,
             "confidence": impact_result.confidence,
             "explanation": impact_result.explanation,
@@ -138,12 +159,14 @@ async def _process_push_background(push, x_github_delivery):
                 {
                     "path": f.path,
                     "change_type": f.change_type,
-                    "lines_changed": f.lines_changed
+                    "lines_changed": f.lines_changed,
+                    "additions": getattr(f, "additions", 0),
+                    "deletions": getattr(f, "deletions", 0),
                 }
                 for f in impact_result.affected_files
             ],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "risk_level": str(impact_result.severity).upper(),
+            "timestamp": now_iso(),
+            "risk_level": sev_str.upper(),
             "service": impact_result.impacted_services[0] if impact_result.impacted_services else "unknown",
             "downstream_services": impact_result.impacted_services,
             "score_breakdown": {
@@ -152,9 +175,7 @@ async def _process_push_background(push, x_github_delivery):
                 "confidence": round(impact_result.confidence * 100),
             }
         }
-        _analysis_history.insert(0, payload)
-        if len(_analysis_history) > 100:
-            _analysis_history.pop()
+        await history_store.add(payload)
 
         logger.info(
             "Background Analysis complete | commit=%s | risk=%.1f | severity=%s | services=%s",
@@ -164,7 +185,34 @@ async def _process_push_background(push, x_github_delivery):
             impact_result.impacted_services,
         )
     except Exception as exc:
-        logger.error("Background analysis failed: %s", exc)
+        logger.error(
+            "Background analysis failed | delivery=%s | repo=%s | commit=%s: %s",
+            x_github_delivery,
+            getattr(push, "repo_url", "unknown"),
+            getattr(push, "commit_sha", "unknown"),
+            exc,
+            exc_info=True,
+        )
+        c_sha = getattr(push, "commit_sha", "unknown")
+        fail_payload = {
+            "status": "failed",
+            "commit": c_sha[:7] if (len(c_sha) == 40 and all(c in "0123456789abcdefABCDEF" for c in c_sha)) else c_sha,
+            "commit_sha": c_sha,
+            "repo_url": getattr(push, "repo_url", ""),
+            "risk_score": 0.0,
+            "severity": "UNKNOWN",
+            "impacted_services": [],
+            "confidence": 0.0,
+            "explanation": f"Background analysis failed: {str(exc)}",
+            "suggested_fixes": [],
+            "affected_files": [],
+            "timestamp": now_iso(),
+            "risk_level": "UNKNOWN",
+            "service": "unknown",
+            "downstream_services": [],
+            "score_breakdown": {},
+        }
+        await history_store.add(fail_payload)
 
 
 @router.post("/github", summary="Receive GitHub webhook events")
@@ -182,21 +230,44 @@ async def github_webhook(
       - **push**  — triggers the full impact analysis pipeline in the background
       - **ping**  — returned on initial webhook registration; always 200 OK
     """
+    # 1. IP Rate Limiting
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip, settings.RATE_LIMIT_WEBHOOK_PER_MINUTE):
+        logger.warning("Webhook rate limit exceeded for client IP %s", client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many webhook requests. Rate limit is {settings.RATE_LIMIT_WEBHOOK_PER_MINUTE} requests/minute.",
+            headers={"Retry-After": "60"}
+        )
+
+    # 2. Read and enforce maximum payload size (reject payloads > 25MB)
     body = await request.body()
+    if len(body) > settings.MAX_WEBHOOK_PAYLOAD_BYTES:
+        logger.warning(
+            "Webhook payload size (%d bytes) exceeds maximum limit of %d bytes",
+            len(body),
+            settings.MAX_WEBHOOK_PAYLOAD_BYTES,
+        )
+        raise HTTPException(
+            status_code=413,
+            detail=f"Webhook payload too large. Maximum allowed size is {settings.MAX_WEBHOOK_PAYLOAD_BYTES // (1024 * 1024)} MB.",
+        )
 
     logger.info(
-        "GitHub webhook received | event=%s | delivery=%s | size=%d bytes",
+        "GitHub webhook received | event=%s | delivery=%s | size=%d bytes | ip=%s",
         x_github_event,
         x_github_delivery,
         len(body),
+        client_ip,
     )
 
-    if not settings.DEBUG:
+    # 3. Signature verification (controlled by WEBHOOK_SIGNATURE_REQUIRED)
+    if settings.WEBHOOK_SIGNATURE_REQUIRED:
         if not _verify_signature(body, x_hub_signature_256, settings.GITHUB_WEBHOOK_SECRET):
-            logger.warning("Webhook signature verification failed")
+            logger.warning("Webhook signature verification failed | delivery=%s", x_github_delivery)
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
     else:
-        logger.debug("DEBUG mode: skipping signature verification")
+        logger.debug("WEBHOOK_SIGNATURE_REQUIRED is False: skipping signature verification")
 
     try:
         payload_dict = json.loads(body)
@@ -253,7 +324,9 @@ async def test_webhook():
         "status": "ok",
         "message": "Webhook endpoint is reachable and configured correctly",
         "debug_mode": settings.DEBUG,
-        "signature_verification": not settings.DEBUG,
+        "signature_verification": settings.WEBHOOK_SIGNATURE_REQUIRED,
+        "rate_limit_per_minute": settings.RATE_LIMIT_WEBHOOK_PER_MINUTE,
+        "max_payload_mb": settings.MAX_WEBHOOK_PAYLOAD_BYTES // (1024 * 1024),
     }
 
 

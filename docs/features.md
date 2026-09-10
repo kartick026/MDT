@@ -8,17 +8,19 @@ Welcome to the comprehensive features guide for **Microservice Drift Tracker (MD
 
 1. [Platform Overview & Core Value](#platform-overview--core-value)
 2. [Feature Matrix](#feature-matrix)
-3. [Feature 1: Auto-Discovery & Architecture Ingestion](#feature-1-auto-discovery--architecture-ingestion)
+3. [Feature 1: Auto-Discovery & Resilient Architecture Ingestion](#feature-1-auto-discovery--resilient-architecture-ingestion)
 4. [Feature 2: Connection Integrity & Broken Endpoint Validation](#feature-2-connection-integrity--broken-endpoint-validation)
-5. [Feature 3: HMDA (Hierarchical Microservice Drift Analysis) Engine](#feature-3-hmda-hierarchical-microservice-drift-analysis-engine)
+5. [Feature 3: HMDA Engine & Git Branch Resolution](#feature-3-hmda-engine--git-branch-resolution)
 6. [Feature 4: What-If Remediation Simulation Sandbox](#feature-4-what-if-remediation-simulation-sandbox)
-7. [Feature 5: Architectural Smells & Anti-Pattern Detection](#feature-5-architectural-smells--anti-pattern-detection)
+7. [Feature 5: The 10 Architectural Smells & Anti-Pattern Detectors](#feature-5-the-10-architectural-smells--anti-pattern-detectors)
 8. [Feature 6: Interactive Dependency Graph & Link Diagnostics](#feature-6-interactive-dependency-graph--link-diagnostics)
 9. [Feature 7: Analysis History & Historical Audit Trail](#feature-7-analysis-history--historical-audit-trail)
 10. [Feature 8: GitHub Webhook & GitHub App Automation](#feature-8-github-webhook--github-app-automation)
 11. [Feature 9: Cybernetic Glassmorphic Dashboard & Real-Time Monitoring](#feature-9-cybernetic-glassmorphic-dashboard--real-time-monitoring)
-12. [API Reference & Schema Specifications](#api-reference--schema-specifications)
-13. [End-to-End Workflow Examples](#end-to-end-workflow-examples)
+12. [Feature 10: Enterprise JWT Authentication & RBAC](#feature-10-enterprise-jwt-authentication--rbac)
+13. [Feature 11: Distributed Request Tracing & Deep Observability](#feature-11-distributed-request-tracing--deep-observability)
+14. [API Reference & Schema Specifications](#api-reference--schema-specifications)
+15. [End-to-End Workflow Examples](#end-to-end-workflow-examples)
 
 ---
 
@@ -37,33 +39,38 @@ Modern microservice architectures evolve through distributed codebases, multi-re
 
 | Feature | Primary Component | Technology Stack | Key Benefit |
 |---------|-------------------|------------------|-------------|
-| **Architecture Ingestion** | `RegistryManager`, `git_analyzer.py` | Python, Docker Compose Parser | Zero-config import from any GitHub repository |
+| **Architecture Ingestion** | `repo_onboarding.py`, `git_analyzer.py` | Compose/Render Parser, GitPython | Zero-config import; immune to GitHub API 60 req/hr limits |
 | **Connection Integrity** | `connection_validator.py` | AST Parsing, Regex, OpenAPI | Catches 404s, wrong ports, and hardcoded `localhost` |
-| **HMDA Drift Engine** | `impact_engine.py` | Neo4j, Cypher, ChromaDB, OpenAI | Computes 0-100 risk score and blast-radius depth |
+| **HMDA Drift Engine** | `impact_engine.py`, `git_analyzer.py` | Neo4j, Cypher, ChromaDB, `git ls-remote` | 0-100 risk score, sub-second ref resolution, blast depth |
 | **What-If Sandbox** | `remediation_simulator.py` | Rolled-back Neo4j TXs, Heuristics | Previews score reduction before code is committed |
-| **Smell Detection** | `smell_detector.py` | Cypher Graph Algorithms | Flags cyclic dependencies, bottleneck services, and dead code |
+| **10 Architectural Smells** | `smell_detector.py` | Cypher Graph Algorithms | Flags cyclic dependencies, shared DBs, chatty calls, bottlenecks |
 | **Dependency Graph** | `DependencyGraph.jsx` | React, SVG, CSS Animations | Visual graph with animated flows and broken-link indicators |
 | **Analysis History** | `AnalysisHistory.jsx` | FastAPI in-memory / Neo4j | Audit log of all drift analyses across repositories |
 | **GitHub Automation** | `webhook.py`, GitHub App | RS256 JWT, HMAC Webhooks | Automatic PR checks and automated review comments |
+| **Enterprise JWT Auth** | `auth.py`, `LoginModal.jsx` | Bcrypt, HS256 JWT, Axios Interceptor | Protected mutation routes and role-based access control |
+| **Distributed Tracing** | `middleware.py`, `health.py` | UUID4 Tracing, JSON Logs | `X-Request-ID`, `X-Response-Time-MS`, `/health/detailed` |
 | **Glassmorphic UI** | `App.jsx`, `ImpactForm.jsx` | Vanilla CSS, Space Grotesk, JetBrains Mono | Dark glass design, sticky docking, tabbed inspection |
 
 ---
 
-## Feature 1: Auto-Discovery & Architecture Ingestion
+## Feature 1: Auto-Discovery & Resilient Architecture Ingestion
 
-MDT eliminates tedious manual YAML mapping by automatically scanning repository architectures directly from GitHub.
+MDT eliminates tedious manual YAML mapping by automatically discovering and modeling distributed microservice architectures directly from any GitHub repository.
 
 ### How It Works
-1. **GitHub Ingestion (`POST /api/registry/import`):**
-   - Provide a repository URL (e.g. `https://github.com/kartick026/MDT` or `https://github.com/serhiiur/Event-Driven-Microservices-Example`) and a target branch (e.g. `main`).
-   - MDT fetches and parses `docker-compose.yml` or service configuration files using either GitHub App installation tokens or a Personal Access Token.
-2. **Dynamic Topology Extraction:**
-   - Detects all microservice nodes, container ports, environment variables, and `depends_on` relationships.
-   - Extracts file path prefix mappings (e.g., `services/order_service/` maps to `order-service`).
-3. **Graph Reconciliation & Ghost Node Purging:**
-   - When switching repositories, MDT calls `purge_unregistered_services()`, clearing obsolete ghost nodes from past imports so Neo4j reflects only the currently active project.
-4. **OpenAPI Route Reflection:**
-   - Concurrently pings each live service's `/openapi.json` to inspect endpoints and report real route counts (e.g. `4 endpoints`) rather than dummy zeros.
+1. **Multi-Manifest Ingestion (`POST /api/registry/import`):**
+   - Provide a repository URL (e.g. `https://github.com/kartick026/MDT` or `https://github.com/RahulNatesan/AI-Disease-Prediction.git`) and an optional branch ref (e.g. `main`).
+   - Supports `docker-compose.yml` / `docker-compose.yaml` (services, ports, environment variables, `depends_on`).
+   - Supports `render.yaml` / `render.yml` (multi-service definitions, root directories, runtime languages, and exposed ports).
+   - Supports Polyglot Monorepo & Directory Discovery: automatically scans `backend/`, `frontend/`, `services/*`, `apps/*`, `packages/*`, and single-service repositories.
+2. **GitHub API Rate-Limit Immunity:**
+   - Unauthenticated GitHub REST API calls to `/git/trees` encounter a strict 60 req/hr rate limit. MDT features an automatic, resilient fallback that executes a shallow clone (`git clone --depth 1`) using GitPython and extracts file trees via `git ls-files`, guaranteeing 100% reliable onboarding without requiring personal tokens.
+3. **Static Route & Endpoint Extraction:**
+   - Statically inspects service entrypoints (`main.py`, `app.py`, `page.tsx`, etc.) across 8 programming languages to discover public API routes (e.g. `🔌 2 endpoints: /health, /api/analyze`) even when external containers are not locally running.
+4. **Baseline Architectural Risk Scoring:**
+   - Automatically evaluates static code quality and contract defect indicators upon import, computing an immediate baseline risk score (e.g. `53/100 MEDIUM`) and logging the initial architectural assessment into session history.
+5. **Graph Reconciliation & Ghost Node Purging:**
+   - When importing a new repository, MDT calls `purge_unregistered_services()`, clearing obsolete ghost nodes from past imports so Neo4j reflects only the currently active project.
 
 ---
 
@@ -86,9 +93,15 @@ Static dependency declarations in Compose files often hide runtime bugs: a servi
 
 ---
 
-## Feature 3: HMDA (Hierarchical Microservice Drift Analysis) Engine
+## Feature 3: HMDA Engine & Git Branch Resolution
 
 The **HMDA Engine** is MDT's core risk algorithm. It evaluates code modifications against graph topology and semantic historical context.
+
+### Git Branch & Ref Resolution (`resolve_commit_sha`)
+MDT eliminates the need for developers to manually look up 40-character commit hashes:
+- **Sub-Second `git ls-remote` Resolution:** Leverages `git ls-remote <repo_url> <ref>` in an async threadpool to resolve branch names (`main`, `master`, `develop`, tags, or `HEAD`) into exact 40-character commit SHAs in <1.5s, completely immune to GitHub REST API token rate limits.
+- **Commit Patch Fallback:** Inspects `https://github.com/{owner}/{repo}/commit/{ref}.patch` headers (`From <sha> ...`) to parse commit diffs even under anonymous rate limiting.
+- **Auto-Diff Detection:** If `changed_files` is omitted, automatically extracts all modified, added, and deleted files directly from the unified commit diff.
 
 ### The 3 Scoring Pillars
 
@@ -143,22 +156,59 @@ MDT allows architects to test architectural remediations in a **zero-risk sandbo
 
 ---
 
-## Feature 5: Architectural Smells & Anti-Pattern Detection
+## Feature 5: The 10 Architectural Smells & Anti-Pattern Detectors
 
-MDT runs continuous Cypher graph algorithms to identify structural architectural smells:
+MDT runs continuous Cypher graph algorithms and contract snapshot inspections to identify 10 critical microservice anti-patterns:
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                       ARCHITECTURAL SMELLS DETECTED                        │
-├────────────────────────┬───────────────────────────────────────────────────┤
-│ Circular Dependency    │ Call cycle detected: A -> B -> C -> A             │
-│ God / Bottleneck       │ Single service handles disproportionate fan-in     │
-│ High Coupling          │ Excessive bidirectional HTTP chatter              │
-│ Dependency Explosion   │ Single service depends on too many downstreams    │
-│ Dead / Isolated Service│ Service completely disconnected from graph        │
-│ API Instability        │ Endpoints undergoing rapid unversioned drift      │
-└────────────────────────┴───────────────────────────────────────────────────┘
-```
+### 1. Circular Dependency (`CRITICAL`)
+- **Heuristic:** `MATCH path = (s:Service)-[:DEPENDS_ON*2..8]->(s)` detects cyclic dependency loops ($A \rightarrow B \rightarrow C \rightarrow A$).
+- **Impact:** Causes distributed deadlocks, synchronous cascading timeouts, and tight deployment coupling.
+- **Remediation:** Extract shared contracts, introduce asynchronous message queues, or decouple via event-driven pub/sub.
+
+### 2. God / Bottleneck Service (`HIGH`)
+- **Heuristic:** Inbound callers $\ge 3$ or total degree $\ge 5$ (excluding API gateways/facades).
+- **Impact:** Concentrates excessive architectural gravity into a single failure domain and scaling bottleneck.
+- **Remediation:** Decompose business capabilities into discrete sub-services or deploy caching facades.
+
+### 3. High Coupling (`MEDIUM`)
+- **Heuristic:** Direct outbound dependencies $\ge 4$.
+- **Impact:** Violates single responsibility and loose coupling; changes in downstream services cause ripple effects.
+- **Remediation:** Introduce an API Gateway Aggregator pattern to consolidate downstream interactions.
+
+### 4. Dead / Isolated Service (`LOW`)
+- **Heuristic:** Registered service with in-degree $= 0$ and out-degree $= 0$ in an ecosystem with $\ge 2$ services.
+- **Impact:** Unused compute resource overhead, forgotten dead code, or unintegrated orphan components.
+- **Remediation:** Decommission abandoned microservice or wire missing HTTP routes into the gateway.
+
+### 5. Dependency Explosion (`HIGH`)
+- **Heuristic:** A change snapshot adding $\ge 3$ new dependencies in a single commit, or transitive call depth $\ge 5$.
+- **Impact:** Exponential expansion of blast radius, latency amplification, and combinatorial failure modes.
+- **Remediation:** Adopt event-driven choreography to flatten deep synchronous call trees.
+
+### 6. API Instability (`HIGH` / `MEDIUM`)
+- **Heuristic:** Deleted OpenAPI endpoints (`HIGH`) or $\ge 3$ endpoint modifications (`MEDIUM`) across revisions without API versioning.
+- **Impact:** Breaking contract changes break downstream microservice consumers and frontend clients without warning.
+- **Remediation:** Maintain backward-compatible route aliases, version endpoints (`/v1/`, `/v2/`), and issue deprecation notices.
+
+### 7. Shared Database (`HIGH`)
+- **Heuristic:** Multiple distinct microservices connecting directly to the same database host or port (`5432`, `3306`, `27017`, `6379`).
+- **Impact:** Violates microservice data isolation; schema alterations by one service silently crash other services.
+- **Remediation:** Enforce Database-per-Service; expose data access through private service APIs or domain events.
+
+### 8. Chatty Communication (`MEDIUM`)
+- **Heuristic:** Mutual bidirectional calls ($A \rightarrow B$ and $B \rightarrow A$) or $\ge 3$ distinct connections between the same pair of services.
+- **Impact:** High round-trip network chatter, elevated serialization overhead, and tight temporal coupling.
+- **Remediation:** Consolidate fine-grained endpoints into coarse-grained batch APIs or adopt gRPC/GraphQL streaming.
+
+### 9. Missing Circuit Breaker (`MEDIUM`)
+- **Heuristic:** Outbound synchronous fan-out ($\ge 3$ downstream targets) without resilience patterns, event brokers, or circuit breakers.
+- **Impact:** Fragile synchronous calls where a slow downstream service exhausts caller thread/connection pools.
+- **Remediation:** Implement circuit breakers (e.g. Resilience4j, Polly, Hystrix pattern), retries, and fallback defaults.
+
+### 10. Hub-and-Spoke Centralization (`HIGH`)
+- **Heuristic:** A single central service connected to $\ge 60\%$ of all registered services in an ecosystem with $\ge 3$ services.
+- **Impact:** Creates a distributed monolith where the central hub prevents team autonomy and creates an existential SPOF.
+- **Remediation:** Decentralize business logic into bounded contexts using domain-driven event streaming.
 
 ### Evidence Inspection
 Each smell includes:
@@ -220,21 +270,31 @@ MDT integrates natively into developer workflows via GitHub Webhooks and GitHub 
 
 ---
 
-## Feature 9: Cybernetic Glassmorphic Dashboard & Real-Time Monitoring
+## Feature 10: Enterprise JWT Authentication & RBAC
 
-Designed with modern aesthetics for high technical clarity:
+MDT provides enterprise-grade authentication and route security:
+- **HS256 JWT Token Workflow:**
+  - Secure `/auth/login` endpoint verifying credentials against bcrypt-hashed passwords.
+  - Configurable expiration (default 24 hours), token refresh via `/auth/refresh`, and active session inspection via `/auth/me`.
+  - OAuth2-compatible `/auth/token` endpoint for native Swagger UI documentation.
+- **Role-Based Access Control (RBAC):**
+  - Distinguishes between `admin` (full permissions) and `engineer` (analysis execution).
+- **Route Protection & UI Integration:**
+  - Mutation endpoints (`/api/registry/import`, `/analysis/analyze`, `/analysis/preview-fix`) enforce bearer token validation.
+  - Frontend `AuthPage.jsx` and `LoginModal.jsx` provide dedicated sign-in tabs, user avatar indicators, and automatic Axios interceptors for JWT header injection.
 
-### UI Highlights
-- **Curated Dark Palette:** Deep navy backgrounds (`#050810`), Space Grotesk headings, JetBrains Mono code badges, and cyan/green accents.
-- **Custom Glass Scrollbars:** Translucent dark scrollbars (`rgba(10, 13, 26, 0.5)`) on all containers, eliminating native white scrollbars.
-- **Sticky Form Docking:** The left configuration panel stays anchored in view while scrolling through extensive analysis reports on the right.
-- **Segmented Detail Switcher:** Replaces clunky vertical scrollboxes with tabbed navigation:
-  - `💡 Recommendations (N)`
-  - `📁 Affected Files (N)` with live real-time filename search filter
-  - `🌐 Blast Radius (N)`
-  - `📋 View All`
-- **Real-Time Health Polling (every 5–6s):**
-  - Clearly differentiates **Container Availability** (`○ 5 Services Imported (Offline)`) from **Architectural Risk** (`🔴 CRITICAL`).
+---
+
+## Feature 11: Distributed Request Tracing & Deep Observability
+
+Built for enterprise production telemetry:
+- **Request Tracing Middleware (`core/middleware.py`):**
+  - Automatically tags every incoming HTTP request with a unique `X-Request-ID` (UUID4).
+  - Measures execution latency with microsecond precision and appends `X-Response-Time-MS` to response headers.
+- **Structured JSON Logging:**
+  - `JSONLogFormatter` formats log lines into JSON records (`timestamp`, `level`, `request_id`, `message`, `module`) for seamless ingestion into Datadog, ELK, or CloudWatch.
+- **Deep Health Diagnostics (`GET /health/detailed`):**
+  - Component-by-component health checks for Neo4j cluster connectivity, ChromaDB vector indexing, LLM availability, and GitHub token quotas.
 
 ---
 

@@ -3,13 +3,16 @@ uvicorn[standard]==0.27.1
 pydantic>=2.6
 pydantic-settings==2.1.0
 python-dotenv==1.0.1
-httpx==0.26.0
+httpx>=0.27.0,<0.28.0
 openai>=1.0.0
 gitpython==3.1.42
 # Re-added for local usage
-neo4j
-chromadb
-numpy<2.0.0
+neo4j>=5.0.0
+chromadb==1.5.9
+numpy
 # - sqlalchemy/alembic (not needed for MVP)
 # - pytest packages (added separately in tests)
 PyJWT[crypto]>=2.8.0
+bcrypt>=4.0.0
+python-multipart>=0.0.9
+pyyaml>=6.0.0
