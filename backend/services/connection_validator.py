@@ -64,7 +64,7 @@ class ConnectionValidator:
 
     # Patterns to match outbound HTTP calls / URLs: group(1)=host, group(2)=port, group(3)=path
     URL_CALL_PATTERNS = [
-        re.compile(r"https?://([a-zA-Z0-9_\-\.]+)(?::(\d+))?(/[^'\"\s\)\,\`\<\>\{\}]*)?", re.IGNORECASE),
+        re.compile(r"https?://([a-zA-Z0-9_\-\.]+)(?::(\d+|\{[^}]+\}|\$\{[^}]+\}))?(/[^'\"\s\)\,\`\<\>\{\}]*)?", re.IGNORECASE),
     ]
 
     @classmethod
@@ -134,12 +134,15 @@ class ConnectionValidator:
                 for match in pattern.finditer(line):
                     raw_matched = match.group(0)
                     # Skip template strings with dynamic interpolation inside the URL
-                    if "{" in raw_matched or "${" in raw_matched:
+                    if "{" in raw_matched or "${" in raw_matched or line[match.end():].startswith(":{") or line[match.end():].startswith(":${"):
                         continue
 
                     groups = match.groups()
                     host = groups[0]
-                    port = int(groups[1]) if len(groups) > 1 and groups[1] else None
+                    raw_port = groups[1] if len(groups) > 1 and groups[1] else None
+                    if raw_port and ("{" in raw_port or "$" in raw_port):
+                        continue
+                    port = int(raw_port) if raw_port and raw_port.isdigit() else None
                     raw_path = groups[2] if len(groups) > 2 and groups[2] else "/"
                     clean_path = cls._clean_call_path(raw_path)
 
@@ -309,7 +312,7 @@ class ConnectionValidator:
         """Extract clean path removing query params or trailing string quotes"""
         if "?" in path:
             path = path.split("?")[0]
-        path = path.rstrip("'\"}")
+        path = path.rstrip("'\"")
         return cls._normalize_path(path)
 
     @classmethod
