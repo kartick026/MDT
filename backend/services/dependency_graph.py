@@ -520,9 +520,7 @@ class DependencyGraph:
             UNWIND $services AS service_name
             MATCH (s:Service {name: service_name})
             CREATE (s)-[:HAS_ANALYSIS]->(a)
-            SET s.risk_score       = $risk,
-                s.risk_level       = $severity,
-                s.last_analyzed_at = $ts
+            SET s.last_analyzed_at = $ts
             """,
             services=service_names,
             commit=commit_sha,

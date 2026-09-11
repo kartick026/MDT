@@ -166,7 +166,9 @@ class SmellDetector:
             MATCH (s:Service)
             WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
             OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
+            WHERE incoming <> s
             OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
+            WHERE outgoing <> s
             WITH s, count(DISTINCT incoming) AS incoming_count,
                  count(DISTINCT outgoing) AS outgoing_count
             WHERE incoming_count >= $inbound OR incoming_count + outgoing_count >= $total
@@ -186,6 +188,7 @@ class SmellDetector:
             return []
         records = await _run_query(self.driver, """
             MATCH (s:Service)-[:DEPENDS_ON]->(dependency:Service)
+            WHERE dependency <> s
             WITH s, count(DISTINCT dependency) AS dependency_count
             WHERE dependency_count >= $threshold
             RETURN s.name AS name, dependency_count
@@ -308,7 +311,7 @@ class SmellDetector:
             edges = set()
             for d in deps:
                 src, tgt = d.get("from", ""), d.get("to", "")
-                if src and tgt:
+                if src and tgt and src != tgt:
                     edges.add((src, tgt))
                     sorted_pair = tuple(sorted([src, tgt]))
                     pair_counts[sorted_pair] += 1
@@ -316,7 +319,7 @@ class SmellDetector:
             seen_pairs = set()
             # Bidirectional calls: A->B and B->A
             for (src, tgt) in edges:
-                if (tgt, src) in edges:
+                if src != tgt and (tgt, src) in edges:
                     pair = tuple(sorted([src, tgt]))
                     if pair not in seen_pairs:
                         seen_pairs.add(pair)
@@ -354,7 +357,7 @@ class SmellDetector:
             outbound_map = defaultdict(set)
             for d in deps:
                 src, tgt = d.get("from", ""), d.get("to", "")
-                if src and tgt:
+                if src and tgt and src != tgt:
                     outbound_map[src].add(tgt)
 
             for src, targets in outbound_map.items():
@@ -387,7 +390,7 @@ class SmellDetector:
             degree_map = defaultdict(set)
             for d in deps:
                 src, tgt = d.get("from", ""), d.get("to", "")
-                if src and tgt:
+                if src and tgt and src != tgt:
                     degree_map[src].add(tgt)
                     degree_map[tgt].add(src)
 

@@ -28,6 +28,8 @@ DEFAULT_REGISTRY: Dict[str, Any] = {
             "url": "http://user-service:8001",
             "language": "python",
             "description": "User management — CRUD for user accounts",
+            "risk_score": 25.0,
+            "risk_level": "LOW",
         },
         {
             "name": "order-service",
@@ -35,6 +37,8 @@ DEFAULT_REGISTRY: Dict[str, Any] = {
             "url": "http://order-service:8002",
             "language": "python",
             "description": "Order processing — depends on user-service",
+            "risk_score": 85.0,
+            "risk_level": "CRITICAL",
         },
         {
             "name": "payment-service",
@@ -42,6 +46,8 @@ DEFAULT_REGISTRY: Dict[str, Any] = {
             "url": "http://payment-service:8003",
             "language": "python",
             "description": "Payment processing — depends on order-service",
+            "risk_score": 10.0,
+            "risk_level": "LOW",
         },
         {
             "name": "notification-service",
@@ -49,6 +55,8 @@ DEFAULT_REGISTRY: Dict[str, Any] = {
             "url": "http://notification-service:8004",
             "language": "python",
             "description": "Notifications — depends on order-service and payment-service",
+            "risk_score": 35.0,
+            "risk_level": "MEDIUM",
         },
         {
             "name": "inventory-service",

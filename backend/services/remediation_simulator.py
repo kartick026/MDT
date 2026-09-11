@@ -55,7 +55,9 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
             MATCH (s:Service)
             WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
             OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
+            WHERE incoming <> s
             OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
+            WHERE outgoing <> s
             WITH s, count(DISTINCT incoming) AS inc, count(DISTINCT outgoing) AS out
             WHERE inc >= $inbound OR inc + out >= $total
             RETURN s.name AS name, inc, out
@@ -64,6 +66,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
     "high_coupling": {
         "query": """
             MATCH (s:Service)-[:DEPENDS_ON]->(dep:Service)
+            WHERE dep <> s
             WITH s, count(DISTINCT dep) AS dep_count
             WHERE dep_count >= $threshold
             RETURN s.name AS name, dep_count
