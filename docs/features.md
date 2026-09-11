@@ -86,6 +86,11 @@ Static dependency declarations in Compose files often hide runtime bugs: a servi
 - **`[ENDPOINT_MISMATCH]`**:
   Cross-checks HTTP request paths against the OpenAPI path registry. If `order-service` calls `GET /api/v2/users` but `user-service` only serves `/users`, MDT flags an immediate broken endpoint alert.
 
+### False-Positive Suppression & Intelligent Filtering
+- **Dynamic Template Ports:** Ignores string template variables (e.g. `http://localhost:{port}`, `http://127.0.0.1:${PORT}`) where the port is resolved dynamically at runtime.
+- **CORS Whitelists & Frontend Clients:** Ignores browser frontend origin declarations (`localhost:3000`, `localhost:5173`) in CORS configurations so valid development origins are not flagged as broken backend container links.
+- **Variable Path Resolution:** Evaluates path constants and variables to reconstruct actual runtime request paths (e.g. `/users/{user_id}`).
+
 ### Visual Diagnostics
 - Highlighted red alert banner in the **Overview** tab.
 - Integrated error diagnostic cards inside the **Impact Analysis** report.
@@ -210,11 +215,13 @@ MDT runs continuous Cypher graph algorithms and contract snapshot inspections to
 - **Impact:** Creates a distributed monolith where the central hub prevents team autonomy and creates an existential SPOF.
 - **Remediation:** Decentralize business logic into bounded contexts using domain-driven event streaming.
 
-### Evidence Inspection
+### Evidence Inspection & Hygiene Rules
 Each smell includes:
 - **Severity Badge** (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
 - **Involved Services** tags.
 - **Raw Cypher Evidence Inspector:** Expandable `<details>` view with the underlying graph path metrics.
+- **Self-Loop Exclusion:** Internal service self-calls (`from == to`) are automatically excluded from bidirectional communication, downstream fan-out counts, bottleneck degrees, and hub-and-spoke ratios, guaranteeing zero self-call false positives.
+- **Node Risk Score Isolation:** Impact analysis evaluations measure the blast-radius risk of specific commits without contaminating the baseline static architectural health of every individual microservice node in the graph.
 
 ---
 

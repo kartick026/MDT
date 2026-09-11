@@ -43,7 +43,9 @@ FastAPI Backend Core ────► Git Diff Analyzer & AST Inspector
 ## Key Features
 
 - **🚀 Resilient Multi-Manifest Architecture Ingestion:** Scan any public or private GitHub repository URL to auto-register microservices, container ports, dependency links, and file mappings from `docker-compose.yml`, `render.yaml`/`render.yml`, or polyglot monorepo directories (`backend/`, `frontend/`, `services/*`, `apps/*`). Immune to GitHub REST API 60 req/hr rate limits via automated shallow clone and `git ls-files` fallback.
-- **🔌 Polyglot Connection Integrity & Broken Endpoint Checks:** AST static analysis inspects microservice HTTP client calls against live OpenAPI endpoints, flagging `[UNRESOLVED_SERVICE_HOST]`, `[PORT_MISMATCH]`, and `[ENDPOINT_MISMATCH]` errors before production deployment.
+- **🪝 Automated Git Pre-Push Hook (`mdt-hook/`):** Client-side Git hook analyzes changed files with HMDA before code reaches remote repositories, preventing high-risk breaking changes from being pushed unless explicitly overridden (`$env:MDT_FORCE="1"`).
+- **🛡 Clean Architectural Smell Isolation:** Filters out internal self-loops (`from == to`) from mutual chatter and fan-out metrics, preventing false-positive smells while isolating commit impact risk from baseline service node health.
+- **🔌 Polyglot Connection Integrity & Broken Endpoint Checks:** AST static analysis inspects microservice HTTP client calls against live OpenAPI endpoints, flagging `[UNRESOLVED_SERVICE_HOST]`, `[PORT_MISMATCH]`, and `[ENDPOINT_MISMATCH]` errors before production deployment. Automatically filters CORS whitelists and dynamic template ports (`:{port}`) to eliminate false positives.
 - **⚡ HMDA (Hierarchical Microservice Drift Analysis):** Proprietary multi-pillar scoring engine combining deterministic code change volumes, dependency graph traversal depth, ChromaDB semantic retrieval, and LLM reasoning into a normalized 0–100 risk score (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
 - **🔍 Git Ref & Branch Resolution:** Native resolution of branch names (`main`, `master`, tags, `HEAD`) to concrete 40-character commit hashes via ultra-fast `git ls-remote` (<1.5s) and commit patch parsing.
 - **🧪 What-If Remediation Simulation Sandbox:** Test proposed architectural refactorings (e.g. adding circuit breakers or resilience facades) in an isolated transaction sandbox. Renders before vs. after risk score gauges and smell resolution metrics in real time with zero database side-effects.
@@ -129,14 +131,15 @@ Once the containers are running:
 
 ## Reference Microservices Fleet
 
-MDT includes 4 reference microservices running on Docker for testing cross-service blast radius:
+MDT includes a live Docker microservices fleet for testing cross-service blast radius and architectural smells:
 
-| Service | Port | Dependencies | Role |
-|---------|------|--------------|------|
-| **`user-service`** | `8001` | None | User profiles, authentication schemas |
-| **`order-service`** | `8002` | `user-service` | Order orchestration & checkout pipeline |
-| **`payment-service`** | `8003` | `order-service` | Transaction settlement & payment gateways |
-| **`notification-service`** | `8004` | `order-service`, `payment-service` | Event-driven customer notifications |
+| Service | Port | Status | Baseline Risk | Dependencies | Role & Architecture Note |
+|---|:---:|:---:|:---:|---|---|
+| **`user-service`** | `8001` | `HEALTHY` | `25.0 (LOW)` | `order-service` (cyclic) | Core user account management and CRUD operations |
+| **`order-service`** | `8002` | `HEALTHY` | `85.0 (CRITICAL)` | `user-service`, `notification-service`, `inventory-service:9999` | Order orchestration; contains intentional dead-host call to port 9999 |
+| **`payment-service`** | `8003` | `HEALTHY` | `10.0 (LOW)` | Independent | Transaction settlement & payment gateways (isolated service) |
+| **`notification-service`** | `8004` | `HEALTHY` | `35.0 (MEDIUM)` | `order-service`, `user-service`, `local-demo-postgres` | Event-driven notifications; participates in shared database pattern |
+| **`inventory-service`** | `9999` | `OFFLINE` | `90.0 (CRITICAL)` | Independent | Legacy inventory service — dead host demonstrating contract defect detection |
 
 ---
 
