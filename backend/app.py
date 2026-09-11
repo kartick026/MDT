@@ -44,7 +44,8 @@ async def lifespan(app: FastAPI):
     await graph.init_schema()   # creates constraints + seeds known services
     from core.registry import RegistryManager
     if RegistryManager.get_project_context().get("source") == "local_demo":
-        await graph.seed_demo_history(RegistryManager.get_local_demo_smell_history())
+        if hasattr(graph, "seed_demo_history"):
+            await graph.seed_demo_history(RegistryManager.get_local_demo_smell_history())
 
     # Snapshotting is useful for trend detection, but it must not hold API
     # readiness hostage to optional service/OpenAPI probes.

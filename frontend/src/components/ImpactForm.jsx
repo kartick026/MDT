@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { analyzeImpact, getProjectContext, previewFix } from '../api';
 
 const RISK_COLORS = {
@@ -39,15 +39,26 @@ function ScoreGauge({ score, level, size = 120 }) {
   );
 }
 
-export default function ImpactForm({ onAnalysis }) {
-  const [repoUrls, setRepoUrls] = useState('https://github.com/kartick026/MDT');
-  const [commitSha, setCommitSha] = useState('main');
+export default function ImpactForm({
+  onAnalysis,
+  activeProject,
+  cachedAnalysis,
+  analyzedProjectKey,
+  onSaveAnalysis,
+  isActive
+}) {
   const [files, setFiles] = useState('');
 
-  const [results,  setResults]  = useState(null);
+  const initialResults = cachedAnalysis
+    ? (Array.isArray(cachedAnalysis) ? cachedAnalysis : [cachedAnalysis])
+    : null;
+  const [results,  setResults]  = useState(initialResults);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
   const [projectContext, setProjectContext] = useState(null);
+
+  const currentRepo = activeProject?.repo_url || projectContext?.repo_url || 'https://github.com/kartick026/MDT';
+  const currentBranch = activeProject?.branch || projectContext?.branch || 'main';
 
   // What-If Preview state
   const [previewData, setPreviewData] = useState(null);
@@ -59,24 +70,48 @@ export default function ImpactForm({ onAnalysis }) {
   const [detailTab, setDetailTab] = useState('recommendations'); // 'recommendations' | 'files' | 'services' | 'all'
   const [fileFilter, setFileFilter] = useState('');
 
+  const lastAnalyzedKeyRef = useRef(analyzedProjectKey || '');
+
+  // Synchronize results when cachedAnalysis changes from parent (e.g. cleared on import or loaded from storage)
+  useEffect(() => {
+    if (cachedAnalysis) {
+      setResults(Array.isArray(cachedAnalysis) ? cachedAnalysis : [cachedAnalysis]);
+    } else if (!cachedAnalysis && !loading) {
+      setResults(null);
+      setPreviewData(null);
+      setActivePreviewIdx(null);
+    }
+  }, [cachedAnalysis]);
+
+  useEffect(() => {
+    if (analyzedProjectKey) {
+      lastAnalyzedKeyRef.current = analyzedProjectKey;
+    } else if (!analyzedProjectKey) {
+      lastAnalyzedKeyRef.current = '';
+    }
+  }, [analyzedProjectKey]);
+
   useEffect(() => {
     getProjectContext().then(setProjectContext).catch(() => setProjectContext(null));
   }, []);
 
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!repoUrls || !commitSha) return;
-    setLoading(true); setError(null);
-    setPreviewData(null); setActivePreviewIdx(null);
+  const runAnalysis = async (targetRepo = currentRepo, targetBranch = currentBranch, overrideFiles = files, triggerKey = null) => {
+    setLoading(true);
+    setError(null);
+    setPreviewData(null);
+    setActivePreviewIdx(null);
+    const key = triggerKey || `${targetRepo.trim()}@${targetBranch.trim()}:${activeProject?.importedAt || 'initial'}`;
+    lastAnalyzedKeyRef.current = key;
     try {
-      const changedFiles = files.trim() ? files.split(',').map(f => f.trim()).filter(f => f) : null;
+      const changedFiles = overrideFiles.trim() ? overrideFiles.split(',').map(f => f.trim()).filter(Boolean) : null;
       const data = await analyzeImpact({
-        repo_url: repoUrls.trim(),
-        commit_sha: commitSha,
+        repo_url: targetRepo.trim(),
+        commit_sha: targetBranch.trim(),
         ...(changedFiles && changedFiles.length > 0 ? { changed_files: changedFiles } : {}),
       });
       setResults([data]);
       setProjectContext(data.project_context || projectContext);
+      onSaveAnalysis?.(data, key);
       onAnalysis?.();
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -84,6 +119,32 @@ export default function ImpactForm({ onAnalysis }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Auto-trigger analysis ONLY ONCE per repository/branch import, when the impact tab is active
+  useEffect(() => {
+    if (!isActive) return;
+
+    const repo = activeProject?.repo_url || projectContext?.repo_url;
+    const branch = activeProject?.branch || projectContext?.branch || 'main';
+    if (!repo) return;
+
+    const importId = activeProject?.importedAt || 'initial';
+    const key = `${repo.trim()}@${branch.trim()}:${importId}`;
+
+    // If this repository/branch has already been analyzed (matching key in ref or cache), do NOT run again!
+    if (lastAnalyzedKeyRef.current === key || analyzedProjectKey === key) {
+      lastAnalyzedKeyRef.current = key;
+      return;
+    }
+
+    lastAnalyzedKeyRef.current = key;
+    runAnalysis(repo, branch, files, key);
+  }, [isActive, activeProject, projectContext?.repo_url, projectContext?.branch, analyzedProjectKey]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    runAnalysis(currentRepo, currentBranch, files);
   };
 
   const handlePreviewFix = async (edits, idx, baselineScore) => {
@@ -110,8 +171,6 @@ export default function ImpactForm({ onAnalysis }) {
   };
 
   const loadSample = () => {
-    setRepoUrls('https://github.com/kartick026/MDT');
-    setCommitSha('main');
     setFiles('services/payment_service/main.py, services/user_service/main.py');
   };
 
@@ -161,51 +220,62 @@ export default function ImpactForm({ onAnalysis }) {
         overflowY: 'auto'
       }}>
         <div>
-          <div className="panel-title" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--display)' }}>Configure Analysis</div>
-          <div className="text-dim text-xs" style={{ marginTop: '2px' }}>Analyse one repository against its imported architecture</div>
+          <div className="panel-title" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--display)' }}>Impact Analysis</div>
+          <div className="text-dim text-xs" style={{ marginTop: '2px' }}>Automated blast-radius analysis on active repository and branch</div>
         </div>
 
-        {projectContext?.repo_url && (
-          <div style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(0,212,255,.22)', background: 'rgba(0,212,255,.06)', fontSize: '11px', lineHeight: 1.45 }}>
-            <div style={{ color: 'var(--cyan)', fontWeight: 700, marginBottom: '3px' }}>ACTIVE ARCHITECTURE</div>
-            <div className="text-dim" style={{ overflowWrap: 'anywhere' }}>{projectContext.repo_url} @{projectContext.branch || 'main'}</div>
-            <div className="text-dim" style={{ marginTop: '4px' }}>To analyse another repository, import it from Overview first.</div>
+        {/* Active Architecture & Branch Card */}
+        <div style={{
+          padding: '14px 16px',
+          borderRadius: '10px',
+          border: '1px solid rgba(0, 212, 255, 0.28)',
+          background: 'linear-gradient(135deg, rgba(0, 212, 255, 0.08) 0%, rgba(58, 134, 255, 0.03) 100%)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: 'var(--cyan)', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.06em', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <span>⚡</span> Active Architecture
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--green)', background: 'rgba(0, 255, 136, 0.1)', border: '1px solid rgba(0, 255, 136, 0.25)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+              ● Synced
+            </span>
           </div>
-        )}
+
+          <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text)', wordBreak: 'break-all', fontFamily: 'var(--mono)' }}>
+            {currentRepo.replace(/\.git$/i, '').split('/').slice(-2).join('/') || currentRepo}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11.5px', color: 'var(--text-dim)' }}>Branch:</span>
+            <span style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: '11.5px',
+              fontWeight: 600,
+              color: 'var(--cyan)',
+              background: 'rgba(0, 212, 255, 0.12)',
+              padding: '3px 10px',
+              borderRadius: '6px',
+              border: '1px solid rgba(0, 212, 255, 0.25)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}>
+              <span style={{ opacity: 0.8 }}>🌿</span> {currentBranch}
+            </span>
+          </div>
+
+          <div className="text-dim" style={{ fontSize: '11px', marginTop: '2px', lineHeight: 1.45 }}>
+            Imported via Overview. Analysis runs automatically for this branch. To analyze another repository or branch, switch or import from the Overview tab.
+          </div>
+        </div>
 
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="form-field">
-            <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-dim)' }}>
-              Repository URL
-            </label>
-            <input
-              className="form-input"
-              type="text"
-              value={repoUrls}
-              onChange={e => setRepoUrls(e.target.value)}
-              placeholder="https://github.com/owner/repo (must match active architecture)"
-              required
-            />
-          </div>
-
-          <div className="form-field">
-            <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-dim)' }}>
-              Commit SHA (or branch ref)
-            </label>
-            <input
-              className="form-input"
-              type="text"
-              value={commitSha}
-              onChange={e => setCommitSha(e.target.value)}
-              placeholder="main"
-              required
-            />
-          </div>
-
-          <div className="form-field">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-dim)' }}>
-                Changed Files {files.trim() ? <span style={{ color: 'var(--yellow)', fontSize: '10px', textTransform: 'none' }}>(manual override)</span> : <span style={{ color: 'var(--cyan)', fontSize: '10px', textTransform: 'none' }}>(auto-detects branch diff)</span>}
+                Changed Files (Optional) {files.trim() ? <span style={{ color: 'var(--yellow)', fontSize: '10px', textTransform: 'none' }}>(manual override)</span> : <span style={{ color: 'var(--cyan)', fontSize: '10px', textTransform: 'none' }}>(auto-detects branch diff)</span>}
               </label>
               <div style={{ display: 'flex', gap: '6px' }}>
                 {files.trim() && (
@@ -220,16 +290,22 @@ export default function ImpactForm({ onAnalysis }) {
             </div>
             <textarea
               className="diff-editor"
-              placeholder={"Leave blank to automatically detect all changed files in this commit/branch from GitHub\nOr specify: services/order_service/main.py, services/user_service/main.py"}
+              placeholder={"Leave blank to automatically detect all changed files in this branch\nOr specify: services/order_service/main.py, services/user_service/main.py"}
               value={files}
               onChange={e => setFiles(e.target.value)}
               rows={4}
-              style={{ minHeight: '140px', fontSize: '12px' }}
+              style={{ minHeight: '130px', fontSize: '12px' }}
             />
           </div>
 
           <button type="submit" className="btn btn-primary" disabled={loading} style={{ height: '42px', width: '100%', justifyContent: 'center' }}>
-            {loading ? <><span className="spinner-xs" /> Analyzing Commit {commitSha.length > 14 ? commitSha.substring(0, 12) + '…' : commitSha}…</> : '⚡ Run HMDA Analysis'}
+            {loading ? (
+              <><span className="spinner-xs" /> Analyzing @{currentBranch.length > 14 ? currentBranch.substring(0, 12) + '…' : currentBranch}…</>
+            ) : files.trim() ? (
+              '⚡ Re-run Analysis with Overrides'
+            ) : (
+              '⚡ Re-run Impact Analysis'
+            )}
           </button>
           {error && <div className="form-error">{error}</div>}
         </form>
@@ -252,16 +328,21 @@ export default function ImpactForm({ onAnalysis }) {
             <div className="text-dim text-xs" style={{ marginTop: '2px' }}>Live hierarchical microservice drift analysis output</div>
           </div>
           {results && results.length > 0 && (
-            <span style={{ fontSize: '11px', color: 'var(--cyan)', background: 'rgba(0, 212, 255, 0.08)', border: '1px solid rgba(0, 212, 255, 0.2)', padding: '4px 10px', borderRadius: '12px', fontWeight: 600 }}>
-              Live Report
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--green)', background: 'rgba(0, 255, 136, 0.08)', border: '1px solid rgba(0, 255, 136, 0.25)', padding: '3px 10px', borderRadius: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <span>✓</span> Analyzed
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--cyan)', background: 'rgba(0, 212, 255, 0.08)', border: '1px solid rgba(0, 212, 255, 0.2)', padding: '3px 10px', borderRadius: '12px', fontWeight: 600 }}>
+                Live Report
+              </span>
+            </div>
           )}
         </div>
 
         {!results && !loading && (
           <div className="result-placeholder" style={{ minHeight: '360px' }}>
             <div className="result-placeholder-icon" style={{ fontSize: '42px', opacity: 0.3 }}>⚡</div>
-            <p className="text-sm text-dim">Configure a target repository and click <strong>Run HMDA Analysis</strong> to generate the live blast-radius and remediation report.</p>
+            <p className="text-sm text-dim">Ready to analyze <strong style={{ color: 'var(--cyan)' }}>{currentRepo.replace(/\.git$/i, '').split('/').slice(-2).join('/') || currentRepo} @{currentBranch}</strong>.</p>
           </div>
         )}
 
@@ -270,7 +351,7 @@ export default function ImpactForm({ onAnalysis }) {
             <div className="spinner" />
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', textAlign: 'center' }}>
               <span className="text-dim text-sm">
-                Target Commit / Ref: <strong style={{ color: 'var(--cyan)' }}>{commitSha}</strong>
+                Target Branch / Ref: <strong style={{ color: 'var(--cyan)' }}>{currentBranch}</strong>
               </span>
               <span className="text-dim text-xs" style={{ opacity: 0.75 }}>
                 Resolving commit SHA, calculating HMDA risk score & evaluating architectural drift…
@@ -559,9 +640,9 @@ export default function ImpactForm({ onAnalysis }) {
                                     ✓ Sandbox Mode (Live Graph Unchanged)
                                   </span>
                                 </div>
-                                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '-8px' }}>
-                                  Simulates architectural smell risk reduction on sandbox graph (0–100 scale, distinct from commit drift score)
-                                </div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '-8px' }}>
+                                    Simulates risk score reduction on sandbox graph by applying the recommended architectural fix
+                                  </div>
 
                                 {/* Comparison Gauge Row */}
                                 <div style={{

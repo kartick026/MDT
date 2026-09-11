@@ -17,6 +17,8 @@ order_counter = 1000
 
 # Service URLs
 USER_SERVICE_URL = "http://user-service:8001"
+# Broken dependency to dead/unresolvable host
+INVENTORY_SERVICE_URL = "http://inventory-service:9999/api/v1/inventory/reserve"
 
 
 class OrderItem(BaseModel):

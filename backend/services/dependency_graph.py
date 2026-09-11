@@ -75,6 +75,14 @@ async def _run_query(driver, query: str, **params) -> List[Dict[str, Any]]:
     if driver is None:
         return []
 
+    from core.database import MockNeo4jDriver
+    if isinstance(driver, MockNeo4jDriver) or getattr(driver, "is_mock", False):
+        refreshed = get_neo4j_driver()
+        if refreshed and not isinstance(refreshed, MockNeo4jDriver) and not getattr(refreshed, "is_mock", False):
+            driver = refreshed
+        else:
+            return []
+
     # Try async driver first (neo4j.AsyncGraphDatabase.driver)
     try:
         async with driver.session() as session:
@@ -107,7 +115,13 @@ class DependencyGraph:
 
     def _refresh_driver(self):
         """Re-fetch driver in case it connected after this object was created."""
-        if self.driver is None:
+        from core.database import MockNeo4jDriver
+        if (
+            self.driver is None
+            or isinstance(self.driver, MockNeo4jDriver)
+            or getattr(self.driver, "is_mock", False)
+            or getattr(self.driver, "_closed", False)
+        ):
             self.driver = get_neo4j_driver()
 
     # ------------------------------------------------------------------ #
@@ -199,6 +213,47 @@ class DependencyGraph:
 
         logger.info("Graph seeded with %d services and %d dependency edges",
                     len(_get_known_services()), len(_get_known_dependencies()))
+
+    async def seed_demo_history(self, history: Dict[str, Any]):
+        """Seed historical snapshots for local demo drift smell detection."""
+        self._refresh_driver()
+        if not self.driver or not history:
+            return
+
+        for snap in history.get("dependency_snapshots", []):
+            try:
+                await _run_query(
+                    self.driver,
+                    """
+                    MERGE (snapshot:DependencySnapshot {signature: $signature})
+                    ON CREATE SET snapshot.edges = $edges, snapshot.created_at = $created_at
+                    """,
+                    signature=snap["signature"],
+                    edges=snap.get("edges", []),
+                    created_at=snap.get("created_at", _now_iso()),
+                )
+            except Exception as exc:
+                logger.debug("DependencySnapshot seed error: %s", exc)
+
+        for snap in history.get("api_snapshots", []):
+            try:
+                await _run_query(
+                    self.driver,
+                    """
+                    MERGE (snapshot:ApiSnapshot {service: $service, signature: $signature})
+                    ON CREATE SET snapshot.endpoints = $endpoints, snapshot.created_at = $created_at
+                    """,
+                    service=snap["service"],
+                    signature=snap["signature"],
+                    endpoints=snap.get("endpoints", []),
+                    created_at=snap.get("created_at", _now_iso()),
+                )
+            except Exception as exc:
+                logger.debug("ApiSnapshot seed error: %s", exc)
+
+        logger.info("Demo smell history seeded (%d dep snapshots, %d api snapshots)",
+                    len(history.get("dependency_snapshots", [])),
+                    len(history.get("api_snapshots", [])))
 
     # ------------------------------------------------------------------ #
     #  Service node operations
@@ -331,9 +386,8 @@ class DependencyGraph:
         """
         self._refresh_driver()
         try:
-            depth_int = int(depth)
-            if not 1 <= depth_int <= 10:
-                depth_int = 4
+            depth_val = depth if isinstance(depth, int) else int(depth)
+            depth_int = depth_val if 1 <= depth_val <= 10 else 4
         except (ValueError, TypeError):
             depth_int = 4
 

@@ -28,6 +28,7 @@ services:
       # Repository onboarding writes registry.json at runtime. Keep that
       # project model when the backend image is rebuilt or recreated.
       - registry_data:/app/data
+      - ./.git:/app/.git:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
       interval: 15s

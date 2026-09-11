@@ -20,14 +20,19 @@ function RiskBar({ score, level }) {
   );
 }
 
-export default function ServiceGrid() {
+// In-memory cache for instant tab transitions without spinner flashes (stale-while-revalidate)
+let cachedServices = null;
+let cachedBugs = null;
+let cachedLastUpdated = null;
+
+export default function ServiceGrid({ onImportSuccess, onNavigateTab }) {
   const { isAuthenticated, openLoginModal } = useAuth();
   const { addToast } = useToast();
 
-  const [services, setServices] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [services, setServices] = useState(() => cachedServices || []);
+  const [loading, setLoading]   = useState(() => !cachedServices);
   const [error, setError]       = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(() => cachedLastUpdated || null);
   const [refreshing, setRefreshing]   = useState(false);
   const [resetting, setResetting]     = useState(false);
 
@@ -39,7 +44,7 @@ export default function ServiceGrid() {
   const [importResult, setImportResult] = useState(null);
 
   // Connection bugs state
-  const [bugs, setBugs] = useState([]);
+  const [bugs, setBugs] = useState(() => cachedBugs || []);
 
   const fetchServices = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -48,12 +53,17 @@ export default function ServiceGrid() {
         getServices(),
         getConnectionBugs().catch(() => [])
       ]);
+      cachedServices = svcData;
+      cachedBugs = bugData;
+      cachedLastUpdated = new Date();
       setServices(svcData);
       setBugs(bugData);
-      setLastUpdated(new Date());
+      setLastUpdated(cachedLastUpdated);
       setError(null);
     } catch {
-      setError("Cannot reach MDT backend. Make sure Docker is running on :8000");
+      if (!cachedServices) {
+        setError("Cannot reach MDT backend. Make sure Docker is running on :8000");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -76,6 +86,7 @@ export default function ServiceGrid() {
     try {
       await resetDefaultRegistry();
       addToast("Local demo fleet restored successfully!", "success");
+      onImportSuccess?.({ repo_url: 'https://github.com/kartick026/MDT', branch: 'main' });
       await fetchServices(true);
     } catch (err) {
       const msg = err.response?.status === 404
@@ -99,12 +110,19 @@ export default function ServiceGrid() {
     setImporting(true);
     setImportResult(null);
     try {
-      const res = await importRepo({ repo_url: importUrl, branch: importBranch });
-      addToast(`Imported ${res.services_count} services and ${res.dependencies_count} dependencies!`, "success");
+      const targetBranch = (importBranch || '').trim() || 'main';
+      const res = await importRepo({ repo_url: importUrl.trim(), branch: targetBranch });
+      addToast(`Imported ${res.services_count} services and ${res.dependencies_count} dependencies from branch "${targetBranch}"!`, "success");
       setImportResult({
         success: true,
-        message: `Successfully imported ${res.services_count} services and ${res.dependencies_count} dependencies from ${res.compose_file || 'repo'}!`,
-        bugsCount: res.connection_bugs?.length || 0
+        message: `Successfully imported ${res.services_count} services and ${res.dependencies_count} dependencies from ${res.compose_file || 'repo'} (${targetBranch})!`,
+        bugsCount: res.connection_bugs?.length || 0,
+        branch: targetBranch,
+      });
+      onImportSuccess?.({
+        repo_url: importUrl.trim(),
+        branch: targetBranch,
+        ...res
       });
       await fetchServices(true);
     } catch (err) {
@@ -236,15 +254,50 @@ export default function ServiceGrid() {
           {importResult && (
             <div style={{
               marginTop: '12px',
-              padding: '10px 14px',
+              padding: '12px 14px',
               borderRadius: '6px',
               fontSize: '13px',
               background: importResult.success ? 'var(--green-dim)' : 'var(--red-dim)',
               color: importResult.success ? 'var(--green)' : 'var(--red)',
               border: `1px solid ${importResult.success ? 'rgba(0,255,136,0.2)' : 'rgba(255,45,85,0.2)'}`
             }}>
-              {importResult.message}
-              {importResult.bugsCount > 0 && ` (${importResult.bugsCount} connection issue(s) detected)`}
+              <div>{importResult.message}</div>
+              {!importResult.success && importResult.message.includes("Did you mean '") && (
+                <div style={{ marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      const m = importResult.message.match(/Did you mean '([^']+)'\?/);
+                      if (m && m[1]) {
+                        setImportBranch(m[1]);
+                        setImportResult(null);
+                      }
+                    }}
+                    style={{ fontSize: '12px', padding: '4px 10px', color: 'var(--cyan)', border: '1px solid rgba(0, 212, 255, 0.4)', background: 'rgba(0, 212, 255, 0.08)' }}
+                  >
+                    Use suggested branch: {importResult.message.match(/Did you mean '([^']+)'\?/)?.[1]} ↵
+                  </button>
+                </div>
+              )}
+              {importResult.bugsCount > 0 && (
+                <div style={{ fontSize: '11px', marginTop: '2px', opacity: 0.9 }}>
+                  ⚠ {importResult.bugsCount} architectural connection issue(s) detected.
+                </div>
+              )}
+              {importResult.success && onNavigateTab && (
+                <div style={{ marginTop: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => onNavigateTab('impact')}
+                    style={{ fontSize: '12px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <span>⚡ Run Impact Analysis on {importResult.branch || 'branch'}</span>
+                    <span>➔</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -128,11 +128,46 @@ async def init_databases():
         logger.warning("ChromaDB initialization failed: %s", exc)
 
 
+def _try_reconnect_neo4j() -> bool:
+    """Attempt to establish or re-establish a live connection to Neo4j."""
+    global neo4j_driver
+    try:
+        from neo4j import GraphDatabase
+        neo4j_opts: Dict[str, Any] = {
+            "max_connection_pool_size": 50,
+            "connection_acquisition_timeout": 5.0,
+            "connection_timeout": 3.0,
+            "max_connection_lifetime": 3600,
+        }
+        if settings.NEO4J_URI.startswith(("neo4j+s://", "bolt+s://")):
+            neo4j_opts["encrypted"] = True
+
+        driver = GraphDatabase.driver(
+            settings.NEO4J_URI,
+            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+            **neo4j_opts,
+        )
+        driver.verify_connectivity()
+        neo4j_driver = driver
+        logger.info("Successfully reconnected to live Neo4j: %s", settings.NEO4J_URI)
+        return True
+    except Exception as exc:
+        logger.debug("Neo4j reconnect attempt failed: %s", exc)
+        return False
+
+
 def get_neo4j_driver() -> Optional[Any]:
     """Return the Neo4j driver singleton, or MockNeo4jDriver if closed / not connected."""
     global neo4j_driver
-    if neo4j_driver is not None and getattr(neo4j_driver, "_closed", False):
-        neo4j_driver = MockNeo4jDriver()
+    if (
+        neo4j_driver is None
+        or isinstance(neo4j_driver, MockNeo4jDriver)
+        or getattr(neo4j_driver, "is_mock", False)
+        or getattr(neo4j_driver, "_closed", False)
+    ):
+        if not _try_reconnect_neo4j():
+            if neo4j_driver is None or getattr(neo4j_driver, "_closed", False):
+                neo4j_driver = MockNeo4jDriver()
     return neo4j_driver
 
 
@@ -144,16 +179,23 @@ def get_chroma_client() -> Optional[Any]:
 def check_neo4j_health() -> Dict[str, Any]:
     """Return Neo4j connectivity status and driver details."""
     global neo4j_driver
+    if (
+        neo4j_driver is None
+        or isinstance(neo4j_driver, MockNeo4jDriver)
+        or getattr(neo4j_driver, "is_mock", False)
+    ):
+        _try_reconnect_neo4j()
+
     if neo4j_driver is None:
         return {"status": "uninitialized", "is_mock": True, "connected": False}
     if isinstance(neo4j_driver, MockNeo4jDriver) or getattr(neo4j_driver, "is_mock", False):
-        # A mock keeps the application usable for local development, but it is
-        # not a live graph database and must never be reported as one.
         return {"status": "mock_mode", "is_mock": True, "connected": False, "note": "Local mock active"}
     try:
         neo4j_driver.verify_connectivity()
         return {"status": "healthy", "is_mock": False, "connected": True, "uri": settings.NEO4J_URI}
     except Exception as exc:
+        if _try_reconnect_neo4j():
+            return {"status": "healthy", "is_mock": False, "connected": True, "uri": settings.NEO4J_URI}
         return {"status": "unhealthy", "is_mock": False, "connected": False, "error": str(exc)}
 
 

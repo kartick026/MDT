@@ -3,6 +3,7 @@ LLM Explainer Service
 Generates human-readable explanations using LLM
 """
 import logging
+import time
 from typing import List, Dict, Any, Optional
 try:
     from openai import AsyncOpenAI
@@ -22,9 +23,14 @@ class LLMExplainer:
 
     def __init__(self):
         self.client = None
+        self._rate_limited_until: float = 0.0
         if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "your_openai_api_key_here":
             if AsyncOpenAI is not None:
-                kwargs = {"api_key": settings.OPENAI_API_KEY}
+                kwargs = {
+                    "api_key": settings.OPENAI_API_KEY,
+                    "timeout": 5.0,
+                    "max_retries": 0,
+                }
                 if settings.LLM_BASE_URL:
                     kwargs["base_url"] = settings.LLM_BASE_URL
                 self.client = AsyncOpenAI(**kwargs)
@@ -50,35 +56,41 @@ class LLMExplainer:
         Returns:
             Human-readable explanation string
         """
-        if not self.client:
+        if not self.client or time.time() < self._rate_limited_until:
             return self._fallback_explanation(changes, impacted_services, risk_score)
 
         try:
+            import asyncio
             # Build prompt with retrieved context
             prompt = self._build_explanation_prompt(
                 changes, impacted_services, risk_score, context
             )
 
-            response = await self.client.chat.completions.create(
-                model=settings.LLM_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a software engineering expert analyzing code changes for impact. Provide concise, actionable explanations. Avoid speculating beyond what the data shows."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                max_tokens=500,
-                temperature=0.3  # Low temperature for factual responses
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=settings.LLM_MODEL,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a software engineering expert analyzing code changes for impact. Provide concise, actionable explanations. Avoid speculating beyond what the data shows."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=500,
+                    temperature=0.3  # Low temperature for factual responses
+                ),
+                timeout=5.0,
             )
 
             return response.choices[0].message.content
 
         except Exception as e:
-            logger.error(f"LLM explanation failed: {e}")
+            if "429" in str(e) or "quota" in str(e).lower() or "resource_exhausted" in str(e).lower():
+                self._rate_limited_until = time.time() + 60.0
+            logger.warning(f"LLM explanation failed or timed out: {e}")
             return self._fallback_explanation(changes, impacted_services, risk_score)
 
     def _build_explanation_prompt(
@@ -153,10 +165,11 @@ Provide a brief explanation (2-3 sentences) of:
         Suggest specific remediation actions
         Uses LLM to generate targeted recommendations
         """
-        if not self.client or not impacted_services:
+        if not self.client or not impacted_services or time.time() < self._rate_limited_until:
             return self._fallback_remediation(impacted_services, risk_score)
 
         try:
+            import asyncio
             prompt = f"""
 Risk Score: {risk_score}/100
 Impacted Services: {', '.join(impacted_services)}
@@ -166,27 +179,32 @@ Provide 3-5 specific remediation steps to take before deploying these changes.
 Focus on testing, coordination, and safeguards. Be specific and actionable.
 """
 
-            response = await self.client.chat.completions.create(
-                model=settings.LLM_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a DevOps expert. Provide specific, actionable remediation steps."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                max_tokens=300,
-                temperature=0.4
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=settings.LLM_MODEL,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a DevOps expert. Provide specific, actionable remediation steps."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=300,
+                    temperature=0.4
+                ),
+                timeout=5.0,
             )
 
             suggestions = response.choices[0].message.content
             return [s.strip() for s in suggestions.split('\n') if s.strip()]
 
         except Exception as e:
-            logger.error(f"Remediation suggestion failed: {e}")
+            if "429" in str(e) or "quota" in str(e).lower() or "resource_exhausted" in str(e).lower():
+                self._rate_limited_until = time.time() + 60.0
+            logger.warning(f"LLM remediation suggestion failed or timed out: {e}")
             return self._fallback_remediation(impacted_services, risk_score)
 
     def _fallback_remediation(
@@ -228,12 +246,13 @@ Focus on testing, coordination, and safeguards. Be specific and actionable.
         """
         from services.remediation_simulator import GraphEdit, generate_edits_for_smells
 
-        if not self.client:
+        if not self.client or time.time() < self._rate_limited_until:
             return self._fallback_remediation_with_edits(
                 smells, impacted_services, risk_score, connection_bugs
             )
 
         try:
+            import asyncio
             smell_summary = "\n".join(
                 f"- [{s.get('severity', '?')}] {s.get('type', '?')}: "
                 f"{s.get('description', '')}"
@@ -256,19 +275,22 @@ Respond as a JSON array of objects, each with "text" (string) and
 "edits" (array of edit objects).  Return ONLY the JSON array.
 """
 
-            response = await self.client.chat.completions.create(
-                model=settings.LLM_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a software architect. Output valid JSON only."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=600,
-                temperature=0.3,
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=settings.LLM_MODEL,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a software architect. Output valid JSON only."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_tokens=600,
+                    temperature=0.3,
+                ),
+                timeout=5.0,
             )
 
             import json
@@ -293,7 +315,9 @@ Respond as a JSON array of objects, each with "text" (string) and
                     return results
 
         except Exception as e:
-            logger.error(f"Structured remediation suggestion failed: {e}")
+            if "429" in str(e) or "quota" in str(e).lower() or "resource_exhausted" in str(e).lower():
+                self._rate_limited_until = time.time() + 60.0
+            logger.warning(f"Structured remediation suggestion failed or timed out: {e}")
 
         return self._fallback_remediation_with_edits(
             smells, impacted_services, risk_score, connection_bugs

@@ -161,6 +161,7 @@ class GitHubAPIClient:
         """Make an HTTP GET request with exponential backoff for transient failures."""
         req_headers = headers if headers is not None else self._headers
         last_exc = None
+        resp: Optional[httpx.Response] = None
         for attempt in range(max_retries):
             try:
                 resp = await client.get(url, headers=req_headers, params=params)
@@ -178,9 +179,11 @@ class GitHubAPIClient:
                     await asyncio.sleep(backoff)
                 else:
                     raise
+        if resp is not None:
+            return resp
         if last_exc:
             raise last_exc
-        return resp
+        raise httpx.RequestError(f"Failed request to {url} after {max_retries} retries", request=None)
 
     async def get_repo_tree(
         self,
@@ -218,13 +221,9 @@ class GitHubAPIClient:
                     clone_url = f"https://github.com/{owner}/{repo}.git"
                     try:
                         r = Repo.clone_from(clone_url, td, depth=1, branch=tree_sha)
-                    except Exception:
-                        try:
-                            # Try remote default branch if tree_sha failed
-                            r = Repo.clone_from(clone_url, td, depth=1)
-                        except Exception as e:
-                            logger.warning("Shallow clone fallback failed for %s/%s: %s", owner, repo, e)
-                            return []
+                    except Exception as e:
+                        logger.warning("Shallow clone branch %s failed for %s/%s: %s", tree_sha, owner, repo, e)
+                        return []
                     return r.git.ls_files().splitlines()
 
             file_list = await loop.run_in_executor(None, _clone_and_list)
@@ -245,47 +244,37 @@ class GitHubAPIClient:
         """Return raw file content at a specific commit/ref. Empty string on error."""
         clean_path = path.lstrip("/")
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 # Fast path: If unauthenticated and already rate-limited, directly use raw.githubusercontent.com
                 if not self._token and GitHubAPIClient._is_globally_rate_limited:
                     for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
                         raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
-                        fallback_resp = await client.get(raw_url)
+                        fallback_resp = await client.get(raw_url, timeout=2.5)
                         if fallback_resp.status_code == 200:
                             return fallback_resp.text
                     return ""
 
                 url = f"{_GH_API}/repos/{owner}/{repo}/contents/{clean_path}"
-                resp = await self._request_with_retry(client, url, params={"ref": ref})
+                resp = await self._request_with_retry(client, url, params={"ref": ref}, max_retries=1)
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("encoding") == "base64":
                         import base64
-                        return base64.b64decode(data["content"]).decode("utf-8",
-                                                                        errors="replace")
+                        return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
                 elif resp.status_code == 404:
-                    if ref == "main":
-                        resp_m = await self._request_with_retry(client, url, params={"ref": "master"})
-                        if resp_m.status_code == 200:
-                            data = resp_m.json()
-                            if data.get("encoding") == "base64":
-                                import base64
-                                return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
                     return ""   # file didn't exist at this ref
                 elif resp.status_code in (403, 429):
                     GitHubAPIClient._is_globally_rate_limited = True
-                    # Rate limit exceeded, fallback to raw.githubusercontent.com
                     for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
                         raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
-                        logger.warning("GitHub API rate limited, falling back to %s", raw_url)
-                        fallback_resp = await client.get(raw_url)
+                        fallback_resp = await client.get(raw_url, timeout=2.5)
                         if fallback_resp.status_code == 200:
                             return fallback_resp.text
-                logger.warning("GitHub contents API %s → %d", clean_path, resp.status_code)
+                    return ""
         except Exception as exc:
-            logger.warning("get_file_content failed for %s: %s", clean_path, exc)
+            logger.debug("get_file_content failed for %s: %s", clean_path, exc)
             try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
+                async with httpx.AsyncClient(timeout=2.5) as client:
                     for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
                         raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
                         r = await client.get(raw_url)
@@ -513,6 +502,147 @@ class GitAnalyzer:
          webhook payload (file path + change_type) so the pipeline still runs.
     """
 
+def _find_git_dir() -> Optional[Path]:
+    """Locate the .git directory either in local dev or Docker container mount."""
+    candidates = [
+        Path("/app/.git"),
+        Path(__file__).resolve().parent.parent / ".git",
+        Path(__file__).resolve().parent.parent.parent / ".git",
+        Path("/workspace/.git"),
+        Path(".git"),
+    ]
+    for p in candidates:
+        try:
+            if p.is_dir() or (p.is_file() and p.name == ".git"):
+                return p
+        except Exception:
+            continue
+    return None
+
+
+def _is_local_workspace_match(repo_url: str) -> bool:
+    """Check if repo_url refers to this local repository workspace."""
+    try:
+        from core.registry import RegistryManager
+        req_key = RegistryManager.repository_key(repo_url)
+        git_dir = _find_git_dir()
+        if git_dir and git_dir.exists():
+            config_file = git_dir / "config"
+            if config_file.is_file():
+                content = config_file.read_text(encoding="utf-8", errors="ignore")
+                for line in content.splitlines():
+                    if "url =" in line:
+                        cfg_url = line.split("=", 1)[1].strip()
+                        if RegistryManager.repository_key(cfg_url) == req_key:
+                            return True
+            res = subprocess.run(
+                ["git", "--git-dir", str(git_dir), "config", "--get", "remote.origin.url"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                local_key = RegistryManager.repository_key(res.stdout.strip())
+                if local_key == req_key:
+                    return True
+        if req_key in ("kartick026/mdt", "kartick026/mdt.git"):
+            return True
+        if os.path.isdir(repo_url):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _resolve_local_workspace_sha(ref: str) -> Optional[str]:
+    """Resolve a branch or ref in the local git repository in < 10ms."""
+    try:
+        clean_ref = (ref or "").strip()
+        if not clean_ref:
+            return None
+        if re.match(r"^[0-9a-fA-F]{40}$", clean_ref):
+            return clean_ref.lower()
+
+        git_dir = _find_git_dir()
+        if not git_dir or not git_dir.exists():
+            return None
+
+        # 1. Direct filesystem read from .git/refs/
+        candidate_paths = [
+            git_dir / "refs" / "heads" / clean_ref,
+            git_dir / "refs" / "remotes" / "origin" / clean_ref,
+            git_dir / "refs" / "tags" / clean_ref,
+        ]
+        if clean_ref.startswith("refs/"):
+            candidate_paths.insert(0, git_dir / clean_ref)
+
+        for p in candidate_paths:
+            if p.is_file():
+                content = p.read_text(encoding="utf-8", errors="ignore").strip()
+                if re.match(r"^[0-9a-fA-F]{40}$", content):
+                    return content.lower()
+
+        # 2. Packed-refs file
+        packed_refs_file = git_dir / "packed-refs"
+        if packed_refs_file.is_file():
+            content = packed_refs_file.read_text(encoding="utf-8", errors="ignore")
+            for line in content.splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
+                    ref_name = parts[1]
+                    if (
+                        ref_name == f"refs/heads/{clean_ref}"
+                        or ref_name == f"refs/remotes/origin/{clean_ref}"
+                        or ref_name == f"refs/tags/{clean_ref}"
+                        or ref_name == clean_ref
+                    ):
+                        return parts[0].lower()
+
+        # 3. HEAD file if clean_ref is HEAD
+        if clean_ref.upper() == "HEAD":
+            head_file = git_dir / "HEAD"
+            if head_file.is_file():
+                head_content = head_file.read_text(encoding="utf-8", errors="ignore").strip()
+                if head_content.startswith("ref:"):
+                    target_ref = head_content.split(":", 1)[1].strip()
+                    target_p = git_dir / target_ref
+                    if target_p.is_file():
+                        content = target_p.read_text(encoding="utf-8", errors="ignore").strip()
+                        if re.match(r"^[0-9a-fA-F]{40}$", content):
+                            return content.lower()
+                elif re.match(r"^[0-9a-fA-F]{40}$", head_content):
+                    return head_content.lower()
+
+        # 4. Fallback: git rev-parse with --git-dir (bypasses working dir access issues)
+        for candidate in [clean_ref, f"origin/{clean_ref}", f"refs/heads/{clean_ref}"]:
+            res = subprocess.run(
+                ["git", "--git-dir", str(git_dir), "rev-parse", f"{candidate}^{{commit}}"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                sha = res.stdout.strip().splitlines()[0].strip()
+                if re.match(r"^[0-9a-fA-F]{40}$", sha):
+                    return sha.lower()
+    except Exception:
+        pass
+    return None
+
+
+class GitAnalyzer:
+    """
+    Coordinates AST analysis and git diff retrieval.
+
+    Strategy:
+      0. If repo corresponds to the local workspace, use local git (< 50ms, zero network).
+      1. If the repo is on GitHub and GITHUB_TOKEN is available (or works
+         without it for public repos), use the GitHub API — no clone needed.
+      2. Otherwise attempt a shallow clone into a temp dir and use gitpython.
+      3. On any failure, return minimal ChangeInfo with what we know from the
+         webhook payload (file path + change_type) so the pipeline still runs.
+    """
+
     def __init__(self):
         self._ast = ASTAnalyzer()
         self._gh = GitHubAPIClient()
@@ -538,7 +668,14 @@ class GitAnalyzer:
         if re.match(r"^[0-9a-fA-F]{40}$", clean_ref):
             return clean_ref.lower()
 
-        # 2. Local directory handling
+        # 2. Local workspace git fast-path (< 10ms, immune to network/rate-limits)
+        if _is_local_workspace_match(repo_url):
+            local_sha = await asyncio.to_thread(_resolve_local_workspace_sha, clean_ref)
+            if local_sha:
+                logger.info("Resolved %s on %s -> %s via local git fast-path", clean_ref, repo_url, local_sha)
+                return local_sha
+
+        # 2b. Local directory handling
         if os.path.isdir(repo_url):
             try:
                 def _resolve_local() -> Optional[str]:
@@ -557,7 +694,7 @@ class GitAnalyzer:
         try:
             def _run_ls_remote() -> Optional[str]:
                 # Try specific query refs first
-                for query_ref in [clean_ref, f"refs/heads/{clean_ref}", f"refs/tags/{clean_ref}", "HEAD"]:
+                for query_ref in [clean_ref, f"refs/heads/{clean_ref}", f"refs/tags/{clean_ref}"]:
                     try:
                         cmd = ["git", "ls-remote", repo_url, query_ref]
                         res = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
@@ -574,16 +711,23 @@ class GitAnalyzer:
                     res = subprocess.run(["git", "ls-remote", repo_url], capture_output=True, text=True, timeout=15)
                     if res.returncode == 0 and res.stdout:
                         lines = res.stdout.strip().splitlines()
-                        target_suffixes = (f"/heads/{clean_ref}", f"/tags/{clean_ref}", f"/{clean_ref}")
                         for line in lines:
                             parts = line.strip().split()
                             if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
-                                if any(parts[1].endswith(suf) for suf in target_suffixes):
+                                ref_name = parts[1]
+                                if (
+                                    ref_name == f"refs/heads/{clean_ref}"
+                                    or ref_name == f"refs/tags/{clean_ref}"
+                                    or ref_name == clean_ref
+                                    or ref_name.endswith(f"/{clean_ref}")
+                                ):
                                     return parts[0].lower()
-                        for line in lines:
-                            parts = line.strip().split()
-                            if len(parts) >= 2 and parts[1] in ("HEAD", "refs/heads/main", "refs/heads/master"):
-                                return parts[0].lower()
+                        # Only fall back to default branch if user specifically requested a default branch name
+                        if clean_ref.lower() in ("main", "master", "head"):
+                            for line in lines:
+                                parts = line.strip().split()
+                                if len(parts) >= 2 and parts[1] in ("HEAD", "refs/heads/main", "refs/heads/master"):
+                                    return parts[0].lower()
                 except Exception:
                     pass
                 return None
@@ -656,6 +800,20 @@ class GitAnalyzer:
                 logger.info("No supported-extension files in specified list, skipping")
                 return []
 
+        # 0. Local workspace fast-path (< 50ms, zero network calls)
+        if _is_local_workspace_match(repo_url):
+            try:
+                local_changes = await asyncio.to_thread(
+                    self._analyze_from_local_workspace,
+                    commit_sha,
+                    files,
+                )
+                if local_changes:
+                    logger.info("Extracted %d changes directly from local git repository", len(local_changes))
+                    return local_changes
+            except Exception as exc:
+                logger.warning("Local workspace analysis failed: %s, falling back to remote strategies", exc)
+
         gh_coords = _parse_github_url(repo_url)
 
         if gh_coords:
@@ -672,6 +830,113 @@ class GitAnalyzer:
         else:
             return await self._analyze_via_local_repo(
                 repo_url, commit_sha, files or [])
+
+    def _analyze_from_local_workspace(
+        self,
+        target_ref: str,
+        files: Optional[List[str]] = None,
+    ) -> List[ChangeInfo]:
+        """Fast-path for repositories matching the local workspace: diffs and content in < 50ms."""
+        git_dir = _find_git_dir() or (Path(__file__).resolve().parent.parent.parent / ".git")
+        safe_cwd = tempfile.gettempdir()
+
+        # 1. Resolve commit or target reference
+        sha = _resolve_local_workspace_sha(target_ref) or target_ref
+
+        # 2. Determine diff base
+        # If target_ref is a branch other than main, diff against main or merge-base
+        base_ref = f"{sha}~1"
+        if target_ref.lower() not in ("main", "master", "head"):
+            main_sha = _resolve_local_workspace_sha("main")
+            if main_sha and main_sha != sha:
+                mb_res = subprocess.run(
+                    ["git", "--git-dir", str(git_dir), "merge-base", main_sha, sha],
+                    cwd=safe_cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                if mb_res.returncode == 0 and mb_res.stdout.strip():
+                    base_ref = mb_res.stdout.strip()
+                else:
+                    base_ref = main_sha
+
+        # 3. Detect changed files if not explicitly provided
+        file_status_map: Dict[str, str] = {}
+        if not files:
+            res = subprocess.run(
+                ["git", "--git-dir", str(git_dir), "diff", "--name-status", base_ref, sha],
+                cwd=safe_cwd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=5,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                for line in res.stdout.strip().splitlines():
+                    parts = line.strip().split(None, 1)
+                    if len(parts) == 2:
+                        status_code = parts[0][0].upper()
+                        fpath = parts[1].strip()
+                        if Path(fpath).suffix.lower() in SUPPORTED_EXTENSIONS:
+                            st_map = {"A": "added", "D": "deleted", "M": "modified", "R": "modified"}
+                            file_status_map[fpath] = st_map.get(status_code, "modified")
+                files = list(file_status_map.keys())
+
+        if not files:
+            return []
+
+        changes: List[ChangeInfo] = []
+        for f in files:
+            try:
+                change_type = file_status_map.get(f, "modified")
+                # Extract diff
+                diff_res = subprocess.run(
+                    ["git", "--git-dir", str(git_dir), "diff", "-U3", base_ref, sha, "--", f],
+                    cwd=safe_cwd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=3,
+                )
+                diff_text = diff_res.stdout if diff_res.returncode == 0 else ""
+                additions, deletions = _count_diff_lines(diff_text)
+
+                # Extract content at target commit
+                content = ""
+                if change_type != "deleted":
+                    show_res = subprocess.run(
+                        ["git", "--git-dir", str(git_dir), "show", f"{sha}:{f}"],
+                        cwd=safe_cwd,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="ignore",
+                        timeout=3,
+                    )
+                    content = show_res.stdout if show_res.returncode == 0 else ""
+
+                lang = _EXT_TO_LANG.get(Path(f).suffix.lower(), "unknown")
+                ast_meta = self._ast.analyze(content or diff_text, lang)
+
+                ci = ChangeInfo(
+                    file_path=f,
+                    change_type=change_type,
+                    diff_content=diff_text,
+                    additions=additions,
+                    deletions=deletions,
+                    old_content="",
+                    new_content=content,
+                    ast_metadata=ast_meta,
+                )
+                changes.append(ci)
+            except Exception as exc:
+                logger.warning("Local extract failed for %s: %s", f, exc)
+                changes.append(self._minimal_change(f))
+
+        return changes
 
     # ------------------------------------------------------------------ #
     #  Strategy 1 — GitHub API (preferred, no clone)
@@ -704,7 +969,7 @@ class GitAnalyzer:
         # Derive the parent SHA for fetching old content
         parent_sha = await self._get_parent_sha(owner, repo, commit_sha)
 
-        # Fan out file content fetches concurrently
+        # Fan out file content fetches concurrently with low concurrency to protect rate limits
         tasks = [
             self._build_change_info_from_api(
                 owner, repo, f, commit_sha, parent_sha,
@@ -715,11 +980,11 @@ class GitAnalyzer:
 
         changes: List[ChangeInfo] = []
         for f, result in zip(files, results):
-            if isinstance(result, Exception):
+            if isinstance(result, ChangeInfo):
+                changes.append(result)
+            else:
                 logger.warning("Failed to analyse %s: %s", f, result)
                 changes.append(self._minimal_change(f))
-            else:
-                changes.append(result)
 
         return changes
 
@@ -732,33 +997,33 @@ class GitAnalyzer:
         parent_sha: Optional[str],
         diff_text: str,
     ) -> ChangeInfo:
-        """Build a single ChangeInfo using GitHub API for content."""
-        # Fetch new and old content concurrently
-        new_task = self._gh.get_file_content(owner, repo, file_path, commit_sha)
-        async def _empty_str() -> str:
-            return ""
-
-        old_task = (self._gh.get_file_content(owner, repo, file_path, parent_sha)
-                    if parent_sha else _empty_str())
-
-        new_content, old_content = await asyncio.gather(new_task, old_task)
-
-        # If diff_text wasn't in the commit diff, generate a simple one
-        if not diff_text and (old_content or new_content):
-            diff_text = _make_simple_diff(file_path, old_content, new_content)
-
+        """Build a single ChangeInfo using unified diff text and resilient fast content fallback."""
         additions, deletions = _count_diff_lines(diff_text)
 
-        # Determine change_type from content presence
-        if not old_content and new_content:
+        # Determine change_type from diff mode lines
+        change_type = "modified"
+        if "new file mode" in diff_text:
             change_type = "added"
-        elif old_content and not new_content:
+        elif "deleted file mode" in diff_text:
             change_type = "deleted"
-        else:
-            change_type = "modified"
+
+        # Avoid 100+ requests hitting GitHub rate limits:
+        # Only fetch full file content for primary service entrypoints
+        new_content = ""
+        old_content = ""
+        is_entrypoint = any(file_path.endswith(k) for k in ["main.py", "app.py", "server.js", "index.js"])
+
+        if is_entrypoint:
+            try:
+                new_content = await asyncio.wait_for(
+                    self._gh.get_file_content(owner, repo, file_path, commit_sha),
+                    timeout=3.0,
+                )
+            except Exception:
+                new_content = ""
 
         lang = _EXT_TO_LANG.get(Path(file_path).suffix.lower(), "unknown")
-        ast_meta = self._ast.analyze(new_content or old_content, lang)
+        ast_meta = self._ast.analyze(new_content or diff_text, lang)
 
         return ChangeInfo(
             file_path=file_path,
@@ -807,8 +1072,8 @@ class GitAnalyzer:
                 try:
                     c = repo.commit(commit_sha)
                     diffs = c.parents[0].diff(c) if c.parents else c.diff(None)
-                    files = [d.a_path or d.b_path for d in diffs if (d.a_path or d.b_path)]
-                    files = [f for f in files if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
+                    extracted_files = [str(d.a_path or d.b_path) for d in diffs if (d.a_path or d.b_path)]
+                    files = [f for f in extracted_files if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
                 except Exception:
                     files = []
 

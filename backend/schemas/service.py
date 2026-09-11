@@ -16,6 +16,7 @@ class ServiceItem(BaseModel):
     risk_level: str = "UNKNOWN"
     risk_score: float = 0.0
     status: str = "offline"
+    is_broken: bool = False
 
 
 class ServiceListResponse(BaseModel):
@@ -31,6 +32,8 @@ class GraphNode(BaseModel):
     port: int = 0
     risk_level: str = "UNKNOWN"
     risk_score: float = 0.0
+    is_broken: bool = False
+    status: str = "healthy"
 
 
 class GraphEdge(BaseModel):

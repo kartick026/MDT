@@ -10,7 +10,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginModal from './components/LoginModal';
 import SystemHealthModal from './components/SystemHealthModal';
 import AuthPage from './components/AuthPage';
-import { getServices, getHealth, getHistory } from './api';
+import { getServices, getHealth, getHistory, getProjectContext } from './api';
 import './App.css';
 
 
@@ -41,6 +41,68 @@ function MainDashboard() {
   const [stats, setStats] = useState({ total: 4, healthy: 0, imported: 0, analyses: 0, avgRisk: 0, scoreCount: 0 });
   const [sysHealth, setSysHealth] = useState({ state: 'loading', label: '… Connecting' });
   const [healthModalOpen, setHealthModalOpen] = useState(false);
+  const [activeProject, setActiveProject] = useState(null);
+
+  const [cachedImpactAnalysis, setCachedImpactAnalysis] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('mdt_cached_impact_analysis');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [analyzedProjectKey, setAnalyzedProjectKey] = useState(() => {
+    try {
+      return sessionStorage.getItem('mdt_analyzed_project_key') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  useEffect(() => {
+    getProjectContext()
+      .then(ctx => {
+        if (ctx?.repo_url) {
+          setActiveProject(prev => {
+            if (prev?.importedAt && prev.importedAt !== 'initial') return prev;
+            return {
+              repo_url: ctx.repo_url,
+              branch: ctx.branch || 'main',
+              importedAt: 'initial'
+            };
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleImportSuccess = (data) => {
+    const newImportedAt = Date.now();
+    setActiveProject({
+      repo_url: data.repo_url,
+      branch: data.branch || 'main',
+      importedAt: newImportedAt
+    });
+    // Invalidate analysis cache so new repository import gets analyzed once
+    setCachedImpactAnalysis(null);
+    setAnalyzedProjectKey('');
+    try {
+      sessionStorage.removeItem('mdt_cached_impact_analysis');
+      sessionStorage.removeItem('mdt_analyzed_project_key');
+    } catch {}
+  };
+
+  const handleSaveImpactAnalysis = (data, key) => {
+    setCachedImpactAnalysis(data);
+    setAnalyzedProjectKey(key);
+    try {
+      sessionStorage.setItem('mdt_cached_impact_analysis', JSON.stringify(data));
+      sessionStorage.setItem('mdt_analyzed_project_key', key);
+    } catch (e) {
+      console.warn('Failed to cache impact analysis in sessionStorage', e);
+    }
+  };
 
   const tabs = [
     { id: 'overview',  label: 'Overview',              icon: '◈' },
@@ -288,18 +350,26 @@ function MainDashboard() {
                   <h2 className="section-title">Registered Services</h2>
                   <span className="badge badge-info">{stats.total} configured</span>
                 </div>
-                <ServiceGrid />
+                <ServiceGrid
+                  onImportSuccess={handleImportSuccess}
+                  onNavigateTab={setTab}
+                />
               </div>
             </div>
           )}
 
-          {tab === 'impact' && (
-            <div className="anim-fade-up">
-              <h1 className="page-title">Impact Analysis</h1>
-              <p className="page-sub">Analyze a repository commit or branch with HMDA risk scoring</p>
-              <ImpactForm onAnalysis={() => setStats(s => ({...s, analyses: s.analyses + 1}))} />
-            </div>
-          )}
+          <div className="anim-fade-up" style={{ display: tab === 'impact' ? 'block' : 'none' }}>
+            <h1 className="page-title">Impact Analysis</h1>
+            <p className="page-sub">Analyze a repository commit or branch with HMDA risk scoring</p>
+            <ImpactForm
+              activeProject={activeProject}
+              cachedAnalysis={cachedImpactAnalysis}
+              analyzedProjectKey={analyzedProjectKey}
+              onSaveAnalysis={handleSaveImpactAnalysis}
+              isActive={tab === 'impact'}
+              onAnalysis={() => setStats(s => ({...s, analyses: s.analyses + 1}))}
+            />
+          </div>
 
           {tab === 'graph' && (
             <div className="anim-fade-up">

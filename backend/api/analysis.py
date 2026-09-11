@@ -72,26 +72,26 @@ def _ensure_active_project_matches(repo_url: str) -> Dict[str, Any]:
 
 
 class AnalysisRequest(BaseModel):
-    """Manual analysis request with strict validation"""
-    repo_url: str = Field(..., description="Repository URL or local path to repository")
-    commit_sha: str = Field(..., description="Commit SHA or branch reference (e.g. 'main', 'feat/login')")
+    """Manual analysis request. If repo_url or commit_sha is omitted, uses the active project context."""
+    repo_url: Optional[str] = Field(None, description="Repository URL (defaults to active architecture if omitted)")
+    commit_sha: Optional[str] = Field(None, description="Commit SHA or branch reference (defaults to imported branch if omitted)")
     changed_files: Optional[List[str]] = Field(None, description="Optional manual list of changed files")
 
     @field_validator("repo_url")
     @classmethod
-    def validate_repo_url(cls, v: str) -> str:
+    def validate_repo_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
         cleaned = v.strip()
-        if not cleaned:
-            raise ValueError("repo_url cannot be empty or whitespace")
-        return cleaned
+        return cleaned or None
 
     @field_validator("commit_sha")
     @classmethod
-    def validate_commit_sha(cls, v: str) -> str:
+    def validate_commit_sha(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
         cleaned = v.strip()
-        if not cleaned:
-            raise ValueError("commit_sha cannot be empty or whitespace")
-        return cleaned
+        return cleaned or None
 
 
 @router.post("/analyze", response_model=AnalysisResponse, summary="Trigger impact analysis for a commit")
@@ -105,20 +105,24 @@ async def analyze_impact(
     Also validates inter-service connections to flag broken endpoints.
     """
     try:
+        active_context = RegistryManager.get_project_context()
+        target_repo = request.repo_url or active_context.get("repo_url") or "https://github.com/kartick026/MDT"
+        target_ref = request.commit_sha or active_context.get("branch") or "main"
+
         # Validate before fetching a commit, querying retrieval, or consulting
-        # the graph.  This is the hard boundary that prevents repository B
+        # the graph. This is the hard boundary that prevents repository B
         # from inheriting repository A's mappings, smells, and recommendations.
-        active_context = _ensure_active_project_matches(request.repo_url)
+        active_context = _ensure_active_project_matches(target_repo)
 
         # Resolve branch ref to exact commit SHA if needed
         resolved_sha = await git_analyzer.resolve_commit_sha(
-            repo_url=request.repo_url,
-            ref=request.commit_sha
+            repo_url=target_repo,
+            ref=target_ref
         )
-        effective_commit_sha = resolved_sha or request.commit_sha
+        effective_commit_sha = resolved_sha or target_ref
 
         changes = await git_analyzer.analyze_push(
-            repo_url=request.repo_url,
+            repo_url=target_repo,
             commit_sha=effective_commit_sha,
             changed_files=request.changed_files
         )
@@ -130,7 +134,7 @@ async def analyze_impact(
         mappings = RegistryManager.get_file_mappings()
         for ch in changes:
             matched_svc = "unknown"
-            for prefix, sname in mappings.items():
+            for prefix, sname in sorted(mappings.items(), key=lambda x: len(x[0]), reverse=True):
                 if ch.file_path.startswith(prefix):
                     matched_svc = sname
                     break
@@ -164,7 +168,7 @@ async def analyze_impact(
 
         is_sha = len(effective_commit_sha) == 40 and all(c in "0123456789abcdefABCDEF" for c in effective_commit_sha)
         display_commit = effective_commit_sha[:7] if is_sha else effective_commit_sha
-        branch_ref = request.commit_sha if request.commit_sha != effective_commit_sha else None
+        branch_ref = target_ref if target_ref != effective_commit_sha else (active_context.get("branch") or "main")
         sev_str = result.severity.value if hasattr(result.severity, "value") else str(result.severity)
 
         score_breakdown = ScoreBreakdown(
@@ -179,7 +183,7 @@ async def analyze_impact(
             "commit": display_commit,
             "commit_sha": effective_commit_sha,
             "branch_ref": branch_ref,
-            "repo_url": request.repo_url,
+            "repo_url": target_repo,
             "project_context": active_context,
             "risk_score": result.risk_score,
             "severity": sev_str,

@@ -57,6 +57,7 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
         "risk_level": (svc.get("risk_level") or "UNKNOWN").upper(),
         "risk_score": svc.get("risk_score") or 0,
         "is_external": svc.get("is_external", False),
+        "is_broken": svc.get("is_broken", False),
     }
 
     # Ping candidate URLs (Docker internal networking, trailing slashes, root)
@@ -182,12 +183,18 @@ async def get_service_graph():
         graph_data = graph_risk.get(name, {})
         risk_score = svc.get("risk_score")
         risk_level = svc.get("risk_level")
+        is_broken = (
+            svc.get("is_broken", False)
+            or any(b.get("target_service") == name for b in RegistryManager.get_connection_bugs())
+        )
         nodes.append({
             "id": name,
             "label": name.replace("-service", "").replace("-", " ").title(),
             "port": svc.get("port", 0),
-            "risk_level": (risk_level or graph_data.get("risk_level") or "UNKNOWN").upper(),
-            "risk_score": risk_score if risk_score is not None else (graph_data.get("risk_score") or 0),
+            "risk_level": (risk_level or graph_data.get("risk_level") or ("CRITICAL" if is_broken else "UNKNOWN")).upper(),
+            "risk_score": risk_score if risk_score is not None else (graph_data.get("risk_score") or (90.0 if is_broken else 0)),
+            "is_broken": is_broken,
+            "status": "offline" if is_broken else svc.get("status", "healthy"),
         })
 
     # The registry is the source of truth.  The old process-local list was
@@ -204,6 +211,7 @@ async def get_service_graph():
             "from": d["from"],
             "to": d["to"],
             "type": d.get("type", "http"),
+            "endpoint": d.get("endpoint", ""),
             "has_bug": (d["from"], d["to"]) in bugged_pairs
         }
         for d in RegistryManager.get_dependencies()

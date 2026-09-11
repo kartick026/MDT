@@ -49,12 +49,21 @@ DEFAULT_REGISTRY: Dict[str, Any] = {
             "url": "http://notification-service:8004",
             "language": "python",
             "description": "Notifications — depends on order-service and payment-service",
+        },
+        {
+            "name": "inventory-service",
+            "port": 9999,
+            "url": "http://inventory-service:9999",
+            "language": "python",
+            "description": "Legacy inventory service — unresolvable host (broken link)",
+            "is_broken": True,
+            "status": "offline",
+            "risk_level": "CRITICAL",
+            "risk_score": 90.0,
         }
     ],
     "dependencies": [
-        # Intentional local-demo anti-patterns.  These use only the four
-        # runnable services in docker-compose; the database target below is a
-        # connection string, not a fifth service node.
+        # Intentional local-demo anti-patterns.
         {"from": "order-service", "to": "user-service", "type": "http", "endpoint": "/users/{user_id}"},
         {"from": "notification-service", "to": "order-service", "type": "http", "endpoint": "/orders/{order_id}"},
         {"from": "user-service", "to": "order-service", "type": "http", "endpoint": "/orders/status"},
@@ -62,11 +71,24 @@ DEFAULT_REGISTRY: Dict[str, Any] = {
         {"from": "order-service", "to": "notification-service", "type": "http", "endpoint": "/notifications/order"},
         {"from": "notification-service", "to": "user-service", "type": "http", "endpoint": "/users/{user_id}"},
         {"from": "notification-service", "to": "notification-service", "type": "http", "endpoint": "/internal/dispatch"},
-        # These two edges deliberately share one database connection target.
-        # The target is not a service node, so only the four Docker services
-        # appear in the fleet and graph.
+        # Broken link connection to unresolvable host
+        {"from": "order-service", "to": "inventory-service", "type": "http", "endpoint": "/api/v1/inventory/reserve"},
+        # Shared database connection targets
         {"from": "user-service", "to": "local-demo-postgres", "type": "postgresql", "endpoint": "postgresql://local-demo-postgres:5432/users"},
         {"from": "notification-service", "to": "local-demo-postgres", "type": "postgresql", "endpoint": "postgresql://local-demo-postgres:5432/notifications"},
+    ],
+    "connection_bugs": [
+        {
+            "source_service": "order-service",
+            "target_service": "inventory-service",
+            "target_url": "http://inventory-service:9999/api/v1/inventory/reserve",
+            "bug_type": "UNRESOLVED_SERVICE_HOST",
+            "severity": "CRITICAL",
+            "description": "order-service calls unresolvable host 'inventory-service:9999' on endpoint '/api/v1/inventory/reserve' (Dead Host / Broken Link)",
+            "file_path": "services/order_service/main.py",
+            "line_number": 65,
+            "suggestion": "Deploy inventory-service or remove dead dependency call",
+        }
     ],
     "file_mappings": {
         "services/user_service": "user-service",
@@ -279,12 +301,12 @@ class RegistryManager:
 
     @classmethod
     def add_file_mapping(cls, prefix: str, service_name: str):
-        if not prefix or not service_name:
+        if prefix is None or not service_name or not service_name.strip():
             raise ValueError("Both prefix and service_name are required")
         data = cls.load()
         if "file_mappings" not in data:
             data["file_mappings"] = {}
-        data["file_mappings"][prefix] = service_name
+        data["file_mappings"][prefix.strip()] = service_name.strip()
         cls.save(data)
 
     @classmethod

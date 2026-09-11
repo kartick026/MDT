@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "mdt_code_context"
 CHUNK_SIZE = 50       # lines per chunk
 CHUNK_OVERLAP = 10    # lines of overlap between chunks
+FIXED_EMBED_DIM = 256 # Guaranteed fixed embedding dimension for fallback/hashing embeddings
 
 
 # ---------------------------------------------------------------------------
@@ -44,9 +45,12 @@ async def _openai_embed(texts: List[str]) -> Optional[List[List[float]]]:
     """Generate embeddings via OpenAI API. Returns None on failure."""
     if not settings.OPENAI_API_KEY:
         return None
+    # Google Gemini keys start with AIzaSy; they cannot be used on api.openai.com
+    if settings.OPENAI_API_KEY.startswith("AIzaSy"):
+        return None
     try:
         from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=4.0, max_retries=1)
         resp = await client.embeddings.create(
             model=settings.EMBEDDING_MODEL,
             input=texts,
@@ -59,50 +63,28 @@ async def _openai_embed(texts: List[str]) -> Optional[List[List[float]]]:
 
 def _tfidf_embed(texts: List[str], vocab: Optional[List[str]] = None) -> List[List[float]]:
     """
-    Simple TF-IDF vectors as a fallback when OpenAI is unavailable.
-    Produces sparse-ish float lists good enough for cosine similarity in ChromaDB.
+    Fixed-dimension hashing vectorizer.
+    Guarantees that every vector has EXACTLY FIXED_EMBED_DIM dimensions,
+    preventing ChromaDB dimension mismatch errors across varying batch sizes and text inputs.
     """
-    def tokenize(text: str) -> List[str]:
-        return re.findall(r"[a-zA-Z_]\w*", text.lower())
-
-    # Build corpus vocabulary
-    all_tokens = []
-    token_lists = [tokenize(t) for t in texts]
-    for tl in token_lists:
-        all_tokens.extend(tl)
-    if vocab is None:
-        vocab = list(dict.fromkeys(all_tokens))  # preserve order, dedupe
-    vocab = vocab[:512]                           # cap dimension at 512
-
-    vocab_idx = {w: i for i, w in enumerate(vocab)}
-    n_docs = len(texts)
-
-    # IDF
-    doc_freq: Counter = Counter()
-    for tl in token_lists:
-        for w in set(tl):
-            if w in vocab_idx:
-                doc_freq[w] += 1
-    idf = {w: math.log((n_docs + 1) / (doc_freq.get(w, 0) + 1)) + 1
-           for w in vocab}
-
-    # TF-IDF per document
     vectors = []
-    for tl in token_lists:
-        tf: Counter = Counter(tl)
-        total = max(len(tl), 1)
-        vec = [0.0] * len(vocab)
-        for w, idx in vocab_idx.items():
-            if tf[w] > 0:
-                vec[idx] = (tf[w] / total) * idf[w]
-        # L2 normalise
-        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-        vectors.append([v / norm for v in vec])
+    for text in texts:
+        tokens = re.findall(r"[a-zA-Z_]\w*", (text or "").lower())
+        vec = [0.0] * FIXED_EMBED_DIM
+        if tokens:
+            tf = Counter(tokens)
+            total = float(len(tokens))
+            for token, count in tf.items():
+                idx = int(hashlib.md5(token.encode("utf-8")).hexdigest(), 16) % FIXED_EMBED_DIM
+                vec[idx] += count / total
+            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+            vec = [v / norm for v in vec]
+        vectors.append(vec)
     return vectors
 
 
 async def _embed(texts: List[str]) -> List[List[float]]:
-    """Try OpenAI, fall back to TF-IDF."""
+    """Try OpenAI, fall back to fixed-dimension hashing embedding."""
     result = await _openai_embed(texts)
     if result is not None:
         return result
@@ -114,10 +96,6 @@ async def _embed(texts: List[str]) -> List[List[float]]:
 # ---------------------------------------------------------------------------
 
 def _chunk_content(content: str, file_path: str) -> List[Dict[str, Any]]:
-    """
-    Split file content into overlapping line windows.
-    Returns list of {chunk_id, text, start_line, end_line}.
-    """
     lines = content.splitlines()
     chunks = []
     i = 0
