@@ -49,13 +49,21 @@ export default function AnalysisHistory() {
 
       <div className="history-list">
         {history.map((item, i) => {
-          const level  = (item.risk_level || item.severity || 'UNKNOWN').toUpperCase();
+          const score  = item.risk_score ?? 0;
+          let level  = (item.risk_level || item.severity || 'LOW').toUpperCase();
+          if (item.risk_score != null) {
+            if (item.risk_score >= 75) level = 'CRITICAL';
+            else if (item.risk_score >= 50) level = 'HIGH';
+            else if (item.risk_score >= 25) level = 'MEDIUM';
+            else level = 'LOW';
+          }
           const color  = RISK_COLORS[level] || 'var(--text-faint)';
           const icon   = RISK_ICONS[level]  || '⚪';
-          const score  = item.risk_score ?? 0;
           const repoName = item.repo_url
             ? item.repo_url.replace(/\.git$/i, '').split('/').slice(-2).join('/')
-            : (item.service || item.impacted_services?.[0] || 'unknown').replace(/_/g, ' ');
+            : (item.service && item.service !== 'backend' && item.service !== 'unknown'
+                ? item.service.replace(/_/g, ' ')
+                : 'kartick026/MDT');
           const rawCommit = item.commit_sha || item.commit || '';
           const commitRef = rawCommit.length >= 7 ? rawCommit.substring(0, 7) : rawCommit;
           const branchRef = item.branch_ref || null;

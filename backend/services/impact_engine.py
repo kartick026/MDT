@@ -481,6 +481,8 @@ class ImpactEngine:
         try:
 
             import hashlib, json
+            from core.registry import RegistryManager
+            p_ctx = RegistryManager.get_project_context()
 
             analysis_id = commit_sha or hashlib.md5(
 
@@ -499,6 +501,10 @@ class ImpactEngine:
                 severity=severity.value if hasattr(severity, 'value') else str(severity),
 
                 changed_files=changed_files,
+
+                repo_url=p_ctx.get("repo_url"),
+
+                branch_ref=p_ctx.get("branch"),
 
             )
 

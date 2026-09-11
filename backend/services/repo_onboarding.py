@@ -438,7 +438,33 @@ class RepoOnboarder:
             for sname, found in results:
                 service_files[sname] = found
 
-            # 6. Validate connections across discovered services
+            # 6. Extract cross-service dependencies from static code analysis & validate connections
+            for sname, files in service_files.items():
+                if sname == "unknown":
+                    continue
+                for fpath, code in files.items():
+                    calls = ConnectionValidator.extract_outbound_calls(code, file_path=fpath)
+                    for call in calls:
+                        target_host = call["host"]
+                        target_port = call["port"]
+                        call_path = call["path"] or "/"
+                        target_svc = ConnectionValidator._resolve_host_to_service(
+                            target_host, target_port, {s["name"]: s for s in services}
+                        )
+                        if target_svc and target_svc != sname and any(s["name"] == target_svc for s in services):
+                            clean_endpoint = call_path if call_path != "/" else "/"
+                            existing = next((d for d in dependencies if d["from"] == sname and d["to"] == target_svc), None)
+                            if existing:
+                                if existing.get("endpoint") in ("/", "") and clean_endpoint not in ("/", ""):
+                                    existing["endpoint"] = clean_endpoint
+                            else:
+                                dependencies.append({
+                                    "from": sname,
+                                    "to": target_svc,
+                                    "type": "http",
+                                    "endpoint": clean_endpoint,
+                                })
+
             connection_bugs = ConnectionValidator.validate_topology(services, service_files)
 
             # 7. Extract static endpoints & calculate baseline architectural risk scores
@@ -511,7 +537,7 @@ class RepoOnboarder:
 
             # 9. Persist initial architectural risk audit in Neo4j analysis history
             avg_score = round(sum(s.get("risk_score", 0) for s in services) / max(len(services), 1), 1)
-            overall_severity = "CRITICAL" if any(s.get("risk_level") == "CRITICAL" for s in services) else ("HIGH" if avg_score >= 50 else ("MEDIUM" if avg_score >= 25 else "LOW"))
+            overall_severity = "CRITICAL" if avg_score >= 75 else ("HIGH" if avg_score >= 50 else ("MEDIUM" if avg_score >= 25 else "LOW"))
 
             try:
                 await self.dep_graph.record_analysis(
@@ -520,6 +546,8 @@ class RepoOnboarder:
                     risk_score=avg_score,
                     severity=overall_severity,
                     changed_files=list(file_mappings.keys()) or ["repository_root"],
+                    repo_url=repo_url,
+                    branch_ref=clean_branch,
                 )
             except Exception as e:
                 logger.warning("Could not record initial architecture analysis: %s", e)
@@ -571,17 +599,21 @@ class RepoOnboarder:
 
             # Parse port
             port = 8000
+            host_port = 8000
             ports = sconfig.get("ports", [])
             if ports and isinstance(ports, list):
                 raw_port = str(ports[0])
                 if ":" in raw_port:
+                    parts = raw_port.split(":")
                     try:
-                        port = int(raw_port.split(":")[0].strip("'\""))
+                        host_port = int(parts[0].strip("'\""))
+                        port = int(parts[-1].strip("'\""))  # Container internal port
                     except ValueError:
                         pass
                 else:
                     try:
                         port = int(raw_port)
+                        host_port = port
                     except ValueError:
                         pass
 
@@ -604,6 +636,9 @@ class RepoOnboarder:
                 "name": sname,
                 "display_name": display_name,
                 "port": port,
+                "internal_port": port,
+                "host_port": host_port,
+                "published_port": host_port,
                 "url": f"http://{sname}:{port}",
                 "description": f"Microservice defined in docker-compose ({sname})",
                 "language": self._infer_service_language(sconfig)

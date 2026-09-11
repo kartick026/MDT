@@ -493,6 +493,8 @@ class DependencyGraph:
         risk_score: float,
         severity: str,
         changed_files: List[str],
+        repo_url: Optional[str] = None,
+        branch_ref: Optional[str] = None,
     ):
         """
         Persist one analysis event linked to every affected service.
@@ -507,6 +509,8 @@ class DependencyGraph:
             """
             CREATE (a:Analysis {
                 commit_sha:    $commit,
+                repo_url:      $repo_url,
+                branch_ref:    $branch,
                 risk_score:    $risk,
                 severity:      $severity,
                 changed_files: $files,
@@ -522,6 +526,8 @@ class DependencyGraph:
             """,
             services=service_names,
             commit=commit_sha,
+            repo_url=repo_url or "",
+            branch=branch_ref or "",
             risk=risk_score,
             severity=severity,
             files=changed_files,
@@ -544,6 +550,8 @@ class DependencyGraph:
             WITH a, collect(s.name) AS services
             WHERE $service IS NULL OR $service IN services
             RETURN a.commit_sha AS commit,
+                   a.repo_url AS repo_url,
+                   a.branch_ref AS branch_ref,
                    a.risk_score AS risk_score,
                    a.severity AS severity,
                    a.changed_files AS changed_files,

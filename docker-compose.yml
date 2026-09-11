@@ -97,8 +97,11 @@ services:
       - SERVICE_NAME=order-service
       - SERVICE_PORT=8002
       - USER_SERVICE_URL=http://user-service:8001
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8004
+      - PAYMENT_SERVICE_URL=http://payment-service:8003
     depends_on:
       - user-service
+      - notification-service
     deploy:
       resources:
         limits:
@@ -117,6 +120,9 @@ services:
     environment:
       - SERVICE_NAME=payment-service
       - SERVICE_PORT=8003
+      - ORDER_SERVICE_URL=http://order-service:8002
+    depends_on:
+      - order-service
     deploy:
       resources:
         limits:

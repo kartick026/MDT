@@ -17,8 +17,8 @@ order_counter = 1000
 
 # Service URLs
 USER_SERVICE_URL = "http://user-service:8001"
-# Broken dependency to dead/unresolvable host
-INVENTORY_SERVICE_URL = "http://inventory-service:9999/api/v1/inventory/reserve"
+NOTIFICATION_SERVICE_URL = "http://notification-service:8004"
+PAYMENT_SERVICE_URL = "http://payment-service:8003"
 
 
 class OrderItem(BaseModel):
@@ -79,6 +79,22 @@ async def create_order(order_data: OrderCreate):
     )
     orders_db[order_counter] = order
     order_counter += 1
+
+    # Notify Notification service of order placement
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{NOTIFICATION_SERVICE_URL}/notifications",
+                json={
+                    "user_id": order_data.user_id,
+                    "type": "email",
+                    "subject": "Order Confirmation",
+                    "message": f"Order #{order.id} confirmed for ${total:.2f}",
+                },
+                timeout=1.0,
+            )
+    except Exception:
+        pass
 
     return order
 

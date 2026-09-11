@@ -228,14 +228,29 @@ async def get_analysis_history(
 ) -> HistoryResponse:
     """Return historical analysis results from the in-process store or Neo4j."""
     persisted = await graph.get_analysis_history(limit=limit, service=service)
+    ctx = RegistryManager.get_project_context()
     if persisted:
-        results = [
-            {
+        results = []
+        for item in persisted:
+            score = item.get("risk_score") or 0.0
+            sev = (item.get("severity") or "LOW").upper()
+            if score >= 75:
+                sev = "CRITICAL"
+            elif score >= 50:
+                sev = "HIGH"
+            elif score >= 25:
+                sev = "MEDIUM"
+            else:
+                sev = "LOW"
+
+            results.append({
                 "commit": item["commit"][:7] if (item.get("commit") and len(item["commit"]) == 40) else item["commit"],
                 "commit_sha": item["commit"],
-                "risk_score": item["risk_score"],
-                "severity": item["severity"],
-                "risk_level": (item["severity"] or "unknown").upper(),
+                "repo_url": item.get("repo_url") or ctx.get("repo_url"),
+                "branch_ref": item.get("branch_ref") or ctx.get("branch"),
+                "risk_score": score,
+                "severity": sev,
+                "risk_level": sev,
                 "service": item["services"][0] if item["services"] else "unknown",
                 "downstream_services": item["services"],
                 "affected_files": [
@@ -244,9 +259,7 @@ async def get_analysis_history(
                 ],
                 "timestamp": item["timestamp"],
                 "score_breakdown": {"file_count": len(item["changed_files"])},
-            }
-            for item in persisted
-        ]
+            })
     else:
         results = await history_store.get_all(service=service)
 

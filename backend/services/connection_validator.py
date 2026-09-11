@@ -1,5 +1,6 @@
 import re
 import logging
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Set
 
@@ -82,18 +83,60 @@ class ConnectionValidator:
     @classmethod
     def extract_outbound_calls(cls, file_content: str, file_path: str = "") -> List[Dict[str, Any]]:
         """Extract outbound URLs and target endpoints from a source file."""
+        if file_path:
+            p_name = Path(file_path).name.lower()
+            if p_name in ("registry.py", "docker-compose.yml", "docker-compose.yaml", "render.yaml", "package.json", "setup.py", "pyproject.toml"):
+                return []
+            if "test_" in p_name or "_test." in p_name or "mock" in p_name:
+                return []
+
+        # Collect URL variable assignments in the file, e.g. USER_SERVICE_URL = "http://user-service:8001"
+        url_vars: Dict[str, str] = {}
+        var_assign_pattern = re.compile(
+            r"([A-Za-z0-9_]+)\s*=\s*['\"](https?://[a-zA-Z0-9_\-\.]+(?::\d+)?(?:/[^'\"?]*)?)['\"]"
+        )
+        for line in file_content.splitlines():
+            m = var_assign_pattern.search(line)
+            if m:
+                url_vars[m.group(1)] = m.group(2).rstrip("/")
+
         calls = []
         for idx, line in enumerate(file_content.splitlines(), start=1):
             trimmed = line.strip()
             if trimmed.startswith("#") or trimmed.startswith("//"):
                 continue
 
-            # Ignore CORS origin whitelists, allowed hosts lists, and configuration arrays
+            # Ignore CORS origin whitelists, allowed hosts lists, configuration arrays, UI alerts, error messages, and log statements
             if re.search(r"\b(allowed_origins|allow_origins|origins|cors|whitelist|allowed_hosts)\b", trimmed, re.IGNORECASE):
                 continue
+            if re.search(r"\b(cannot reach|failed to reach|please ensure|error message|console\.log|logger\.|print\(|alert\(|notify\(|msg\s*=)\b", trimmed, re.IGNORECASE):
+                continue
+
+            # Check variable invocations: client.get(f"{USER_SERVICE_URL}/users/...")
+            for var_name, base_url in url_vars.items():
+                if f"{{{var_name}}}" in line or f"${{{var_name}}}" in line:
+                    sub_m = re.search(r"\{" + re.escape(var_name) + r"\}(/[^'\"?\s\)\,]*)?", line)
+                    sub_path = sub_m.group(1) if sub_m and sub_m.group(1) else "/"
+                    full_url = base_url + sub_path
+                    m_url = cls.URL_CALL_PATTERNS[0].match(base_url)
+                    if m_url:
+                        calls.append({
+                            "host": m_url.group(1),
+                            "port": int(m_url.group(2)) if m_url.group(2) else None,
+                            "path": cls._clean_call_path(sub_path),
+                            "raw_url": full_url,
+                            "line_number": idx,
+                            "line_content": trimmed,
+                            "file_path": file_path,
+                        })
 
             for pattern in cls.URL_CALL_PATTERNS:
                 for match in pattern.finditer(line):
+                    raw_matched = match.group(0)
+                    # Skip template strings with dynamic interpolation inside the URL
+                    if "{" in raw_matched or "${" in raw_matched:
+                        continue
+
                     groups = match.groups()
                     host = groups[0]
                     port = int(groups[1]) if len(groups) > 1 and groups[1] else None
@@ -104,7 +147,7 @@ class ConnectionValidator:
                         "host": host,
                         "port": port,
                         "path": clean_path,
-                        "raw_url": match.group(0),
+                        "raw_url": raw_matched,
                         "line_number": idx,
                         "line_content": trimmed,
                         "file_path": file_path
@@ -145,7 +188,11 @@ class ConnectionValidator:
             if source_svc == "unknown":
                 # Files not belonging to any recognized microservice (e.g. backend config, scripts)
                 continue
+
+            is_frontend_svc = any(k in source_svc.lower() for k in ["frontend", "ui", "web", "client"])
+
             for fpath, content in files.items():
+                is_client_file = fpath.endswith((".jsx", ".tsx", ".vue", ".html", ".css", ".svelte"))
                 calls = cls.extract_outbound_calls(content, file_path=fpath)
                 for call in calls:
                     target_host = call["host"]
@@ -157,6 +204,14 @@ class ConnectionValidator:
 
                     is_localhost = target_host.lower() in ("localhost", "127.0.0.1", "0.0.0.0")
                     target_svc_name = cls._resolve_host_to_service(target_host, target_port, service_info)
+
+                    # Frontend client code runs in browser on host machine; connecting to localhost backend is standard dev client-to-server traffic
+                    if (is_frontend_svc or is_client_file) and is_localhost:
+                        continue
+
+                    # Service calling its own local port for container health checks
+                    if is_localhost and target_svc_name == source_svc:
+                        continue
 
                     if is_localhost:
                         target_svc_obj = service_info.get(target_svc_name, {}) if target_svc_name else {}
@@ -201,7 +256,14 @@ class ConnectionValidator:
                     target_svc = service_info.get(target_svc_name, {})
 
                     expected_port = target_svc.get("port")
-                    if target_port and expected_port and target_port != expected_port:
+                    allowed_ports = {
+                        expected_port,
+                        target_svc.get("internal_port"),
+                        target_svc.get("host_port"),
+                        target_svc.get("published_port")
+                    }
+                    allowed_ports = {p for p in allowed_ports if p is not None}
+                    if target_port and allowed_ports and target_port not in allowed_ports:
                         bugs.append(ConnectionBug(
                             source_service=source_svc,
                             target_service=target_svc_name,
@@ -225,7 +287,7 @@ class ConnectionValidator:
                             description=f"Broken API contract: '{source_svc}' calls '{call_path}' on '{target_svc_name}', but this endpoint is not exposed.",
                             file_path=fpath,
                             line_number=call["line_number"],
-                            suggestion=f"Available endpoints on {target_svc_name}: {', '.join(sorted(known_routes)) or 'None'}",
+                            suggestion=f"Expose route '{call_path}' in {target_svc_name} or update caller endpoint in {fpath}.",
                         ))
 
         return bugs
@@ -237,6 +299,7 @@ class ConnectionValidator:
         if not path.startswith("/"):
             path = "/" + path
         path = re.sub(r":([a-zA-Z0-9_]+)", r"{\1}", path)
+        path = re.sub(r"\{[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+\}", r"{id}", path)
         if len(path) > 1 and path.endswith("/"):
             path = path[:-1]
         return path
@@ -264,7 +327,7 @@ class ConnectionValidator:
             
             match = True
             for cp, rp in zip(call_parts, route_parts):
-                if rp.startswith("{") and rp.endswith("}"):
+                if (rp.startswith("{") and rp.endswith("}")) or (cp.startswith("{") and cp.endswith("}")):
                     continue
                 if cp != rp:
                     match = False
@@ -301,9 +364,9 @@ class ConnectionValidator:
             if sdata.get("url") and host in sdata["url"]:
                 return sname
 
-        if host.lower() in ("localhost", "127.0.0.1") and port:
+        if host.lower() in ("localhost", "127.0.0.1", "0.0.0.0") and port:
             for sname, sdata in service_info.items():
-                if sdata.get("port") == port:
+                if port in (sdata.get("port"), sdata.get("internal_port"), sdata.get("host_port"), sdata.get("published_port")):
                     return sname
 
         return None
