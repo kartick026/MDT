@@ -242,3 +242,44 @@ def test_viewer_cannot_mutate_registry(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 403
+
+
+def test_production_rejects_insecure_or_missing_secrets():
+    """App must fail fast in production if JWT or Webhook secrets are missing or insecure."""
+    from pydantic import ValidationError
+    from core.config import Settings
+
+    # Production with empty/default secrets must raise ValidationError
+    with pytest.raises(ValidationError):
+        Settings(ENVIRONMENT="production", JWT_SECRET_KEY="")
+
+    with pytest.raises(ValidationError):
+        Settings(
+            ENVIRONMENT="production",
+            JWT_SECRET_KEY="mdt-production-super-secret-jwt-key-minimum-32-chars!",
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            ENVIRONMENT="production",
+            JWT_SECRET_KEY="short-key",
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            ENVIRONMENT="production",
+            JWT_SECRET_KEY="a-sufficiently-long-production-key-at-least-32-characters!",
+            GITHUB_WEBHOOK_SECRET="secret",
+        )
+
+    # Valid production settings pass
+    prod_settings = Settings(
+        ENVIRONMENT="production",
+        JWT_SECRET_KEY="a-sufficiently-long-production-key-at-least-32-characters!",
+        GITHUB_WEBHOOK_SECRET="a-valid-high-entropy-webhook-secret-string",
+        ADMIN_PASSWORD="super-strong-production-admin-password",
+        NEO4J_PASSWORD="super-strong-production-neo4j-password",
+        AUDITOR_PASSWORD="super-strong-production-auditor-password",
+    )
+    assert prod_settings.ENVIRONMENT == "production"
+    assert len(prod_settings.JWT_SECRET_KEY) >= 32

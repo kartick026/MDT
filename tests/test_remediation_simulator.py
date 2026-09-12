@@ -149,8 +149,9 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("smells_resolved", result["delta"])
         self.assertEqual(result["metric"], "Architectural Smell Risk")
 
+    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock, return_value=[])
     @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_mock_mode_with_no_smells(self, mock_get_driver):
+    async def test_mock_mode_with_no_smells(self, mock_get_driver, mock_detect_smells):
         from core.database import MockNeo4jDriver
         mock_get_driver.return_value = MockNeo4jDriver()
 
@@ -195,7 +196,7 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["after"]["severity"], "HIGH")
         self.assertEqual(result["delta"]["score_reduction"], 25.0)
         self.assertTrue(result["delta"]["measurable_change"])
-        self.assertEqual(result["metric"], "Drift Risk Score (HMDA)")
+        self.assertEqual(result["metric"], "Architectural Smell Risk")
 
     @patch("services.remediation_simulator.get_neo4j_driver")
     async def test_baseline_risk_score_with_no_resilience_edits(self, mock_get_driver):

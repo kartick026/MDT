@@ -136,4 +136,4 @@ def test_graph_uses_registry_snapshot_for_nodes_and_edges(client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert {node["id"] for node in body["nodes"]} == {"user-service", "order-service"}
-    assert body["edges"] == [{"from": "order-service", "to": "user-service", "type": "http", "has_bug": False}]
+    assert body["edges"] == [{"from": "order-service", "to": "user-service", "type": "http", "endpoint": "", "has_bug": False}]

@@ -1,10 +1,11 @@
 """Configuration settings for MDT Backend"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from typing import List, Union
 import logging
 import os
+import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,10 @@ class Settings(BaseSettings):
 
     # Authentication & JWT
     AUTH_REQUIRED: bool = True
-    JWT_SECRET_KEY: str = "mdt-production-super-secret-jwt-key-minimum-32-chars!"
+    JWT_SECRET_KEY: str = Field(
+        default="",
+        description="JWT symmetric signing key (minimum 32 characters in production)"
+    )
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     ADMIN_USERNAME: str = "admin"
@@ -44,7 +48,10 @@ class Settings(BaseSettings):
     CHROMADB_PORT: int = 8000
 
     # GitHub Webhook Security
-    GITHUB_WEBHOOK_SECRET: str = "secret"
+    GITHUB_WEBHOOK_SECRET: str = Field(
+        default="",
+        description="GitHub webhook HMAC signature secret"
+    )
     WEBHOOK_SIGNATURE_REQUIRED: bool = True
     RATE_LIMIT_WEBHOOK_PER_MINUTE: int = 30
     MAX_WEBHOOK_PAYLOAD_BYTES: int = 25 * 1024 * 1024  # 25 MB payload limit
@@ -98,13 +105,60 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_demo_secrets_in_production(self):
-        """Prevent documented development credentials reaching production or staging."""
+        """Prevent documented development credentials reaching production or staging,
+        and generate high-entropy ephemeral secrets in development when unset."""
         env_clean = self.ENVIRONMENT.lower().strip()
-        if env_clean in {"production", "prod", "staging", "stg", "uat"}:
+        is_prod = env_clean in {"production", "prod", "staging", "stg", "uat"}
+
+        known_insecure_jwt = {
+            "mdt-production-super-secret-jwt-key-minimum-32-chars!",
+            "change-this-to-a-secure-random-string-in-production-min-32-chars",
+            "secret",
+            "changeme",
+            "password",
+            "your_secret_key_here",
+        }
+        known_insecure_webhook = {
+            "secret",
+            "your_webhook_secret_here",
+            "your-32-character-webhook-secret",
+            "changeme",
+        }
+
+        # 1. JWT_SECRET_KEY validation & safe dev fallback
+        current_jwt = self.JWT_SECRET_KEY.strip() if self.JWT_SECRET_KEY else ""
+        if not current_jwt or current_jwt in known_insecure_jwt:
+            if is_prod:
+                raise ValueError(
+                    f"[{env_clean.upper()}] Deployment configuration must set a secure JWT_SECRET_KEY (min 32 characters). "
+                    f"Insecure default or empty key is strictly rejected."
+                )
+            self.JWT_SECRET_KEY = secrets.token_urlsafe(32)
+            logger.warning("JWT_SECRET_KEY not set or using insecure default. Generated ephemeral development key.")
+        elif is_prod and len(current_jwt) < 32:
+            raise ValueError(
+                f"[{env_clean.upper()}] JWT_SECRET_KEY must be at least 32 characters long in production (got {len(current_jwt)})."
+            )
+        else:
+            self.JWT_SECRET_KEY = current_jwt
+
+        # 2. GITHUB_WEBHOOK_SECRET validation & safe dev fallback
+        current_webhook = self.GITHUB_WEBHOOK_SECRET.strip() if self.GITHUB_WEBHOOK_SECRET else ""
+        if not current_webhook or current_webhook in known_insecure_webhook:
+            if is_prod:
+                raise ValueError(
+                    f"[{env_clean.upper()}] Deployment configuration must set a secure GITHUB_WEBHOOK_SECRET. "
+                    f"Insecure default or empty secret is strictly rejected."
+                )
+            self.GITHUB_WEBHOOK_SECRET = secrets.token_hex(20)
+            logger.warning("GITHUB_WEBHOOK_SECRET not set or using insecure default. Generated ephemeral development secret.")
+        else:
+            self.GITHUB_WEBHOOK_SECRET = current_webhook
+
+        # 3. Prevent development passwords in production
+        if is_prod:
             insecure = {
-                "JWT_SECRET_KEY": "mdt-production-super-secret-jwt-key-minimum-32-chars!",
                 "ADMIN_PASSWORD": "admin123",
-                "GITHUB_WEBHOOK_SECRET": "secret",
                 "NEO4J_PASSWORD": "password",
             }
             if self.ENABLE_DEFAULT_VIEWER:

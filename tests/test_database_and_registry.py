@@ -62,7 +62,7 @@ class DatabaseAndRegistryTests(unittest.TestCase):
         edges = {(edge["from"], edge["to"]) for edge in DEFAULT_REGISTRY["dependencies"]}
         history = RegistryManager.get_local_demo_smell_history()
 
-        self.assertEqual(names, {"user-service", "order-service", "payment-service", "notification-service"})
+        self.assertEqual(names, {"user-service", "order-service", "payment-service", "notification-service", "inventory-service"})
         self.assertNotIn("local-demo-postgres", names)
         self.assertIn(("user-service", "order-service"), edges)
         self.assertIn(("order-service", "user-service"), edges)

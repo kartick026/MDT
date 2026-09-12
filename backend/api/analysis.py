@@ -73,25 +73,29 @@ def _ensure_active_project_matches(repo_url: str) -> Dict[str, Any]:
 
 class AnalysisRequest(BaseModel):
     """Manual analysis request. If repo_url or commit_sha is omitted, uses the active project context."""
-    repo_url: Optional[str] = Field(None, description="Repository URL (defaults to active architecture if omitted)")
-    commit_sha: Optional[str] = Field(None, description="Commit SHA or branch reference (defaults to imported branch if omitted)")
+    repo_url: Optional[str] = Field(None, min_length=1, description="Repository URL (defaults to active architecture if omitted)")
+    commit_sha: Optional[str] = Field(None, min_length=1, description="Commit SHA or branch reference (defaults to imported branch if omitted)")
     changed_files: Optional[List[str]] = Field(None, description="Optional manual list of changed files")
 
     @field_validator("repo_url")
     @classmethod
     def validate_repo_url(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-        cleaned = v.strip()
-        return cleaned or None
+        if v is not None:
+            cleaned = v.strip()
+            if not cleaned:
+                raise ValueError("repo_url cannot be empty or whitespace only")
+            return cleaned
+        return None
 
     @field_validator("commit_sha")
     @classmethod
     def validate_commit_sha(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-        cleaned = v.strip()
-        return cleaned or None
+        if v is not None:
+            cleaned = v.strip()
+            if not cleaned:
+                raise ValueError("commit_sha cannot be empty or whitespace only")
+            return cleaned
+        return None
 
 
 @router.post("/analyze", response_model=AnalysisResponse, summary="Trigger impact analysis for a commit")

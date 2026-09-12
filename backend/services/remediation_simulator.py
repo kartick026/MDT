@@ -332,18 +332,16 @@ def _calculate_simulation_metrics(
     coupling_resolved = max(0, before_smells.get("high_coupling", 0) - after_smells.get("high_coupling", 0))
     isolated_resolved = max(0, before_smells.get("isolated_service", 0) - after_smells.get("isolated_service", 0))
 
+    raw_before = _compute_score_from_smells(before_smells)
+    raw_after = _compute_score_from_smells(after_smells)
+
     has_structural_fix = (
         cycles_resolved > 0 or
         bottlenecks_resolved > 0 or
         coupling_resolved > 0 or
         isolated_resolved > 0 or
-        any(e.action == "remove_edge" for e in edits) or
-        any(getattr(e, 'from_service', None) and any(k in e.from_service for k in ["_facade", "_gateway", "event_broker"]) for e in edits) or
-        any(getattr(e, 'to_service', None) and any(k in e.to_service for k in ["_facade", "_gateway", "event_broker"]) for e in edits)
+        (raw_before > raw_after)
     )
-
-    raw_before = _compute_score_from_smells(before_smells)
-    raw_after = _compute_score_from_smells(after_smells)
 
     # 1. Determine before score: honor baseline_risk_score from active analysis when provided
     if baseline_risk_score is not None:
@@ -351,7 +349,7 @@ def _calculate_simulation_metrics(
     else:
         before_score = round(min(100.0, raw_before), 1)
 
-    # 2. Determine point reduction:
+    # 2. Determine point reduction based strictly on verified smell resolutions:
     point_reduction = 0.0
     if cycles_resolved > 0:
         point_reduction += cycles_resolved * 25.0
@@ -362,17 +360,12 @@ def _calculate_simulation_metrics(
     if isolated_resolved > 0:
         point_reduction += isolated_resolved * 5.0
 
-    if point_reduction == 0.0 and has_structural_fix:
-        if any(e.action == "remove_edge" for e in edits):
-            point_reduction = 20.0
-        elif any(getattr(e, 'from_service', None) and any(k in e.from_service for k in ["_facade", "_gateway", "event_broker"]) for e in edits):
-            point_reduction = 15.0
-        elif raw_before > raw_after:
-            point_reduction = round((raw_before - raw_after) / max(raw_before, 1) * before_score, 1)
+    if point_reduction == 0.0 and raw_before > raw_after:
+        point_reduction = round((raw_before - raw_after) / max(raw_before, 1) * before_score, 1)
 
     point_reduction = round(min(before_score, point_reduction), 1)
     after_score = max(0.0, round(before_score - point_reduction, 1))
-    measurable_change = (point_reduction > 0) or (smells_resolved > 0) or has_structural_fix
+    measurable_change = (point_reduction > 0) or (smells_resolved > 0)
 
     details = []
     if cycles_resolved > 0:
@@ -519,9 +512,6 @@ class RemediationSimulator:
             if edit.action == "remove_edge":
                 if after_counts["circular_dependency"] > 0:
                     after_counts["circular_dependency"] -= 1
-            elif edit.action == "add_node":
-                if after_counts["isolated_service"] > 0:
-                    after_counts["isolated_service"] -= 1
             elif edit.action == "add_edge":
                 if "_facade" in (edit.from_service or "") or "_gateway" in (edit.from_service or ""):
                     if after_counts["bottleneck_service"] > 0:
