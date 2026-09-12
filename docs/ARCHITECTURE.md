@@ -52,7 +52,11 @@ MDT continuously evaluates the live Neo4j topology, OpenAPI contract snapshots, 
   WITH [node IN nodes(path) | node.name] AS cycle
   RETURN DISTINCT cycle
   ```
-- **Threshold:** Any cycle of length 2 to 8.
+- **Post-Query Deduplication & Elementary Cycle Enforcement:**
+  - Raw Cypher traverses sequences of edges without requiring all intermediate nodes to be distinct, which can produce redundant composite walks (e.g. figure-8 loops visiting a central hub service multiple times).
+  - MDT filters cycles to strict **elementary cycles** (`len(cycle_nodes) == len(set(cycle_nodes))` where `cycle_nodes = cycle[:-1]`), dropping any composite walks with repeated intermediate services.
+  - Normalizes cycles via **canonical rotation** (starting with the lexicographically smallest service) so that identical cycles starting from different service perspectives are deduplicated into a single finding.
+- **Threshold:** Any elementary cycle of length 2 to 8.
 - **Architectural Impact:** Causes synchronous request deadlocks, cascading timeout storms, and tight deployment coupling.
 - **Remediation:** Introduce asynchronous messaging (event broker), decoupled pub/sub queues, or extract common shared interfaces.
 

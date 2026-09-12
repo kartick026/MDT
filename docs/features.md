@@ -154,10 +154,12 @@ MDT allows architects to test architectural remediations in a **zero-risk sandbo
   - `add_node`: Adds proxy nodes (e.g. resilience facades or circuit breakers).
   - `add_edge`: Re-routes callers through fault-tolerant paths.
   - `remove_edge`: Sever unneeded or circular links.
-- **Visual Sandbox Comparison:**
+- **Visual Sandbox Comparison & Decoupled Dials:**
+  - **Decoupled Metric Display:** Git Commit Blast Radius (driven by code diffs) and Graph Architecture Health (driven by smells) are presented as independent metrics.
   - **Dual SVG Gauges:** Renders `Before (Smell Risk)` vs `After (Smell Risk)` scores side-by-side.
-  - **Delta Reduction Badge:** Prominently highlights points reduction (e.g. `▼ 5 pts Reduction` or `— Unchanged`).
-  - **Smells Resolution Table:** Displays exact anti-patterns resolved (e.g., `Isolated Service: 2 → 1 (-1 resolved)`).
+  - **Delta Reduction Badge:** Prominently highlights points reduction (e.g. `▼ 55.1 pts Reduction` or `— Unchanged`).
+  - **Commit Blast Radius Banner:** Explicitly clarifies when Git Commit Risk remains high (e.g. `Git Commit Risk Remains 100/100 (CRITICAL)` because 57 source files are being deployed), preventing confusion between code-change volume and topological health.
+  - **Smells Resolution Table:** Displays exact anti-patterns resolved (e.g., `Circular Dependency: 4 → 3 (-1 resolved)`).
 
 ---
 
@@ -167,6 +169,10 @@ MDT runs continuous Cypher graph algorithms and contract snapshot inspections to
 
 ### 1. Circular Dependency (`CRITICAL`)
 - **Heuristic:** `MATCH path = (s:Service)-[:DEPENDS_ON*2..8]->(s)` detects cyclic dependency loops ($A \rightarrow B \rightarrow C \rightarrow A$).
+- **Elementary Cycle & Canonical Deduplication:**
+  - Raw Cypher variable-length traversals can return redundant composite walks (such as figure-8 or cloverleaf loops visiting a central service multiple times).
+  - MDT filters traversals to strict **elementary cycles** (`len(cycle_nodes) == len(set(cycle_nodes))`), dropping any composite walks with repeated intermediate services.
+  - Applies **canonical rotation** (normalizing the cycle to start with the lexicographically smallest service) so that identical cycles starting from different node perspectives are grouped into a single canonical finding.
 - **Impact:** Causes distributed deadlocks, synchronous cascading timeouts, and tight deployment coupling.
 - **Remediation:** Extract shared contracts, introduce asynchronous message queues, or decouple via event-driven pub/sub.
 
