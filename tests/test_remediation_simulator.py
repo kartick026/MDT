@@ -178,15 +178,21 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["sandbox"])
         self.assertIn("before", result)
 
+    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
     @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_baseline_risk_score_with_resilience_facade(self, mock_get_driver):
+    async def test_baseline_risk_score_with_resilience_facade(self, mock_get_driver, mock_detect_smells):
         from core.database import MockNeo4jDriver
         mock_get_driver.return_value = MockNeo4jDriver()
+        mock_detect_smells.return_value = [
+            {"type": "Circular Dependency", "services": ["order-service", "user-service"]}
+        ]
 
         sim = RemediationSimulator()
         edits = [
+            GraphEdit(action="remove_edge", from_service="order-service", to_service="user-service"),
             GraphEdit(action="add_node", from_service="order-service_facade"),
             GraphEdit(action="add_edge", from_service="order-service_facade", to_service="order-service"),
+            GraphEdit(action="add_edge", from_service="order-service_facade", to_service="user-service"),
         ]
         result = await sim.simulate_fix(edits, baseline_risk_score=85.0)
 
