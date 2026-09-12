@@ -29,7 +29,7 @@ class GraphEditSchemaTests(unittest.TestCase):
     def test_invalid_action_rejected(self):
         from pydantic import ValidationError
         with self.assertRaises(ValidationError):
-            GraphEdit(action="drop_table", from_service="X")
+            GraphEdit(action="drop_table", from_service="X")  # type: ignore
 
 
 class ScoringSeverityTests(unittest.TestCase):
@@ -106,6 +106,8 @@ class GenerateEditsTests(unittest.TestCase):
         edits = generate_edits_for_smells(smells)
         self.assertEqual(len(edits), 2)
         self.assertEqual(edits[0].action, "add_node")
+        self.assertIsNotNone(edits[0].from_service)
+        assert edits[0].from_service is not None
         self.assertIn("gateway", edits[0].from_service)
 
     def test_isolated_generates_edge_to_dynamic_target(self):
