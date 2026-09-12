@@ -98,8 +98,15 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
         unique = 0
         for rec in records:
             cycle = rec.get("cycle", [])
-            key = tuple(sorted(set(cycle)))
-            if len(key) > 1 and key not in seen:
+            if not cycle or len(cycle) < 3:
+                continue
+            cycle_nodes = cycle[:-1]
+            if len(cycle_nodes) != len(set(cycle_nodes)) or len(cycle_nodes) < 2:
+                continue
+            min_idx = cycle_nodes.index(min(cycle_nodes))
+            canonical = cycle_nodes[min_idx:] + cycle_nodes[:min_idx]
+            key = tuple(canonical)
+            if key not in seen:
                 seen.add(key)
                 unique += 1
         counts["circular_dependency"] = unique
@@ -299,30 +306,23 @@ def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
     return edits
 
 
-# ---------------------------------------------------------------------------
-# Main Simulator
-# ---------------------------------------------------------------------------
 
-class RemediationSimulator:
-    """Execute what-if graph edits in a sandboxed Neo4j transaction."""
+def _compute_uncapped_score_from_smells(smell_counts: Dict[str, int]) -> float:
+    """Calculate raw sum of smell weights without capping at 100."""
+    score = 0.0
+    score += smell_counts.get("circular_dependency", 0) * 30   # CRITICAL
+    score += smell_counts.get("bottleneck_service", 0) * 20    # HIGH
+    score += smell_counts.get("high_coupling", 0) * 15         # MEDIUM
+    score += smell_counts.get("isolated_service", 0) * 5       # LOW
+    return score
 
-    def __init__(self):
-        self.driver = get_neo4j_driver()
-
-    def _is_mock(self) -> bool:
-        return isinstance(self.driver, MockNeo4jDriver) or self.driver is None
-
-    # ------------------------------------------------------------------ #
-    #  Public API
-    # ------------------------------------------------------------------ #
 
 def _calculate_simulation_metrics(
     before_smells: Dict[str, int],
     after_smells: Dict[str, int],
     edits: List[GraphEdit],
-    baseline_risk_score: Optional[float] = None
 ) -> Tuple[float, float, float, bool, str]:
-    """Calculate before_score, after_score, point_reduction, measurable_change, and message."""
+    """Calculate before_score, after_score, point_reduction, measurable_change, and message for pure architectural smell risk."""
     before_total = sum(before_smells.values())
     after_total = sum(after_smells.values())
     smells_resolved = before_total - after_total
@@ -332,39 +332,25 @@ def _calculate_simulation_metrics(
     coupling_resolved = max(0, before_smells.get("high_coupling", 0) - after_smells.get("high_coupling", 0))
     isolated_resolved = max(0, before_smells.get("isolated_service", 0) - after_smells.get("isolated_service", 0))
 
-    raw_before = _compute_score_from_smells(before_smells)
-    raw_after = _compute_score_from_smells(after_smells)
+    raw_before = _compute_uncapped_score_from_smells(before_smells)
+    raw_after = _compute_uncapped_score_from_smells(after_smells)
 
-    has_structural_fix = (
-        cycles_resolved > 0 or
-        bottlenecks_resolved > 0 or
-        coupling_resolved > 0 or
-        isolated_resolved > 0 or
-        (raw_before > raw_after)
-    )
+    before_score = round(min(100.0, raw_before), 1)
 
-    # 1. Determine before score: honor baseline_risk_score from active analysis when provided
-    if baseline_risk_score is not None:
-        before_score = round(float(baseline_risk_score), 1)
+    if raw_before == 0.0 or raw_after >= raw_before:
+        point_reduction = 0.0
+        after_score = before_score
+    elif raw_before <= 100.0:
+        # Standard linear point reduction below saturation threshold
+        after_score = round(max(0.0, raw_after), 1)
+        point_reduction = round(max(0.0, before_score - after_score), 1)
     else:
-        before_score = round(min(100.0, raw_before), 1)
+        # When cumulative smell debt exceeds 100, calculate proportional reduction
+        # so that resolving major smells produces a meaningful score reduction
+        reduction_ratio = (raw_before - raw_after) / raw_before
+        point_reduction = round(min(before_score, before_score * reduction_ratio), 1)
+        after_score = round(max(0.0, before_score - point_reduction), 1)
 
-    # 2. Determine point reduction based strictly on verified smell resolutions:
-    point_reduction = 0.0
-    if cycles_resolved > 0:
-        point_reduction += cycles_resolved * 25.0
-    if bottlenecks_resolved > 0:
-        point_reduction += bottlenecks_resolved * 15.0
-    if coupling_resolved > 0:
-        point_reduction += coupling_resolved * 10.0
-    if isolated_resolved > 0:
-        point_reduction += isolated_resolved * 5.0
-
-    if point_reduction == 0.0 and raw_before > raw_after:
-        point_reduction = round((raw_before - raw_after) / max(raw_before, 1) * before_score, 1)
-
-    point_reduction = round(min(before_score, point_reduction), 1)
-    after_score = max(0.0, round(before_score - point_reduction, 1))
     measurable_change = (point_reduction > 0) or (smells_resolved > 0)
 
     details = []
@@ -380,13 +366,15 @@ def _calculate_simulation_metrics(
         details.append("architectural remediation applied")
 
     if measurable_change and point_reduction > 0:
-        message = f"Risk reduction verified: {', '.join(details)} (-{point_reduction} pts risk)"
+        message = f"Risk reduction verified: {', '.join(details)} (-{point_reduction} pts smell risk)"
     elif measurable_change:
         message = "Smell reduction verified"
     else:
         message = "No measurable change in tracked architectural smells"
 
     return before_score, after_score, point_reduction, measurable_change, message
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -406,24 +394,43 @@ class RemediationSimulator:
     #  Public API
     # ------------------------------------------------------------------ #
 
-    async def simulate_fix(self, edits: List[GraphEdit], baseline_risk_score: Optional[float] = None) -> Dict[str, Any]:
+    async def simulate_fix(
+        self,
+        edits: List[GraphEdit],
+        baseline_risk_score: Optional[float] = None,
+        affected_files_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Run edits in a sandbox and return before/after comparison.
 
-        Returns a dict with keys: before, after, delta, sandbox.
+        Returns a dict with keys: before, after, delta, commit_risk, sandbox.
         """
         if self._is_mock():
-            return await self._simulate_mock(edits, baseline_risk_score=baseline_risk_score)
-        return await self._simulate_live(edits, baseline_risk_score=baseline_risk_score)
+            return await self._simulate_mock(
+                edits,
+                baseline_risk_score=baseline_risk_score,
+                affected_files_count=affected_files_count,
+            )
+        return await self._simulate_live(
+            edits,
+            baseline_risk_score=baseline_risk_score,
+            affected_files_count=affected_files_count,
+        )
 
 
     # ------------------------------------------------------------------ #
     #  Live Neo4j mode
     # ------------------------------------------------------------------ #
 
-    async def _simulate_live(self, edits: List[GraphEdit], baseline_risk_score: Optional[float] = None) -> Dict[str, Any]:
+    async def _simulate_live(
+        self,
+        edits: List[GraphEdit],
+        baseline_risk_score: Optional[float] = None,
+        affected_files_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Transactional simulation on a real Neo4j instance."""
 
         def _run_in_tx():
+            assert self.driver is not None
             with self.driver.session() as session:
                 tx = session.begin_transaction()
                 try:
@@ -444,11 +451,30 @@ class RemediationSimulator:
         before_smells, after_smells = await asyncio.to_thread(_run_in_tx)
 
         before_score, after_score, point_reduction, measurable_change, message = _calculate_simulation_metrics(
-            before_smells, after_smells, edits, baseline_risk_score=baseline_risk_score
+            before_smells, after_smells, edits
         )
 
         before_total = sum(before_smells.values())
         after_total = sum(after_smells.values())
+
+        commit_risk = None
+        if baseline_risk_score is not None:
+            base_score = round(float(baseline_risk_score), 1)
+            sev = _get_severity(base_score)
+            files_desc = (
+                f"{affected_files_count} source file{'s' if affected_files_count != 1 else ''}"
+                if affected_files_count
+                else "modified source files"
+            )
+            commit_risk = {
+                "score": base_score,
+                "severity": sev,
+                "files_count": affected_files_count,
+                "message": (
+                    f"Git Commit Risk remains {base_score}/100 ({sev}) because deployment blast radius "
+                    f"is driven by {files_desc} and core configurations."
+                ),
+            }
 
         return {
             "before": {
@@ -469,6 +495,7 @@ class RemediationSimulator:
                 "measurable_change": measurable_change,
                 "message": message,
             },
+            "commit_risk": commit_risk,
             "measurable_change": measurable_change,
             "metric": "Architectural Smell Risk",
             "description": "Evaluates architectural anti-patterns (cycles, bottlenecks, coupling, isolation) on the dependency graph.",
@@ -479,7 +506,12 @@ class RemediationSimulator:
     #  Mock / fallback mode
     # ------------------------------------------------------------------ #
 
-    async def _simulate_mock(self, edits: List[GraphEdit], baseline_risk_score: Optional[float] = None) -> Dict[str, Any]:
+    async def _simulate_mock(
+        self,
+        edits: List[GraphEdit],
+        baseline_risk_score: Optional[float] = None,
+        affected_files_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Heuristic estimation when Neo4j is unavailable."""
         from services.smell_detector import SmellDetector
 
@@ -524,11 +556,30 @@ class RemediationSimulator:
                         )
 
         before_score, after_score, point_reduction, measurable_change, message = _calculate_simulation_metrics(
-            before_counts, after_counts, edits, baseline_risk_score=baseline_risk_score
+            before_counts, after_counts, edits
         )
 
         before_total = sum(before_counts.values())
         after_total = sum(after_counts.values())
+
+        commit_risk = None
+        if baseline_risk_score is not None:
+            base_score = round(float(baseline_risk_score), 1)
+            sev = _get_severity(base_score)
+            files_desc = (
+                f"{affected_files_count} source file{'s' if affected_files_count != 1 else ''}"
+                if affected_files_count
+                else "modified source files"
+            )
+            commit_risk = {
+                "score": base_score,
+                "severity": sev,
+                "files_count": affected_files_count,
+                "message": (
+                    f"Git Commit Risk remains {base_score}/100 ({sev}) because deployment blast radius "
+                    f"is driven by {files_desc} and core configurations."
+                ),
+            }
 
         return {
             "before": {
@@ -549,8 +600,10 @@ class RemediationSimulator:
                 "measurable_change": measurable_change,
                 "message": message,
             },
+            "commit_risk": commit_risk,
             "measurable_change": measurable_change,
             "metric": "Architectural Smell Risk",
             "description": "Evaluates architectural anti-patterns (cycles, bottlenecks, coupling, isolation) on the dependency graph.",
             "sandbox": True,
         }
+

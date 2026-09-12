@@ -151,10 +151,34 @@ async def analyze_impact(
         )
 
         # Generate structured remediation with graph edits from smells
+        architecture_smell_score = 0.0
+        architecture_smell_severity = "low"
+        architecture_smells_count = 0
+        architecture_smells_breakdown: Dict[str, int] = {
+            "circular_dependency": 0,
+            "bottleneck_service": 0,
+            "high_coupling": 0,
+            "isolated_service": 0,
+        }
         try:
             from services.smell_detector import SmellDetector
+            from services.remediation_simulator import _compute_score_from_smells, _get_severity
             detector = SmellDetector()
             smells = await detector.detect_all_smells()
+            architecture_smells_count = len(smells)
+            for s in smells:
+                stype = s.get("type", "")
+                if "Circular" in stype:
+                    architecture_smells_breakdown["circular_dependency"] += 1
+                elif "Bottleneck" in stype or "God" in stype:
+                    architecture_smells_breakdown["bottleneck_service"] += 1
+                elif "Coupling" in stype:
+                    architecture_smells_breakdown["high_coupling"] += 1
+                elif "Isolated" in stype or "Dead" in stype:
+                    architecture_smells_breakdown["isolated_service"] += 1
+            architecture_smell_score = round(_compute_score_from_smells(architecture_smells_breakdown), 1)
+            architecture_smell_severity = _get_severity(architecture_smell_score).lower()
+
             structured_fixes = await engine.explainer.suggest_remediation_with_edits(
                 smells=smells,
                 impacted_services=result.impacted_services,
@@ -211,6 +235,10 @@ async def analyze_impact(
             "service": result.impacted_services[0] if result.impacted_services else "unknown",
             "downstream_services": result.impacted_services,
             "score_breakdown": score_breakdown,
+            "architecture_smell_score": architecture_smell_score,
+            "architecture_smell_severity": architecture_smell_severity,
+            "architecture_smells_count": architecture_smells_count,
+            "architecture_smells_breakdown": architecture_smells_breakdown,
         }
 
         # Thread-safe insert into history
@@ -290,6 +318,7 @@ class PreviewFixRequest(BaseModel):
     """What-If remediation preview request."""
     edits: List[GraphEdit]
     baseline_risk_score: Optional[float] = None
+    affected_files_count: Optional[int] = None
 
 
 @router.post("/preview-fix", summary="Simulate graph edits in a sandbox transaction")
@@ -306,6 +335,7 @@ async def preview_fix(
         result = await simulator.simulate_fix(
             request.edits,
             baseline_risk_score=request.baseline_risk_score,
+            affected_files_count=request.affected_files_count,
         )
         return result
     except HTTPException:

@@ -74,7 +74,7 @@ class SmellDetector:
             )
 
         for service, endpoints in zip(services, endpoint_sets):
-            if isinstance(endpoints, Exception) or endpoints is None:
+            if isinstance(endpoints, BaseException) or endpoints is None:
                 continue
             endpoint_signature = hashlib.sha256("\n".join(endpoints).encode()).hexdigest()
             await _run_query(
@@ -147,15 +147,27 @@ class SmellDetector:
         findings, seen = [], set()
         for record in records:
             cycle = record.get("cycle", [])
-            services = sorted(set(cycle))
-            key = tuple(services)
-            if len(services) > 1 and key not in seen:
+            if not cycle or len(cycle) < 3:
+                continue
+            cycle_nodes = cycle[:-1]
+            # Must be an elementary cycle: no intermediate node visited more than once
+            if len(cycle_nodes) != len(set(cycle_nodes)) or len(cycle_nodes) < 2:
+                continue
+            # Canonical rotation: rotate so lexicographically smallest service is first
+            min_idx = cycle_nodes.index(min(cycle_nodes))
+            canonical = cycle_nodes[min_idx:] + cycle_nodes[:min_idx]
+            key = tuple(canonical)
+            if key not in seen:
                 seen.add(key)
+                canonical_path = canonical + [canonical[0]]
+                services = sorted(key)
                 findings.append({
-                    "type": "Circular Dependency", "severity": "CRITICAL",
-                    "confidence": "high", "services": services,
-                    "evidence": {"cycle": cycle},
-                    "description": f"Circular dependency detected: {' → '.join(cycle)}.",
+                    "type": "Circular Dependency",
+                    "severity": "CRITICAL",
+                    "confidence": "high",
+                    "services": services,
+                    "evidence": {"cycle": canonical_path},
+                    "description": f"Circular dependency detected: {' → '.join(canonical_path)}.",
                 })
         return findings
 

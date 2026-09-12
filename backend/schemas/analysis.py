@@ -75,6 +75,10 @@ class AnalysisResponse(BaseModel):
     service: str
     downstream_services: List[str] = []
     score_breakdown: ScoreBreakdown
+    architecture_smell_score: float = 0.0
+    architecture_smell_severity: str = "low"
+    architecture_smells_count: int = 0
+    architecture_smells_breakdown: Dict[str, int] = {}
 
 
 class HistoryEntry(BaseModel):

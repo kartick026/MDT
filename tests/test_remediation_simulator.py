@@ -196,15 +196,24 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
             GraphEdit(action="add_edge", from_service="order-service_facade", to_service="order-service"),
             GraphEdit(action="add_edge", from_service="order-service_facade", to_service="user-service"),
         ]
-        result = await sim.simulate_fix(edits, baseline_risk_score=85.0)
+        result = await sim.simulate_fix(edits, baseline_risk_score=85.0, affected_files_count=14)
 
-        self.assertEqual(result["before"]["score"], 85.0)
-        self.assertEqual(result["before"]["severity"], "CRITICAL")
-        self.assertEqual(result["after"]["score"], 60.0)
-        self.assertEqual(result["after"]["severity"], "HIGH")
-        self.assertEqual(result["delta"]["score_reduction"], 25.0)
+        # Architectural smell risk is independent of git diff score
+        self.assertEqual(result["before"]["score"], 30.0)
+        self.assertEqual(result["before"]["severity"], "MEDIUM")
+        self.assertEqual(result["after"]["score"], 0.0)
+        self.assertEqual(result["after"]["severity"], "LOW")
+        self.assertEqual(result["delta"]["score_reduction"], 30.0)
         self.assertTrue(result["delta"]["measurable_change"])
         self.assertEqual(result["metric"], "Architectural Smell Risk")
+
+        # Commit risk is preserved separately
+        self.assertIsNotNone(result["commit_risk"])
+        assert result["commit_risk"] is not None
+        self.assertEqual(result["commit_risk"]["score"], 85.0)
+        self.assertEqual(result["commit_risk"]["severity"], "CRITICAL")
+        self.assertEqual(result["commit_risk"]["files_count"], 14)
+        self.assertIn("14 source files", result["commit_risk"]["message"])
 
     @patch("services.remediation_simulator.get_neo4j_driver")
     async def test_baseline_risk_score_with_no_resilience_edits(self, mock_get_driver):
@@ -215,10 +224,16 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         edits = [GraphEdit(action="add_node", from_service="unrelated_node")]
         result = await sim.simulate_fix(edits, baseline_risk_score=85.0)
 
-        self.assertEqual(result["before"]["score"], 85.0)
-        self.assertEqual(result["after"]["score"], 85.0)
+        # Architectural smell score is unchanged when edits do not resolve smells
+        self.assertEqual(result["before"]["score"], result["after"]["score"])
         self.assertEqual(result["delta"]["score_reduction"], 0.0)
         self.assertFalse(result["delta"]["measurable_change"])
+
+        # Commit risk remains reported
+        self.assertIsNotNone(result["commit_risk"])
+        assert result["commit_risk"] is not None
+        self.assertEqual(result["commit_risk"]["score"], 85.0)
+        self.assertEqual(result["commit_risk"]["severity"], "CRITICAL")
 
 
 if __name__ == "__main__":

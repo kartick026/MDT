@@ -159,7 +159,8 @@ export default function ImpactForm({
     try {
       const data = await previewFix({
         edits,
-        baseline_risk_score: baselineScore !== undefined ? baselineScore : (results?.[0]?.risk_score || 0)
+        baseline_risk_score: baselineScore !== undefined ? baselineScore : (results?.[0]?.risk_score || 0),
+        affected_files_count: results?.[0]?.affected_files?.length || 0
       });
       setPreviewData(data);
     } catch (err) {
@@ -417,7 +418,34 @@ export default function ImpactForm({
                       </span>
                     </div>
                   </div>
-                  <ScoreGauge score={Math.round(result.risk_score)} level={result.severity} size={105} />
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    {/* Dial 1: Commit Blast Radius (Git Diff) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)' }}>
+                        Commit Blast Radius
+                      </span>
+                      <ScoreGauge score={Math.round(result.risk_score)} level={result.severity} size={92} />
+                      <span style={{ fontSize: '10px', color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
+                        Git Diff Risk
+                      </span>
+                    </div>
+
+                    {/* Dial 2: Architecture Health (Smells) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)' }}>
+                        Architecture Health
+                      </span>
+                      <ScoreGauge
+                        score={Math.round(result.architecture_smell_score !== undefined ? result.architecture_smell_score : (result.smell_score || 0))}
+                        level={result.architecture_smell_severity || (result.architecture_smell_score > 75 ? 'CRITICAL' : result.architecture_smell_score > 50 ? 'HIGH' : result.architecture_smell_score > 25 ? 'MEDIUM' : 'LOW')}
+                        size={92}
+                      />
+                      <span style={{ fontSize: '10px', color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
+                        {result.architecture_smells_count !== undefined ? `${result.architecture_smells_count} smell${result.architecture_smells_count !== 1 ? 's' : ''}` : 'Smell Risk'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Connection Bugs Alert Banner */}
@@ -692,6 +720,32 @@ export default function ImpactForm({
                                     </span>
                                   </div>
                                 </div>
+
+                                {/* Explanatory Banner: Commit Blast Radius vs Architecture Health */}
+                                {previewData.commit_risk && (
+                                  <div style={{
+                                    fontSize: '11.5px',
+                                    lineHeight: '1.5',
+                                    color: 'var(--text-dim)',
+                                    background: 'rgba(255, 170, 0, 0.05)',
+                                    border: '1px solid rgba(255, 170, 0, 0.2)',
+                                    padding: '10px 14px',
+                                    borderRadius: '6px',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '10px'
+                                  }}>
+                                    <span style={{ fontSize: '14px', lineHeight: '1' }}>🛡️</span>
+                                    <div>
+                                      <span style={{ color: 'var(--yellow)', fontWeight: 600 }}>
+                                        Git Commit Risk Remains {previewData.commit_risk.score}/100 ({previewData.commit_risk.severity}):
+                                      </span>{' '}
+                                      <span>
+                                        While this architectural fix reduces graph smell risk ({previewData.before.score} → {previewData.after.score}), the deployment blast radius remains high because {previewData.commit_risk.files_count || (result.affected_files?.length || 'multiple')} source files and configuration modules are being deployed in this commit.
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {previewData.delta?.measurable_change === false && (
                                   <div style={{
