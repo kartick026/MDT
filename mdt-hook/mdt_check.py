@@ -12,16 +12,18 @@ Set MDT_SKIP=1 to skip the check entirely.
 import os
 import sys
 import json
+import io
 import subprocess
 import urllib.request
 import urllib.error
 
 if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    for _stream in (sys.stdout, sys.stderr):
+        if isinstance(_stream, io.TextIOWrapper):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 BASE_URL = os.environ.get("MDT_API_URL", "http://localhost:8000")
 FORCE    = os.environ.get("MDT_FORCE", "0") == "1"

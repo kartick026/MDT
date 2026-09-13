@@ -19,6 +19,9 @@ A full MDT cluster consists of the drift engine, graph store, vector database, w
 | **`payment-service`** | `8003` | `8003` | Reference Microservice (Payment gateway) |
 | **`notification-service`**| `8004` | `8004` | Reference Microservice (Event dispatching) |
 
+> [!NOTE]
+> To test or run the 4 reference microservices on host ports 8001–8004 directly with Python outside Docker, use `python scripts/run_microservices.py`.
+
 ---
 
 ## 2. Environment Variables & Secrets Configuration

@@ -141,6 +141,13 @@ MDT includes a live Docker microservices fleet for testing cross-service blast r
 | **`notification-service`** | `8004` | `HEALTHY` | `35.0 (MEDIUM)` | `order-service`, `user-service`, `local-demo-postgres` | Event-driven notifications; participates in shared database pattern |
 | **`inventory-service`** | `9999` | `OFFLINE` | `90.0 (CRITICAL)` | Independent | Legacy inventory service — dead host demonstrating contract defect detection |
 
+> [!TIP]
+> **Running Demo Microservices Locally (Without Docker):**  
+> You can also run all 4 demo microservices concurrently on ports 8001–8004 using Python's multiprocessing runner:
+> ```bash
+> python scripts/run_microservices.py
+> ```
+
 ---
 
 ## Core API Endpoints
