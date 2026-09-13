@@ -183,6 +183,8 @@ class DependencyGraph:
                     s.url         = $url,
                     s.language    = $language,
                     s.description = $description,
+                    s.has_circuit_breaker = coalesce(s.has_circuit_breaker, false),
+                    s.resilient   = coalesce(s.resilient, false),
                     s.updated_at  = $ts
                 """,
                 name=svc["name"],

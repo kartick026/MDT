@@ -65,12 +65,21 @@ class SmellDetectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("Chatty Communication", findings[0]["type"])
         self.assertTrue(findings[0]["evidence"]["bidirectional"])
 
+    @patch("core.registry.RegistryManager.get_services")
     @patch("core.registry.RegistryManager.get_dependencies")
-    async def test_missing_circuit_breaker(self, mock_deps):
+    async def test_missing_circuit_breaker(self, mock_deps, mock_services):
+        mock_services.return_value = [
+            {"name": "order-service"},
+            {"name": "user-service"},
+            {"name": "payment-service"},
+            {"name": "notification-service"},
+            {"name": "inventory-service"},
+        ]
         mock_deps.return_value = [
             {"from": "order-service", "to": "user-service", "type": "http"},
             {"from": "order-service", "to": "payment-service", "type": "http"},
             {"from": "order-service", "to": "notification-service", "type": "http"},
+            {"from": "order-service", "to": "inventory-service", "type": "http"},
         ]
         findings = await self.detector._detect_missing_circuit_breaker()
         self.assertEqual(1, len(findings))
@@ -85,12 +94,15 @@ class SmellDetectorTests(unittest.IsolatedAsyncioTestCase):
             {"name": "service-a"},
             {"name": "service-b"},
             {"name": "service-c"},
+            {"name": "service-d"},
+            {"name": "service-e"},
         ]
-        # core-hub connects to service-a, service-b, service-c (3 out of 3 other services = 100% > 60%)
+        # core-hub connects to service-a, service-b, service-c, service-d (4 out of 5 other services = 80% > 70%)
         mock_deps.return_value = [
             {"from": "service-a", "to": "core-hub", "type": "http"},
             {"from": "core-hub", "to": "service-b", "type": "http"},
             {"from": "core-hub", "to": "service-c", "type": "http"},
+            {"from": "core-hub", "to": "service-d", "type": "http"},
         ]
         findings = await self.detector._detect_hub_and_spoke()
         self.assertEqual(1, len(findings))
@@ -169,3 +181,106 @@ class SmellDetectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Shared Database", types)
         self.assertIn("Missing Circuit Breaker", types)
         self.assertIn("Hub-and-Spoke Centralization", types)
+
+    @patch("core.registry.RegistryManager.get_dependencies")
+    async def test_shared_database_case_insensitive_grouping(self, mock_deps):
+        """Case variations like PostgresDB vs postgresdb must group to the same shared DB smell."""
+        mock_deps.return_value = [
+            {"from": "order-service", "to": "PostgresDB", "type": "database", "endpoint": ":5432"},
+            {"from": "payment-service", "to": "postgresdb", "type": "database", "endpoint": ":5432"},
+        ]
+        findings = await self.detector._detect_shared_database()
+        self.assertEqual(1, len(findings))
+        self.assertEqual("Shared Database", findings[0]["type"])
+        self.assertEqual(["order-service", "payment-service"], sorted(findings[0]["services"]))
+
+    @patch("core.registry.RegistryManager.get_dependencies")
+    @patch("core.registry.RegistryManager.get_services")
+    async def test_missing_circuit_breaker_does_not_exempt_named_services(self, mock_services, mock_deps):
+        """Services named 'order-gateway' without real resilience code must not be exempted."""
+        mock_services.return_value = [
+            {"name": "order-gateway"},
+            {"name": "svc-a"},
+            {"name": "svc-b"},
+            {"name": "svc-c"},
+            {"name": "svc-d"},
+        ]
+        mock_deps.return_value = [
+            {"from": "order-gateway", "to": "svc-a", "type": "http"},
+            {"from": "order-gateway", "to": "svc-b", "type": "http"},
+            {"from": "order-gateway", "to": "svc-c", "type": "http"},
+            {"from": "order-gateway", "to": "svc-d", "type": "http"},
+        ]
+        findings = await self.detector._detect_missing_circuit_breaker()
+        self.assertEqual(1, len(findings))
+        self.assertEqual("Missing Circuit Breaker", findings[0]["type"])
+        self.assertEqual(["order-gateway"], findings[0]["services"])
+
+    @patch("core.registry.RegistryManager.get_dependencies")
+    async def test_chatty_communication_excludes_isolated_2node_cycle(self, mock_deps):
+        """Single bidirectional calls already caught as 2-node cycles are not double-counted as chatty."""
+        mock_deps.return_value = [
+            {"from": "order-service", "to": "user-service", "type": "http"},
+            {"from": "user-service", "to": "order-service", "type": "http"},
+        ]
+        excluded = {("order-service", "user-service")}
+        findings = await self.detector._detect_chatty_communication(exclude_pairs=excluded)
+        self.assertEqual(0, len(findings))
+
+    def test_circuit_breaker_threshold_mathematical_algorithm(self):
+        """Verify dynamic percolation scaling for circuit breaker threshold."""
+        from services.smell_detector import calculate_circuit_breaker_threshold
+
+        # Small fleets scale at minimum 2
+        self.assertEqual(calculate_circuit_breaker_threshold(2), 2)
+        self.assertEqual(calculate_circuit_breaker_threshold(3), 2)
+        # Demo fleet (5 services): ceil(sqrt(5)) = 3
+        self.assertEqual(calculate_circuit_breaker_threshold(5), 3)
+        # Medium fleets
+        self.assertEqual(calculate_circuit_breaker_threshold(9), 3)
+        self.assertEqual(calculate_circuit_breaker_threshold(10), 4)
+        # Large fleet
+        self.assertEqual(calculate_circuit_breaker_threshold(25), 5)
+
+        # Statistical outlier modulation with skewed outbound distribution
+        # e.g., 5 nodes where one calls 4 and others call 0: mean = 0.8, std ~ 1.6 => ceil(2.4) = 3
+        self.assertEqual(calculate_circuit_breaker_threshold(5, [4, 0, 0, 0, 0]), 3)
+
+    def test_hub_and_spoke_threshold_mathematical_algorithm(self):
+        """Verify Freeman centrality ratio scaling for hub-and-spoke threshold."""
+        from services.smell_detector import calculate_hub_and_spoke_threshold
+
+        # Fewer than 3 nodes cannot form a star hub
+        self.assertEqual(calculate_hub_and_spoke_threshold(1), 0)
+        self.assertEqual(calculate_hub_and_spoke_threshold(2), 0)
+        # 3 nodes: max(2, ceil(0.60 * 2)) = 2
+        self.assertEqual(calculate_hub_and_spoke_threshold(3), 2)
+        # 4 nodes: max(2, ceil(0.60 * 3)) = 2
+        self.assertEqual(calculate_hub_and_spoke_threshold(4), 2)
+        # 5 nodes (demo fleet): ceil(0.60 * 4) = 3
+        self.assertEqual(calculate_hub_and_spoke_threshold(5), 3)
+        # 10 nodes: ceil(0.684 * 9) = 7
+        self.assertEqual(calculate_hub_and_spoke_threshold(10), 7)
+
+    @patch("core.registry.RegistryManager.get_dependencies")
+    @patch("core.registry.RegistryManager.get_services")
+    async def test_hub_and_spoke_ignores_symmetric_clique(self, mock_services, mock_deps):
+        """A symmetric mesh/clique where all nodes have equal degree must not trigger hub-and-spoke."""
+        mock_services.return_value = [
+            {"name": "svc-1"},
+            {"name": "svc-2"},
+            {"name": "svc-3"},
+            {"name": "svc-4"},
+        ]
+        # Fully connected mesh: every service connects to every other service
+        mock_deps.return_value = [
+            {"from": "svc-1", "to": "svc-2", "type": "http"},
+            {"from": "svc-1", "to": "svc-3", "type": "http"},
+            {"from": "svc-1", "to": "svc-4", "type": "http"},
+            {"from": "svc-2", "to": "svc-3", "type": "http"},
+            {"from": "svc-2", "to": "svc-4", "type": "http"},
+            {"from": "svc-3", "to": "svc-4", "type": "http"},
+        ]
+        findings = await self.detector._detect_hub_and_spoke()
+        # All 4 services have degree 3, equal to average degree 3.0. No single hub exists.
+        self.assertEqual(0, len(findings))

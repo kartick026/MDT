@@ -32,7 +32,7 @@ from services.git_analyzer import GitAnalyzer, ChangeInfo
 from services.impact_engine import ImpactEngine
 from core.config import settings
 from core.history import history_store
-from core.utils import now_iso
+from core.utils import now_iso, check_rate_limit, _rate_limit_records
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,25 +42,10 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-_rate_limit_records = defaultdict(list)
-
 
 def _check_rate_limit(client_ip: str, max_requests: int = 30, window_seconds: int = 60) -> bool:
-    """Return True if allowed, False if rate limit exceeded in the time window."""
-    now = time.time()
-    # Prune stale records if tracking dictionary grows large
-    if len(_rate_limit_records) > 500:
-        stale_ips = [ip for ip, ts in _rate_limit_records.items() if not ts or (now - ts[-1] > window_seconds * 2)]
-        for ip in stale_ips:
-            _rate_limit_records.pop(ip, None)
-
-    timestamps = _rate_limit_records[client_ip]
-    valid = [t for t in timestamps if now - t < window_seconds]
-    _rate_limit_records[client_ip] = valid
-    if len(valid) >= max_requests:
-        return False
-    valid.append(now)
-    return True
+    """Check sliding-window rate limit using shared core utility."""
+    return check_rate_limit(client_ip, max_requests=max_requests, window_seconds=window_seconds, scope="webhook")
 
 
 def _verify_signature(payload: bytes, signature: Optional[str], secret: str) -> bool:

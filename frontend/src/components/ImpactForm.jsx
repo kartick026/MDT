@@ -97,6 +97,7 @@ export default function ImpactForm({
 
   const runAnalysis = async (targetRepo = currentRepo, targetBranch = currentBranch, overrideFiles = files, triggerKey = null) => {
     setLoading(true);
+    setResults(null);
     setError(null);
     setPreviewData(null);
     setActivePreviewIdx(null);
@@ -328,7 +329,13 @@ export default function ImpactForm({
             <div className="panel-title" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--display)' }}>Analysis Result</div>
             <div className="text-dim text-xs" style={{ marginTop: '2px' }}>Live hierarchical microservice drift analysis output</div>
           </div>
-          {results && results.length > 0 && (
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--cyan)', background: 'rgba(0, 212, 255, 0.08)', border: '1px solid rgba(0, 212, 255, 0.25)', padding: '3px 10px', borderRadius: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span className="spinner-xs" /> Analyzing…
+              </span>
+            </div>
+          ) : results && results.length > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '11px', color: 'var(--green)', background: 'rgba(0, 255, 136, 0.08)', border: '1px solid rgba(0, 255, 136, 0.25)', padding: '3px 10px', borderRadius: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                 <span>✓</span> Analyzed
@@ -337,7 +344,7 @@ export default function ImpactForm({
                 Live Report
               </span>
             </div>
-          )}
+          ) : null}
         </div>
 
         {!results && !loading && (
@@ -760,7 +767,7 @@ export default function ImpactForm({
                                     gap: '8px'
                                   }}>
                                     <span>ℹ</span>
-                                    <span>No measurable change in tracked architectural smells (0 → 0). The previewed edit does not affect the 4 tracked topological smells.</span>
+                                    <span>No measurable change in tracked architectural smells (0 → 0). The previewed edit does not affect the 10 tracked architectural smells.</span>
                                   </div>
                                 )}
 

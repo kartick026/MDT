@@ -4,7 +4,7 @@ Login, Token issuance, User identity, and Token refresh.
 """
 import logging
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from core.auth import (
@@ -14,6 +14,7 @@ from core.auth import (
     register_user,
 )
 from core.config import settings
+from core.utils import check_rate_limit
 from schemas.auth import Token, UserLogin, UserOut, UserRegistration
 
 router = APIRouter()
@@ -35,8 +36,17 @@ def _issue_token(user: UserOut) -> Token:
 
 
 @router.post("/login", response_model=Token, summary="User login with JSON credentials")
-async def login_json(credentials: UserLogin):
+async def login_json(credentials: UserLogin, request: Request):
     """Authenticate user with username and password, returning a JWT bearer token."""
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="login"):
+        logger.warning("Login rate limit exceeded for client IP %s", client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again shortly.",
+            headers={"Retry-After": "60"},
+        )
+
     user = authenticate_user(credentials.username, credentials.password)
     if not user:
         raise HTTPException(
@@ -64,8 +74,17 @@ async def register(credentials: UserRegistration):
 
 
 @router.post("/token", response_model=Token, summary="OAuth2 standard form login (Swagger UI compatible)")
-async def login_form(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login_form(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """OAuth2 compatible token login for documentation and OpenAPI client generators."""
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="login"):
+        logger.warning("Login form rate limit exceeded for client IP %s", client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again shortly.",
+            headers={"Retry-After": "60"},
+        )
+
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(

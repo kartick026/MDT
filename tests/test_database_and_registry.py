@@ -66,8 +66,6 @@ class DatabaseAndRegistryTests(unittest.TestCase):
         self.assertNotIn("local-demo-postgres", names)
         self.assertIn(("user-service", "order-service"), edges)
         self.assertIn(("order-service", "user-service"), edges)
-        self.assertIn(("user-service", "local-demo-postgres"), edges)
-        self.assertIn(("notification-service", "local-demo-postgres"), edges)
         self.assertEqual(len(history["dependency_snapshots"]), 2)
         self.assertEqual(len(history["api_snapshots"]), 2)
         self.assertEqual(

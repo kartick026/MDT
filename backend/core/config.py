@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     )
     WEBHOOK_SIGNATURE_REQUIRED: bool = True
     RATE_LIMIT_WEBHOOK_PER_MINUTE: int = 30
+    RATE_LIMIT_LOGIN_PER_MINUTE: int = 5
     MAX_WEBHOOK_PAYLOAD_BYTES: int = 25 * 1024 * 1024  # 25 MB payload limit
 
     # GitHub Access Tokens

@@ -7,6 +7,7 @@ from services.remediation_simulator import (
     RemediationSimulator,
     generate_edits_for_smells,
     _compute_score_from_smells,
+    _compute_uncapped_score_from_smells,
     _get_severity,
 )
 
@@ -41,15 +42,32 @@ class ScoringSeverityTests(unittest.TestCase):
             "bottleneck_service": 0,
             "high_coupling": 0,
             "isolated_service": 0,
+            "shared_database": 0,
+            "hub_and_spoke": 0,
+            "chatty_communication": 0,
+            "missing_circuit_breaker": 0,
+            "dependency_explosion": 0,
+            "api_instability": 0,
         }
         self.assertEqual(_compute_score_from_smells(counts), 0.0)
+        self.assertEqual(_compute_uncapped_score_from_smells(counts), 0.0)
+
+    def test_scoring_weights_all_ten_smells(self):
+        """Verify explicit point weighting across all 10 architectural smells."""
+        self.assertEqual(_compute_uncapped_score_from_smells({"circular_dependency": 1}), 30.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"shared_database": 1}), 20.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"hub_and_spoke": 1}), 20.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"bottleneck_service": 1}), 20.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"dependency_explosion": 1}), 20.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"high_coupling": 1}), 15.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"api_instability": 1}), 15.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"chatty_communication": 1}), 12.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"missing_circuit_breaker": 1}), 12.0)
+        self.assertEqual(_compute_uncapped_score_from_smells({"isolated_service": 1}), 5.0)
 
     def test_single_cycle_scores_30(self):
         counts = {
             "circular_dependency": 1,
-            "bottleneck_service": 0,
-            "high_coupling": 0,
-            "isolated_service": 0,
         }
         self.assertEqual(_compute_score_from_smells(counts), 30.0)
 
@@ -61,6 +79,7 @@ class ScoringSeverityTests(unittest.TestCase):
             "isolated_service": 10,
         }
         self.assertEqual(_compute_score_from_smells(counts), 100.0)
+        self.assertGreater(_compute_uncapped_score_from_smells(counts), 100.0)
 
     def test_severity_mapping(self):
         self.assertEqual(_get_severity(80), "CRITICAL")
@@ -126,6 +145,45 @@ class GenerateEditsTests(unittest.TestCase):
 
     def test_empty_smells_yields_no_edits(self):
         self.assertEqual(generate_edits_for_smells([]), [])
+
+    def test_shared_database_generates_facade_and_reroute(self):
+        smells = [{
+            "type": "Shared Database",
+            "services": ["orders", "payments"],
+            "evidence": {"shared_target": "postgres-db"},
+        }]
+        edits = generate_edits_for_smells(smells)
+        self.assertEqual(len(edits), 3)
+        self.assertEqual(edits[0].action, "add_node")
+        self.assertEqual(edits[0].from_service, "orders_data_facade")
+        self.assertEqual(edits[1].action, "add_edge")
+        self.assertEqual(edits[1].from_service, "payments")
+        self.assertEqual(edits[1].to_service, "orders_data_facade")
+        self.assertEqual(edits[2].action, "remove_edge")
+        self.assertEqual(edits[2].from_service, "payments")
+        self.assertEqual(edits[2].to_service, "postgres-db")
+
+    def test_chatty_communication_generates_broker(self):
+        smells = [{
+            "type": "Chatty Communication",
+            "services": ["orders", "users"],
+            "evidence": {"pair": ["orders", "users"]},
+        }]
+        edits = generate_edits_for_smells(smells)
+        self.assertEqual(len(edits), 4)
+        self.assertEqual(edits[0].action, "add_node")
+        self.assertEqual(edits[0].from_service, "event_broker")
+
+    def test_circuit_breaker_generates_gateway(self):
+        smells = [{
+            "type": "Missing Circuit Breaker",
+            "services": ["api-client"],
+            "evidence": {"fan_out_count": 4},
+        }]
+        edits = generate_edits_for_smells(smells)
+        self.assertEqual(len(edits), 2)
+        self.assertEqual(edits[0].action, "add_node")
+        self.assertEqual(edits[0].from_service, "api-client_gateway")
 
 
 class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
@@ -234,6 +292,90 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         assert result["commit_risk"] is not None
         self.assertEqual(result["commit_risk"]["score"], 85.0)
         self.assertEqual(result["commit_risk"]["severity"], "CRITICAL")
+
+    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
+    @patch("services.remediation_simulator.get_neo4j_driver")
+    async def test_shared_database_simulation_score_reduction(self, mock_get_driver, mock_detect_smells):
+        """Resolving a Shared Database finding must reduce architectural smell score and show measurable change."""
+        from core.database import MockNeo4jDriver
+        mock_get_driver.return_value = MockNeo4jDriver()
+        mock_detect_smells.return_value = [{
+            "type": "Shared Database",
+            "services": ["order-service", "payment-service"],
+            "evidence": {"shared_target": "postgres-db", "sharing_services": ["order-service", "payment-service"]},
+        }]
+
+        sim = RemediationSimulator()
+        edits = [
+            GraphEdit(action="add_node", from_service="order-service_facade"),
+            GraphEdit(action="add_edge", from_service="payment-service", to_service="order-service_facade"),
+            GraphEdit(action="remove_edge", from_service="payment-service", to_service="postgres-db"),
+        ]
+        result = await sim.simulate_fix(edits)
+
+        # Before: 1 Shared Database (weight 20) -> score = 20.0
+        self.assertEqual(result["before"]["score"], 20.0)
+        self.assertEqual(result["before"]["smells"]["shared_database"], 1)
+
+        # After: 0 Shared Database -> score = 0.0
+        self.assertEqual(result["after"]["score"], 0.0)
+        self.assertEqual(result["after"]["smells"]["shared_database"], 0)
+
+        # Score reduction & measurable change verified
+        self.assertEqual(result["delta"]["score_reduction"], 20.0)
+        self.assertEqual(result["delta"]["smells_resolved"], 1)
+        self.assertTrue(result["delta"]["measurable_change"])
+        self.assertIn("shared database resolved", result["delta"]["message"])
+        self.assertLess(result["after"]["score"], result["before"]["score"])
+
+    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
+    @patch("services.remediation_simulator.get_neo4j_driver")
+    async def test_gateway_simulation_resolves_high_coupling_without_false_cycles(self, mock_get_driver, mock_detect_smells):
+        """Simulating a gateway facade reduces coupling and score without introducing cycles."""
+        from core.database import MockNeo4jDriver
+        mock_get_driver.return_value = MockNeo4jDriver()
+        mock_detect_smells.return_value = [
+            {"type": "High Coupling", "services": ["order-service"]},
+            {"type": "God / Bottleneck Service", "services": ["order-service"]},
+        ]
+
+        sim = RemediationSimulator()
+        edits = [
+            GraphEdit(action="add_node", from_service="order-service_gateway"),
+            GraphEdit(action="add_edge", from_service="order-service_gateway", to_service="order-service"),
+        ]
+        result = await sim.simulate_fix(edits)
+
+        self.assertEqual(result["before"]["smells"]["high_coupling"], 1)
+        self.assertEqual(result["after"]["smells"]["high_coupling"], 0)
+        self.assertEqual(result["after"]["smells"]["circular_dependency"], 0)
+        self.assertEqual(result["after"]["smells"]["missing_circuit_breaker"], 0)
+        self.assertTrue(result["delta"]["measurable_change"])
+        self.assertGreater(result["delta"]["score_reduction"], 0)
+
+    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
+    @patch("services.remediation_simulator.get_neo4j_driver")
+    async def test_resilience_facade_simulation_resolves_missing_circuit_breaker(self, mock_get_driver, mock_detect_smells):
+        """Simulating a resilience facade resolves missing circuit breaker and bottleneck."""
+        from core.database import MockNeo4jDriver
+        mock_get_driver.return_value = MockNeo4jDriver()
+        mock_detect_smells.return_value = [
+            {"type": "Missing Circuit Breaker", "services": ["order-service"]},
+            {"type": "God / Bottleneck Service", "services": ["order-service"]},
+        ]
+
+        sim = RemediationSimulator()
+        edits = [
+            GraphEdit(action="add_node", from_service="order-service_facade"),
+            GraphEdit(action="add_edge", from_service="order-service_facade", to_service="order-service"),
+        ]
+        result = await sim.simulate_fix(edits)
+
+        self.assertEqual(result["before"]["smells"]["missing_circuit_breaker"], 1)
+        self.assertEqual(result["after"]["smells"]["missing_circuit_breaker"], 0)
+        self.assertEqual(result["after"]["smells"]["circular_dependency"], 0)
+        self.assertTrue(result["delta"]["measurable_change"])
+        self.assertGreater(result["delta"]["score_reduction"], 0)
 
 
 if __name__ == "__main__":

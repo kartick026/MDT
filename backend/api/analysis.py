@@ -156,8 +156,14 @@ async def analyze_impact(
         architecture_smells_count = 0
         architecture_smells_breakdown: Dict[str, int] = {
             "circular_dependency": 0,
+            "shared_database": 0,
+            "hub_and_spoke": 0,
             "bottleneck_service": 0,
+            "dependency_explosion": 0,
             "high_coupling": 0,
+            "api_instability": 0,
+            "chatty_communication": 0,
+            "missing_circuit_breaker": 0,
             "isolated_service": 0,
         }
         try:
@@ -170,10 +176,22 @@ async def analyze_impact(
                 stype = s.get("type", "")
                 if "Circular" in stype:
                     architecture_smells_breakdown["circular_dependency"] += 1
+                elif "Shared Database" in stype:
+                    architecture_smells_breakdown["shared_database"] += 1
+                elif "Hub-and-Spoke" in stype or "Hub and Spoke" in stype:
+                    architecture_smells_breakdown["hub_and_spoke"] += 1
                 elif "Bottleneck" in stype or "God" in stype:
                     architecture_smells_breakdown["bottleneck_service"] += 1
+                elif "Dependency Explosion" in stype:
+                    architecture_smells_breakdown["dependency_explosion"] += 1
+                elif "API Instability" in stype:
+                    architecture_smells_breakdown["api_instability"] += 1
                 elif "Coupling" in stype:
                     architecture_smells_breakdown["high_coupling"] += 1
+                elif "Chatty" in stype:
+                    architecture_smells_breakdown["chatty_communication"] += 1
+                elif "Circuit Breaker" in stype:
+                    architecture_smells_breakdown["missing_circuit_breaker"] += 1
                 elif "Isolated" in stype or "Dead" in stype:
                     architecture_smells_breakdown["isolated_service"] += 1
             architecture_smell_score = round(_compute_score_from_smells(architecture_smells_breakdown), 1)

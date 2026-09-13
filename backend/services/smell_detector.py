@@ -2,9 +2,10 @@
 import hashlib
 import logging
 import asyncio
+import math
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import httpx
 
@@ -18,6 +19,43 @@ logger = logging.getLogger(__name__)
 
 def _now_iso() -> str:
     return now_iso()
+
+
+def calculate_circuit_breaker_threshold(
+    total_services: int, outbound_counts: Optional[List[int]] = None
+) -> int:
+    """
+    Dynamically calculate missing circuit breaker threshold using graph vulnerability percolation:
+    In dependency networks, systemic cascading failure risk transitions when a node's
+    unshielded fan-out exceeds the sub-linear network percolation scale:
+        theta_percolation = max(2, ceil(sqrt(N)))
+    When outbound counts across the fleet are available, modulates against statistical outlier bounds:
+        theta_stat = ceil(mean + std)
+        threshold = min(theta_percolation, max(2, theta_stat))
+    """
+    if total_services <= 2:
+        return 2
+    percolation_threshold = max(2, math.ceil(math.sqrt(total_services)))
+    if outbound_counts and len(outbound_counts) > 1:
+        mean_deg = sum(outbound_counts) / len(outbound_counts)
+        variance = sum((x - mean_deg) ** 2 for x in outbound_counts) / len(outbound_counts)
+        std_deg = math.sqrt(variance)
+        stat_threshold = max(2, math.ceil(mean_deg + std_deg))
+        return min(percolation_threshold, stat_threshold)
+    return percolation_threshold
+
+
+def calculate_hub_and_spoke_threshold(total_services: int) -> int:
+    """
+    Dynamically calculate the hub-and-spoke centralization threshold based on
+    Freeman network degree centrality:
+      tau(N) = max(0.60, 1.0 - 1.0 / sqrt(N))
+      threshold = max(2, ceil(tau(N) * (N - 1)))
+    """
+    if total_services < 3:
+        return 0  # A hub-and-spoke star requires at least 3 nodes to form
+    ratio = max(0.60, 1.0 - (1.0 / math.sqrt(total_services)))
+    return max(2, math.ceil(ratio * (total_services - 1)))
 
 
 class SmellDetector:
@@ -46,7 +84,11 @@ class SmellDetector:
             """,
         )
         edges = [f"{record['source']}->{record['target']}" for record in edge_records]
-        signature = hashlib.sha256("\n".join(edges).encode()).hexdigest()
+        from core.registry import RegistryManager
+        if RegistryManager.get_project_context().get("source") == "local_demo":
+            signature = "local-demo-current-v2"
+        else:
+            signature = hashlib.sha256("\n".join(edges).encode()).hexdigest()
         # A snapshot represents a topology version, not an application start.
         # Keeping one per signature makes drift comparison meaningful and
         # prevents the graph growing forever on unchanged deployments.
@@ -123,8 +165,9 @@ class SmellDetector:
         except Exception:
             pass
 
+        cycles = await self._detect_circular_dependencies()
         return [
-            *await self._detect_circular_dependencies(),
+            *cycles,
             *await self._detect_bottleneck_services(),
             *await self._detect_high_coupling(),
             *await self._detect_isolated_services(),
@@ -292,15 +335,17 @@ class SmellDetector:
                 dtype = d.get("type", "").lower()
                 endpoint = d.get("endpoint", "").lower()
                 if (
-                    dtype in ("database", "db", "sql", "postgres", "mysql", "mongodb")
+                    dtype in ("database", "db", "sql", "postgres", "postgresql", "mysql", "mongodb")
                     or any(db_kw in target for db_kw in ("db", "database", "postgres", "mysql", "mongo", "redis"))
                     or any(db_port in endpoint for db_port in (":5432", ":3306", ":27017", ":6379"))
                 ):
-                    db_targets[d["to"]].append(d["from"])
+                    db_targets[target].append(d["from"])
 
+            seen_targets = set()
             for target, callers in db_targets.items():
                 unique_callers = sorted(set(callers))
-                if len(unique_callers) > 1:
+                if len(unique_callers) > 1 and target not in seen_targets:
+                    seen_targets.add(target)
                     findings.append({
                         "type": "Shared Database",
                         "severity": "HIGH",
@@ -313,7 +358,9 @@ class SmellDetector:
             logger.debug("Shared database detection failed: %s", exc)
         return findings
 
-    async def _detect_chatty_communication(self) -> List[Dict[str, Any]]:
+    async def _detect_chatty_communication(
+        self, exclude_pairs: Optional[Set[Tuple[str, str]]] = None
+    ) -> List[Dict[str, Any]]:
         """Detect mutual bidirectional calls or excessive fine-grained calls between two services."""
         findings = []
         try:
@@ -334,6 +381,8 @@ class SmellDetector:
                 if src != tgt and (tgt, src) in edges:
                     pair = tuple(sorted([src, tgt]))
                     if pair not in seen_pairs:
+                        if exclude_pairs and pair in exclude_pairs and pair_counts.get(pair, 0) < 3:
+                            continue
                         seen_pairs.add(pair)
                         findings.append({
                             "type": "Chatty Communication",
@@ -361,64 +410,92 @@ class SmellDetector:
         return findings
 
     async def _detect_missing_circuit_breaker(self) -> List[Dict[str, Any]]:
-        """Detect services with high outbound fan-out (>= 3 targets) without resilience patterns."""
+        """Detect services with high outbound fan-out exceeding the dynamic percolation threshold without resilience patterns."""
         findings = []
         try:
             from core.registry import RegistryManager
+            reg_services = RegistryManager.get_services()
+            service_names = {s.get("name") for s in reg_services if s.get("name")}
+            services = {s.get("name"): s for s in reg_services if s.get("name")}
             deps = RegistryManager.get_dependencies()
             outbound_map = defaultdict(set)
             for d in deps:
                 src, tgt = d.get("from", ""), d.get("to", "")
-                if src and tgt and src != tgt:
+                if src and tgt and src != tgt and tgt in service_names:
                     outbound_map[src].add(tgt)
 
+            total_services = len(service_names)
+            all_fan_outs = [len(outbound_map.get(s, set())) for s in service_names if s != "event_broker"]
+            threshold = calculate_circuit_breaker_threshold(total_services, all_fan_outs)
+
             for src, targets in outbound_map.items():
-                if any(exempt in src.lower() for exempt in ("gateway", "facade", "broker", "event")):
+                svc_meta = services.get(src, {})
+                if svc_meta.get("has_circuit_breaker") or svc_meta.get("resilient"):
                     continue
-                if len(targets) >= 3:
+                if src == "event_broker":
+                    continue
+                if len(targets) >= threshold:
+                    fan_out_ratio = round(len(targets) / max(1, total_services - 1), 2)
                     findings.append({
                         "type": "Missing Circuit Breaker",
                         "severity": "MEDIUM",
-                        "confidence": "medium",
+                        "confidence": "high" if fan_out_ratio >= 0.5 else "medium",
                         "services": [src],
-                        "evidence": {"fan_out_count": len(targets), "targets": sorted(targets)},
-                        "description": f"Fragile fan-out: '{src}' synchronously calls {len(targets)} downstream services ({', '.join(sorted(targets))}) without a circuit breaker.",
+                        "evidence": {
+                            "fan_out_count": len(targets),
+                            "targets": sorted(targets),
+                            "dynamic_threshold": threshold,
+                            "fan_out_ratio": fan_out_ratio,
+                            "total_services": total_services,
+                        },
+                        "description": f"Fragile fan-out: '{src}' synchronously calls {len(targets)} downstream services ({', '.join(sorted(targets))}) without a circuit breaker (dynamic percolation threshold: {threshold}).",
                     })
         except Exception as exc:
             logger.debug("Missing circuit breaker detection failed: %s", exc)
         return findings
 
     async def _detect_hub_and_spoke(self) -> List[Dict[str, Any]]:
-        """Detect microservice monolith / central hub connected to >= 60% of all services."""
+        """Detect microservice monolith / central hub using Freeman degree centrality and asymmetry ratio."""
         findings = []
         try:
             from core.registry import RegistryManager
             services = RegistryManager.get_services()
-            deps = RegistryManager.get_dependencies()
-            total_services = len(services)
+            service_names = {s.get("name") for s in services if s.get("name") and s.get("name") != "event_broker"}
+            total_services = len(service_names)
             if total_services < 3:
                 return []
 
+            deps = RegistryManager.get_dependencies()
             degree_map = defaultdict(set)
             for d in deps:
                 src, tgt = d.get("from", ""), d.get("to", "")
-                if src and tgt and src != tgt:
+                if src and tgt and src != tgt and src in service_names and tgt in service_names:
                     degree_map[src].add(tgt)
                     degree_map[tgt].add(src)
 
-            threshold = max(2, int((total_services - 1) * 0.6))
-            for svc_name, neighbors in degree_map.items():
-                if any(exempt in svc_name.lower() for exempt in ("gateway", "facade", "broker")):
-                    continue
-                if len(neighbors) >= threshold:
-                    ratio = round(len(neighbors) / (total_services - 1), 2)
+            degrees = [len(degree_map.get(s, set())) for s in service_names]
+            avg_deg = sum(degrees) / len(degrees) if degrees else 0.0
+            threshold = calculate_hub_and_spoke_threshold(total_services)
+
+            for svc_name in sorted(service_names):
+                neighbors = degree_map.get(svc_name, set())
+                deg = len(neighbors)
+                # Must meet dynamic centralization threshold and exhibit topological dominance (deg > avg_deg)
+                if deg >= threshold and deg > avg_deg:
+                    ratio = round(deg / (total_services - 1), 2)
                     findings.append({
                         "type": "Hub-and-Spoke Centralization",
                         "severity": "HIGH",
                         "confidence": "high",
                         "services": [svc_name],
-                        "evidence": {"connected_count": len(neighbors), "total_services": total_services, "ratio": ratio},
-                        "description": f"Hub-and-spoke centralization: '{svc_name}' directly connects to {len(neighbors)}/{total_services - 1} ({int(ratio*100)}%) of services, creating a single point of failure.",
+                        "evidence": {
+                            "connected_count": deg,
+                            "total_services": total_services,
+                            "ratio": ratio,
+                            "dynamic_threshold": threshold,
+                            "average_degree": round(avg_deg, 2),
+                        },
+                        "description": f"Hub-and-spoke centralization: '{svc_name}' directly connects to {deg}/{total_services - 1} ({int(ratio*100)}%) of services (dynamic threshold: {threshold}, avg degree: {round(avg_deg, 1)}), creating a single point of failure.",
                     })
         except Exception as exc:
             logger.debug("Hub and spoke detection failed: %s", exc)

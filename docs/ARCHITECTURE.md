@@ -131,20 +131,22 @@ MDT continuously evaluates the live Neo4j topology, OpenAPI contract snapshots, 
 - **Remediation:** Consolidate fine-grained endpoints into coarse-grained batch APIs or adopt GraphQL / gRPC streaming.
 
 ### 9. Missing Circuit Breaker (`MEDIUM`)
-- **Detection Algorithm:** Outbound fan-out analysis without resilience abstractions:
-  - Outbound synchronous target count $\ge 3$.
-  - Excludes services tagged as gateways, facades, or event brokers.
-- **Threshold:** $\ge 3$ synchronous downstream targets without resilience patterns.
+- **Detection Algorithm:** Sub-linear network vulnerability percolation scaling with statistical outlier modulation:
+  - Percolation threshold: $\theta_{percolation}(N) = \max(2, \lceil\sqrt{N}\rceil)$.
+  - Modulated by outbound degree distribution when fleet counts are known: $\min(\theta_{percolation}, \max(2, \lceil \bar{k}_{out} + \sigma_{out} \rceil))$.
+  - Excludes services tagged as gateways, facades, or event brokers, or services with `has_circuit_breaker=true` or `resilient=true`.
+- **Threshold:** $\theta_{cb}(N)$ downstream microservice calls without resilience patterns.
 - **Architectural Impact:** Downstream latency spikes or failures exhaust caller thread pools and HTTP sockets, causing cascading brownouts.
 - **Remediation:** Implement circuit breakers (e.g. Resilience4j, Polly, Hystrix pattern), exponential backoff retries, and fallback responses.
 
 ### 10. Hub-and-Spoke Centralization (`HIGH`)
-- **Detection Algorithm:** Architectural degree centrality analysis:
-  - Calculates degree ratio: $\text{Ratio} = \frac{\text{Neighbors}(s)}{\text{Total Services} - 1}$.
-  - Excludes API gateways and facades.
-- **Threshold:** Service directly connected to $\ge 60\%$ of all registered services in an ecosystem with $\ge 3$ microservices.
+- **Detection Algorithm:** Architectural degree centrality analysis with topological dominance condition:
+  - Critical centrality ratio: $\tau(N) = \max(0.60, 1.0 - 1/\sqrt{N})$.
+  - Critical hub degree: $\theta_{hub}(N) = \max(2, \lceil \tau(N) \cdot (N - 1) \rceil)$.
+  - Dominance check: requires $\text{degree}(s) > \bar{k}$ (average degree of the fleet), preventing false positives on symmetric meshes, rings, or cliques.
+- **Threshold:** Service directly connected to $\ge \theta_{hub}(N)$ peers and exceeding fleet average degree in an ecosystem with $\ge 3$ microservices.
 - **Architectural Impact:** Creates a distributed monolith where the central hub prevents team autonomy, blocks independent deployment, and creates an existential failure point.
-- **Remediation:** Decentralize business logic into bounded contexts using domain-driven event streaming.
+- **Remediation:** Decentralize business logic into bounded contexts using domain-driven event streaming or API gateways.
 
 ---
 

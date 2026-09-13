@@ -212,14 +212,14 @@ MDT runs continuous Cypher graph algorithms and contract snapshot inspections to
 - **Remediation:** Consolidate fine-grained endpoints into coarse-grained batch APIs or adopt gRPC/GraphQL streaming.
 
 ### 9. Missing Circuit Breaker (`MEDIUM`)
-- **Heuristic:** Outbound synchronous fan-out ($\ge 3$ downstream targets) without resilience patterns, event brokers, or circuit breakers.
+- **Heuristic:** Dynamic percolation scale $\theta_{cb}(N) = \max(2, \lceil\sqrt{N}\rceil)$, modulated by statistical outlier bounds $\min(\theta_{percolation}, \max(2, \lceil \bar{k}_{out} + \sigma_{out} \rceil))$ without resilience flags (`has_circuit_breaker`/`resilient`).
 - **Impact:** Fragile synchronous calls where a slow downstream service exhausts caller thread/connection pools.
 - **Remediation:** Implement circuit breakers (e.g. Resilience4j, Polly, Hystrix pattern), retries, and fallback defaults.
 
 ### 10. Hub-and-Spoke Centralization (`HIGH`)
-- **Heuristic:** A single central service connected to $\ge 60\%$ of all registered services in an ecosystem with $\ge 3$ services.
+- **Heuristic:** Freeman degree centrality $\tau(N) = \max(0.60, 1.0 - 1/\sqrt{N})$, critical hub degree $\theta_{hub}(N) = \max(2, \lceil \tau(N) \cdot (N-1) \rceil)$, and topological dominance condition ($\text{degree} > \bar{k}$) in fleets with $\ge 3$ microservices.
 - **Impact:** Creates a distributed monolith where the central hub prevents team autonomy and creates an existential SPOF.
-- **Remediation:** Decentralize business logic into bounded contexts using domain-driven event streaming.
+- **Remediation:** Decentralize business logic into bounded contexts using domain-driven event streaming or API gateways.
 
 ### Evidence Inspection & Hygiene Rules
 Each smell includes:

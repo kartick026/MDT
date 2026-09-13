@@ -283,3 +283,25 @@ def test_production_rejects_insecure_or_missing_secrets():
     )
     assert prod_settings.ENVIRONMENT == "production"
     assert len(prod_settings.JWT_SECRET_KEY) >= 32
+
+
+def test_login_rate_limiting_enforced(client):
+    """Enforce sliding-window brute force protection on /auth/login."""
+    from core.utils import reset_rate_limit_records
+    original_limit = settings.RATE_LIMIT_LOGIN_PER_MINUTE
+    settings.RATE_LIMIT_LOGIN_PER_MINUTE = 3
+    reset_rate_limit_records()
+    try:
+        payload = {"username": "admin", "password": "wrong-password-xyz"}
+        # First 3 requests get 401 Unauthorized (credentials failed, but rate limit allowed)
+        for _ in range(3):
+            res = client.post("/auth/login", json=payload)
+            assert res.status_code == 401
+
+        # 4th request must fail with 429 Too Many Requests
+        res = client.post("/auth/login", json=payload)
+        assert res.status_code == 429
+        assert "Too many login attempts" in res.json()["detail"]
+    finally:
+        settings.RATE_LIMIT_LOGIN_PER_MINUTE = original_limit
+        reset_rate_limit_records()
