@@ -293,7 +293,7 @@ class ImpactEngine:
             degrees = list(in_degree.values())
             mean = statistics.mean(degrees)
             std = statistics.pstdev(degrees)
-            threshold = max(2, round(mean + std))
+            threshold = max(2, round(mean))
             core = {svc for svc, deg in in_degree.items() if deg >= threshold}
             if not core:
                 core = {svc for svc, deg in in_degree.items() if deg >= 2}

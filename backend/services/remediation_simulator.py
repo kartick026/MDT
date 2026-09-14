@@ -593,16 +593,23 @@ def _calculate_simulation_metrics(
     raw_before = _compute_uncapped_score_from_smells(before_smells)
     raw_after = _compute_uncapped_score_from_smells(after_smells)
 
-    before_score = round(min(100.0, max(0.0, raw_before)), 1)
-    after_score = round(min(100.0, max(0.0, raw_after)), 1)
-
     if raw_before == 0.0 or raw_after >= raw_before:
         point_reduction = 0.0
+        before_score = round(min(100.0, max(0.0, raw_before)), 1)
         after_score = before_score
-    else:
-        # The after-score is always the true computed after-value capped at 100.0.
-        # point_reduction represents the observable risk reduction on the 0-100 scale.
+    elif raw_before <= 100.0:
+        # Standard linear point reduction below saturation threshold
+        before_score = round(raw_before, 1)
+        after_score = round(max(0.0, raw_after), 1)
         point_reduction = round(max(0.0, before_score - after_score), 1)
+    else:
+        # When cumulative smell debt exceeds 100 (saturated baseline at 100.0),
+        # calculate proportional debt reduction so that resolving major smells
+        # produces a meaningful, monotonic score reduction on the 0-100 scale.
+        before_score = 100.0
+        reduction_ratio = (raw_before - raw_after) / raw_before
+        point_reduction = round(min(before_score, before_score * reduction_ratio), 1)
+        after_score = round(max(0.0, before_score - point_reduction), 1)
 
     measurable_change = (point_reduction > 0) or (smells_resolved > 0)
 

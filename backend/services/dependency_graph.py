@@ -202,9 +202,8 @@ class DependencyGraph:
                 """
                 MATCH (from:Service {name: $from_name})
                 MATCH (to:Service   {name: $to_name})
-                MERGE (from)-[r:DEPENDS_ON {type: $dep_type}]->(to)
-                SET r.endpoint   = $endpoint,
-                    r.updated_at = $ts
+                MERGE (from)-[r:DEPENDS_ON {type: $dep_type, endpoint: $endpoint}]->(to)
+                SET r.updated_at = $ts
                 """,
                 from_name=dep["from"],
                 to_name=dep["to"],

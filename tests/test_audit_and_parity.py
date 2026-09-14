@@ -24,13 +24,12 @@ from services.git_analyzer import ChangeInfo
 
 
 class WhatIfScoringRegressionTests(unittest.TestCase):
-    """Verify after_score is deterministic and does not distort when raw_before > 100."""
+    """Verify after_score and point_reduction correctly reflect debt resolution on the 0-100 scale."""
 
-    def test_after_score_deterministic_regardless_of_before_magnitude(self):
+    def test_after_score_proportional_reduction_when_saturated(self):
         """
-        Before=90, After=50 -> reports after_score=50.0
-        Before=130, After=50 -> reports after_score=50.0
-        The after-score should always simply be round(min(100.0, raw_after), 1).
+        When raw_before <= 100: Before=90, After=50 -> reports after_score=50.0, reduction=40.0
+        When raw_before > 100: Before=130, After=50 -> 80/130 (61.5%) debt resolved -> reduction=61.5, after=38.5.
         """
         from services.remediation_simulator import _calculate_simulation_metrics
 
@@ -57,31 +56,70 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         }
         self.assertEqual(_compute_uncapped_score_from_smells(smells_50), 50.0)
 
-        # Case 1: Before=90, After=50
+        # Case 1: Before=90, After=50 (linear)
         b1, a1, red1, meas1, msg1 = _calculate_simulation_metrics(smells_90, smells_50, edits=[])
         self.assertEqual(b1, 90.0)
         self.assertEqual(a1, 50.0)
         self.assertEqual(red1, 40.0)
         self.assertTrue(meas1)
 
-        # Case 2: Before=130, After=50
+        # Case 2: Before=130, After=50 (proportional reduction of 80/130 = 61.5%)
         b2, a2, red2, meas2, msg2 = _calculate_simulation_metrics(smells_130, smells_50, edits=[])
         self.assertEqual(b2, 100.0)  # Capped at 100
-        self.assertEqual(a2, 50.0)   # MUST be 50.0, NOT 38.5!
-        self.assertEqual(red2, 50.0)  # 100.0 - 50.0 on the 0-100 scale
+        self.assertEqual(a2, 38.5)   # 100.0 - 61.5 = 38.5
+        self.assertEqual(red2, 61.5)  # 61.5 pts reduction
         self.assertTrue(meas2)
 
     def test_after_score_when_both_before_and_after_exceed_cap(self):
-        """When raw_before=140 and raw_after=110, both cap at 100.0, reduction=0.0, measurable_change=True."""
+        """When raw_before=140 and raw_after=110, 30/140 (21.4%) debt is resolved, reducing score from 100.0 to 78.6."""
         from services.remediation_simulator import _calculate_simulation_metrics
         smells_140 = {"circular_dependency": 4, "hub_and_spoke": 1}  # 30*4 + 20 = 140
         smells_110 = {"circular_dependency": 3, "shared_database": 1}  # 30*3 + 20 = 110
 
         b, a, red, meas, msg = _calculate_simulation_metrics(smells_140, smells_110, edits=[])
         self.assertEqual(b, 100.0)
-        self.assertEqual(a, 100.0)
-        self.assertEqual(red, 0.0)
+        self.assertEqual(a, 78.6)
+        self.assertEqual(red, 21.4)
         self.assertTrue(meas)
+        self.assertIn("Risk reduction verified", msg)
+
+    def test_demo_fleet_what_if_preview_reductions(self):
+        """Test realistic demo fleet reductions for recommendations 1, 3, and 4."""
+        from services.remediation_simulator import _calculate_simulation_metrics
+        # Demo fleet raw debt = 241.0
+        before = {
+            'circular_dependency': 3,
+            'bottleneck_service': 1,
+            'high_coupling': 1,
+            'chatty_communication': 2,
+            'missing_circuit_breaker': 1,
+            'hub_and_spoke': 1,
+            'dependency_explosion': 1,
+            'api_instability': 1,
+            'shared_database': 1,
+            'isolated_service': 1
+        }
+        # Rec 1: resolves 2 cycles and 1 chatty (raw 241 -> 169)
+        after_1 = dict(before)
+        after_1['circular_dependency'] = 1
+        after_1['chatty_communication'] = 1
+        b1, a1, r1, m1, _ = _calculate_simulation_metrics(before, after_1, edits=[])
+        self.assertEqual(b1, 100.0)
+        self.assertEqual(a1, 70.1)
+        self.assertEqual(r1, 29.9)
+        self.assertTrue(m1)
+
+        # Rec 3: resolves 5 smells (raw 241 -> 142)
+        after_3 = dict(before)
+        after_3['circular_dependency'] = 1
+        after_3['high_coupling'] = 0
+        after_3['chatty_communication'] = 1
+        after_3['missing_circuit_breaker'] = 0
+        b3, a3, r3, m3, _ = _calculate_simulation_metrics(before, after_3, edits=[])
+        self.assertEqual(b3, 100.0)
+        self.assertEqual(a3, 58.9)
+        self.assertEqual(r3, 41.1)
+        self.assertTrue(m3)
 
 
 class ChattyCircularExcludePairsTests(unittest.IsolatedAsyncioTestCase):
@@ -161,9 +199,22 @@ class SmellDetectorOfflineParityTests(unittest.IsolatedAsyncioTestCase):
         instability = await detector._detect_api_instability()
         self.assertGreaterEqual(len(instability), 1)
 
-        # Full run: detect_all_smells produces rich results without live Neo4j
+        # Full run: detect_all_smells produces all 10 architectural smells in the demo fleet
         all_smells = await detector.detect_all_smells()
-        self.assertGreaterEqual(len(all_smells), 6)
+        smell_types = {s["type"] for s in all_smells}
+        expected_10_smells = {
+            "Circular Dependency",
+            "God / Bottleneck Service",
+            "High Coupling",
+            "Dead / Isolated Service",
+            "Dependency Explosion",
+            "API Instability",
+            "Shared Database",
+            "Missing Circuit Breaker",
+            "Hub-and-Spoke Centralization",
+            "Chatty Communication",
+        }
+        self.assertEqual(smell_types, expected_10_smells)
 
 
 class DegreeBasedCoreServicesTests(unittest.TestCase):
