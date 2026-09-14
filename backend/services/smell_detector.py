@@ -150,12 +150,16 @@ class SmellDetector:
             logger.debug("OpenAPI snapshot unavailable for %s: %s", base_url, exc)
             return None
 
+    def _is_mock(self) -> bool:
+        from core.database import MockNeo4jDriver
+        return isinstance(self.driver, MockNeo4jDriver) or self.driver is None
+
     async def detect_all_smells(self) -> List[Dict[str, Any]]:
         self._refresh_driver()
         try:
             from core.registry import RegistryManager
             reg = RegistryManager.get_services()
-            if reg and self.driver:
+            if reg and self.driver and not self._is_mock():
                 active = [s["name"] for s in reg]
                 await _run_query(
                     self.driver,
@@ -166,6 +170,7 @@ class SmellDetector:
             pass
 
         cycles = await self._detect_circular_dependencies()
+        cycle_pairs = {tuple(sorted(f["services"])) for f in cycles if len(f.get("services", [])) == 2}
         return [
             *cycles,
             *await self._detect_bottleneck_services(),
@@ -174,19 +179,54 @@ class SmellDetector:
             *await self._detect_dependency_explosion(),
             *await self._detect_api_instability(),
             *await self._detect_shared_database(),
-            *await self._detect_chatty_communication(),
+            *await self._detect_chatty_communication(exclude_pairs=cycle_pairs),
             *await self._detect_missing_circuit_breaker(),
             *await self._detect_hub_and_spoke(),
         ]
 
     async def _detect_circular_dependencies(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH path = (s:Service)-[:DEPENDS_ON*2..8]->(s)
-            WITH [node IN nodes(path) | node.name] AS cycle
-            RETURN DISTINCT cycle
-        """)
+        records = []
+        if self.driver and not self._is_mock():
+            try:
+                records = await _run_query(self.driver, """
+                    MATCH path = (s:Service)-[:DEPENDS_ON*2..8]->(s)
+                    WITH [node IN nodes(path) | node.name] AS cycle
+                    RETURN DISTINCT cycle
+                """)
+            except Exception as exc:
+                logger.debug("Cypher circular dependency query failed: %s", exc)
+
+        if not records:
+            try:
+                from core.registry import RegistryManager
+                deps = RegistryManager.get_dependencies()
+                adj = defaultdict(set)
+                for d in deps:
+                    src, tgt = d.get("from"), d.get("to")
+                    if src and tgt and src != tgt:
+                        adj[src].add(tgt)
+
+                detected_cycles = []
+                all_nodes = sorted(adj.keys())
+
+                def dfs(start_node, curr_node, path, visited):
+                    if len(path) > 8:
+                        return
+                    for neighbor in adj.get(curr_node, []):
+                        if neighbor == start_node and len(path) >= 2:
+                            detected_cycles.append(list(path) + [start_node])
+                        elif neighbor not in visited and neighbor > start_node:
+                            visited.add(neighbor)
+                            dfs(start_node, neighbor, path + [neighbor], visited)
+                            visited.remove(neighbor)
+
+                for node in all_nodes:
+                    dfs(node, node, [node], {node})
+
+                records = [{"cycle": c} for c in detected_cycles]
+            except Exception as exc:
+                logger.debug("In-memory circular dependency fallback failed: %s", exc)
+
         findings, seen = [], set()
         for record in records:
             cycle = record.get("cycle", [])
@@ -215,21 +255,49 @@ class SmellDetector:
         return findings
 
     async def _detect_bottleneck_services(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (s:Service)
-            WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
-            OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
-            WHERE incoming <> s
-            OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
-            WHERE outgoing <> s
-            WITH s, count(DISTINCT incoming) AS incoming_count,
-                 count(DISTINCT outgoing) AS outgoing_count
-            WHERE incoming_count >= $inbound OR incoming_count + outgoing_count >= $total
-            RETURN s.name AS name, incoming_count, outgoing_count
-        """, inbound=settings.SMELL_BOTTLENECK_INBOUND_THRESHOLD,
-             total=settings.SMELL_BOTTLENECK_TOTAL_DEGREE_THRESHOLD)
+        records = []
+        if self.driver and not self._is_mock():
+            try:
+                records = await _run_query(self.driver, """
+                    MATCH (s:Service)
+                    WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
+                    OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
+                    WHERE incoming <> s
+                    OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
+                    WHERE outgoing <> s
+                    WITH s, count(DISTINCT incoming) AS incoming_count,
+                         count(DISTINCT outgoing) AS outgoing_count
+                    WHERE incoming_count >= $inbound OR incoming_count + outgoing_count >= $total
+                    RETURN s.name AS name, incoming_count, outgoing_count
+                """, inbound=settings.SMELL_BOTTLENECK_INBOUND_THRESHOLD,
+                     total=settings.SMELL_BOTTLENECK_TOTAL_DEGREE_THRESHOLD)
+            except Exception as exc:
+                logger.debug("Cypher bottleneck detection failed: %s", exc)
+
+        if not records:
+            try:
+                from core.registry import RegistryManager
+                services = RegistryManager.get_services()
+                deps = RegistryManager.get_dependencies()
+                inbound_map = defaultdict(set)
+                outbound_map = defaultdict(set)
+                for d in deps:
+                    src, tgt = d.get("from"), d.get("to")
+                    if src and tgt and src != tgt:
+                        inbound_map[tgt].add(src)
+                        outbound_map[src].add(tgt)
+
+                for svc in services:
+                    name = svc.get("name")
+                    if not name or name.endswith("_facade") or name.endswith("_gateway") or name == "event_broker":
+                        continue
+                    in_count = len(inbound_map.get(name, set()))
+                    out_count = len(outbound_map.get(name, set()))
+                    if in_count >= settings.SMELL_BOTTLENECK_INBOUND_THRESHOLD or (in_count + out_count) >= settings.SMELL_BOTTLENECK_TOTAL_DEGREE_THRESHOLD:
+                        records.append({"name": name, "incoming_count": in_count, "outgoing_count": out_count})
+            except Exception as exc:
+                logger.debug("In-memory bottleneck detection failed: %s", exc)
+
         return [{
             "type": "God / Bottleneck Service", "severity": "HIGH",
             "confidence": "medium", "services": [record["name"]],
@@ -239,15 +307,34 @@ class SmellDetector:
         } for record in records]
 
     async def _detect_high_coupling(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (s:Service)-[:DEPENDS_ON]->(dependency:Service)
-            WHERE dependency <> s
-            WITH s, count(DISTINCT dependency) AS dependency_count
-            WHERE dependency_count >= $threshold
-            RETURN s.name AS name, dependency_count
-        """, threshold=settings.SMELL_HIGH_COUPLING_THRESHOLD)
+        records = []
+        if self.driver and not self._is_mock():
+            try:
+                records = await _run_query(self.driver, """
+                    MATCH (s:Service)-[:DEPENDS_ON]->(dependency:Service)
+                    WHERE dependency <> s
+                    WITH s, count(DISTINCT dependency) AS dependency_count
+                    WHERE dependency_count >= $threshold
+                    RETURN s.name AS name, dependency_count
+                """, threshold=settings.SMELL_HIGH_COUPLING_THRESHOLD)
+            except Exception as exc:
+                logger.debug("Cypher high coupling detection failed: %s", exc)
+
+        if not records:
+            try:
+                from core.registry import RegistryManager
+                deps = RegistryManager.get_dependencies()
+                outbound_map = defaultdict(set)
+                for d in deps:
+                    src, tgt = d.get("from"), d.get("to")
+                    if src and tgt and src != tgt:
+                        outbound_map[src].add(tgt)
+                for name, targets in outbound_map.items():
+                    if len(targets) >= settings.SMELL_HIGH_COUPLING_THRESHOLD:
+                        records.append({"name": name, "dependency_count": len(targets)})
+            except Exception as exc:
+                logger.debug("In-memory high coupling detection failed: %s", exc)
+
         return [{
             "type": "High Coupling", "severity": "MEDIUM", "confidence": "high",
             "services": [record["name"]],
@@ -256,13 +343,36 @@ class SmellDetector:
         } for record in records]
 
     async def _detect_isolated_services(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (s:Service)
-            WHERE NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
-            RETURN s.name AS name
-        """)
+        records = []
+        if self.driver and not self._is_mock():
+            try:
+                records = await _run_query(self.driver, """
+                    MATCH (s:Service)
+                    WHERE NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
+                    RETURN s.name AS name
+                """)
+            except Exception as exc:
+                logger.debug("Cypher isolated service detection failed: %s", exc)
+
+        if not records:
+            try:
+                from core.registry import RegistryManager
+                services = RegistryManager.get_services()
+                deps = RegistryManager.get_dependencies()
+                connected = set()
+                for d in deps:
+                    src, tgt = d.get("from"), d.get("to")
+                    if src:
+                        connected.add(src)
+                    if tgt:
+                        connected.add(tgt)
+                for svc in services:
+                    name = svc.get("name")
+                    if name and name not in connected:
+                        records.append({"name": name})
+            except Exception as exc:
+                logger.debug("In-memory isolated service detection failed: %s", exc)
+
         return [{
             "type": "Dead / Isolated Service", "severity": "LOW", "confidence": "medium",
             "services": [record["name"]], "evidence": {"degree": 0},
@@ -270,13 +380,32 @@ class SmellDetector:
         } for record in records]
 
     async def _detect_dependency_explosion(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (snapshot:DependencySnapshot)
-            RETURN snapshot.edges AS edges, snapshot.created_at AS created_at
-            ORDER BY created_at DESC LIMIT 2
-        """)
+        records = []
+        if self.driver and not self._is_mock():
+            try:
+                records = await _run_query(self.driver, """
+                    MATCH (snapshot:DependencySnapshot)
+                    RETURN snapshot.edges AS edges, snapshot.created_at AS created_at
+                    ORDER BY created_at DESC LIMIT 2
+                """)
+            except Exception as exc:
+                logger.debug("Cypher dependency snapshot query failed: %s", exc)
+
+        if not records:
+            try:
+                from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
+                data = RegistryManager.load()
+                raw_snapshots = (
+                    data.get("dependency_snapshots")
+                    or data.get("snapshots")
+                    or LOCAL_DEMO_SMELL_HISTORY.get("dependency_snapshots", [])
+                )
+                if raw_snapshots:
+                    sorted_snaps = sorted(raw_snapshots, key=lambda s: s.get("created_at", ""), reverse=True)
+                    records = sorted_snaps[:2]
+            except Exception as exc:
+                logger.debug("In-memory dependency snapshot fallback failed: %s", exc)
+
         if len(records) < 2:
             return []
         current, previous = set(records[0]["edges"]), set(records[1]["edges"])
@@ -294,14 +423,31 @@ class SmellDetector:
         }]
 
     async def _detect_api_instability(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (snapshot:ApiSnapshot)
-            RETURN snapshot.service AS service, snapshot.endpoints AS endpoints,
-                   snapshot.created_at AS created_at
-            ORDER BY service, created_at DESC
-        """)
+        records = []
+        if self.driver and not self._is_mock():
+            try:
+                records = await _run_query(self.driver, """
+                    MATCH (snapshot:ApiSnapshot)
+                    RETURN snapshot.service AS service, snapshot.endpoints AS endpoints,
+                           snapshot.created_at AS created_at
+                    ORDER BY service, created_at DESC
+                """)
+            except Exception as exc:
+                logger.debug("Cypher API snapshot query failed: %s", exc)
+
+        if not records:
+            try:
+                from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
+                data = RegistryManager.load()
+                raw_snaps = (
+                    data.get("api_snapshots")
+                    or LOCAL_DEMO_SMELL_HISTORY.get("api_snapshots", [])
+                )
+                if raw_snaps:
+                    records = sorted(raw_snaps, key=lambda s: s.get("created_at", ""), reverse=True)
+            except Exception as exc:
+                logger.debug("In-memory API snapshot fallback failed: %s", exc)
+
         snapshots: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for record in records:
             if len(snapshots[record["service"]]) < 2:

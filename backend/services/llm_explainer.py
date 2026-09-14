@@ -383,9 +383,10 @@ Respond as a JSON array of objects, each with "text" (string) and
                     else:
                         from services.remediation_simulator import _find_best_remediation_target
                         target_hub = _find_best_remediation_target(services[0])
-                        edits_for_smell.append(
-                            GraphEdit(action="add_edge", from_service=target_hub, to_service=services[0]).model_dump()
-                        )
+                        if target_hub:
+                            edits_for_smell.append(
+                                GraphEdit(action="add_edge", from_service=target_hub, to_service=services[0]).model_dump()
+                            )
 
             if text and edits_for_smell:
                 results.append({"text": text, "edits": edits_for_smell})

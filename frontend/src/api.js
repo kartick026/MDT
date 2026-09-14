@@ -70,7 +70,7 @@ export const getProjectContext = () =>
   api.get('/registry/context').then(r => r.data);
 
 export const getSmells = () =>
-  api.get('/services/smells').then(r => r.data.smells || []);
+  api.get('/services/smells').then(r => r.data);
 
 export const getHistory = (limit = 20) =>
   api.get(`/analysis/history?limit=${limit}`).then(r => r.data.analyses || []);

@@ -52,6 +52,7 @@ const SEVERITY_COLORS = {
 
 export default function ArchitecturalSmells() {
   const [smells, setSmells] = useState([]);
+  const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
@@ -60,7 +61,16 @@ export default function ArchitecturalSmells() {
   useEffect(() => {
     getSmells()
       .then(data => {
-        setSmells(data);
+        if (data && Array.isArray(data.smells)) {
+          setSmells(data.smells);
+          setMeta(data);
+        } else if (Array.isArray(data)) {
+          setSmells(data);
+          setMeta(null);
+        } else {
+          setSmells([]);
+          setMeta(null);
+        }
         setError(null);
       })
       .catch(err => {
@@ -100,6 +110,27 @@ export default function ArchitecturalSmells() {
 
   return (
     <div className="smells-container" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+      {/* Neo4j Offline / In-Memory Fallback Notice Banner */}
+      {meta && (meta.neo4j_connected === false || meta.partial_results === true) && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '12px 18px',
+          borderRadius: '10px',
+          background: 'rgba(255, 170, 0, 0.08)',
+          border: '1px solid rgba(255, 170, 0, 0.3)',
+          color: 'var(--text)',
+          fontSize: '13px'
+        }}>
+          <span style={{ fontSize: '18px', lineHeight: 1 }}>⚡</span>
+          <div>
+            <strong style={{ color: '#ffaa00' }}>Neo4j Unavailable:</strong>{' '}
+            {meta.notice || 'Topological smell detectors are operating using in-memory dependency graph fallbacks.'}
+          </div>
+        </div>
+      )}
 
       {/* Control / Filter Bar */}
       <div style={{

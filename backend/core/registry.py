@@ -73,6 +73,7 @@ DEFAULT_REGISTRY: Dict[str, Any] = {
     "dependencies": [
         # Intentional local-demo anti-patterns.
         {"from": "order-service", "to": "user-service", "type": "http", "endpoint": "/users/{user_id}"},
+        {"from": "payment-service", "to": "order-service", "type": "http", "endpoint": "/orders/{order_id}/payment"},
         {"from": "notification-service", "to": "order-service", "type": "http", "endpoint": "/orders/{order_id}"},
         {"from": "user-service", "to": "order-service", "type": "http", "endpoint": "/orders/status"},
         {"from": "order-service", "to": "order-service", "type": "http", "endpoint": "/internal/order-sync"},

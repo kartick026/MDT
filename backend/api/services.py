@@ -223,9 +223,19 @@ async def get_service_graph():
 
 @router.get("/smells", summary="Detect architectural smells")
 async def get_architectural_smells():
-    """Run all heuristics and Cypher queries to detect architectural smells."""
+    """Run all heuristics and graph detectors to detect architectural smells."""
+    is_mock = smell_detector._is_mock()
     smells = await smell_detector.detect_all_smells()
-    return {"smells": smells, "count": len(smells)}
+    return {
+        "smells": smells,
+        "count": len(smells),
+        "neo4j_connected": not is_mock,
+        "partial_results": is_mock,
+        "notice": (
+            "Neo4j unavailable — running structural smell detection on in-memory dependency graph."
+            if is_mock else None
+        ),
+    }
 
 
 @router.get("/{service_name}", summary="Health check a specific service")

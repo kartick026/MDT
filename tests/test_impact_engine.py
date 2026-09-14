@@ -14,7 +14,7 @@ class ImpactEngineTests(unittest.IsolatedAsyncioTestCase):
         self.engine = ImpactEngine()
         
     def test_has_core_service_impact(self):
-        changes = [ChangeInfo(file_path="services/payment_service/main.py", change_type="modified", diff_content="", additions=10, deletions=0, old_content="", new_content="", ast_metadata={})]
+        changes = [ChangeInfo(file_path="services/order_service/main.py", change_type="modified", diff_content="", additions=10, deletions=0, old_content="", new_content="", ast_metadata={})]
         self.assertTrue(self.engine._has_core_service_impact(changes))
         
         changes_non_core = [ChangeInfo(file_path="services/some_other_service/main.py", change_type="modified", diff_content="", additions=10, deletions=0, old_content="", new_content="", ast_metadata={})]

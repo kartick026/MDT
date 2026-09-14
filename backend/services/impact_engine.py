@@ -7,11 +7,10 @@ Deterministic + AI-assisted risk scoring engine
 """
 
 import logging
-
-from typing import List, Dict, Any, Optional
-
+import statistics
+from collections import defaultdict
+from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
-
 import asyncio
 
 
@@ -272,42 +271,54 @@ class ImpactEngine:
 
 
 
-    def _has_core_service_impact(self, changes: List) -> bool:
-
-        """Check if any changed file belongs to a core service path."""
-
-        core_patterns = [
-
-            'user_service', 'user-service',
-
-            'payment_service', 'payment-service',
-
-            'order_service', 'order-service',
-
-        ]
-
+    def _get_core_services(self) -> Set[str]:
+        """
+        Dynamically determine core architectural services based on in-degree centrality.
+        A service is 'core' when other services genuinely depend on it heavily.
+        Threshold is defined as mean + 1 standard deviation of in-degrees,
+        with a minimum in-degree of 2 for small networks.
+        """
         try:
+            from core.registry import RegistryManager
+            deps = RegistryManager.get_dependencies()
+            in_degree = defaultdict(int)
+            for d in deps:
+                to_svc = d.get("to", "")
+                from_svc = d.get("from", "")
+                if to_svc and from_svc and to_svc != from_svc:
+                    in_degree[to_svc] += 1
+            if not in_degree:
+                return set()
 
-            from core.registry import ServiceRegistry
+            degrees = list(in_degree.values())
+            mean = statistics.mean(degrees)
+            std = statistics.pstdev(degrees)
+            threshold = max(2, round(mean + std))
+            core = {svc for svc, deg in in_degree.items() if deg >= threshold}
+            if not core:
+                core = {svc for svc, deg in in_degree.items() if deg >= 2}
+            return core
+        except Exception as exc:
+            logger.debug("Failed to calculate core services from graph: %s", exc)
+            return set()
 
-            registry = ServiceRegistry()
+    def _has_core_service_impact(self, changes: List) -> bool:
+        """Check if any changed file belongs to a dynamically computed core service."""
+        core_services = self._get_core_services()
+        if not core_services:
+            return False
 
-            core_patterns.extend([s.lower() for s in registry.list_services().keys()])
-
-        except Exception:
-
-            pass
-
-
+        core_patterns = set()
+        for svc in core_services:
+            clean = svc.lower().strip()
+            core_patterns.add(clean)
+            core_patterns.add(clean.replace("-", "_"))
+            core_patterns.add(clean.replace("_", "-"))
 
         for change in changes:
-
             fp = getattr(change, 'file_path', str(change)).lower().replace("\\", "/")
-
             if any(p in fp for p in core_patterns):
-
                 return True
-
         return False
 
 

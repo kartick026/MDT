@@ -423,7 +423,7 @@ def _find_best_remediation_target(exclude_service: str) -> str:
             if s.get("name") and s.get("name") != exclude_service
         ]
         if not registered:
-            return "api-gateway"
+            return ""
 
         # Check degree in existing dependencies
         deps = RegistryManager.get_dependencies()
@@ -440,7 +440,7 @@ def _find_best_remediation_target(exclude_service: str) -> str:
         return sorted_by_degree[0][0]
     except Exception as exc:
         logger.debug("Failed to find dynamic remediation target from registry: %s", exc)
-        return "api-gateway"
+        return ""
 
 
 def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
@@ -499,11 +499,12 @@ def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
             if services:
                 isolated = services[0]
                 target_hub = _find_best_remediation_target(isolated)
-                edits.append(GraphEdit(
-                    action="add_edge",
-                    from_service=target_hub,
-                    to_service=isolated,
-                ))
+                if target_hub:
+                    edits.append(GraphEdit(
+                        action="add_edge",
+                        from_service=target_hub,
+                        to_service=isolated,
+                    ))
 
         elif "Shared Database" in stype:
             target = smell.get("evidence", {}).get("shared_target", "")
@@ -592,21 +593,16 @@ def _calculate_simulation_metrics(
     raw_before = _compute_uncapped_score_from_smells(before_smells)
     raw_after = _compute_uncapped_score_from_smells(after_smells)
 
-    before_score = round(min(100.0, raw_before), 1)
+    before_score = round(min(100.0, max(0.0, raw_before)), 1)
+    after_score = round(min(100.0, max(0.0, raw_after)), 1)
 
     if raw_before == 0.0 or raw_after >= raw_before:
         point_reduction = 0.0
         after_score = before_score
-    elif raw_before <= 100.0:
-        # Standard linear point reduction below saturation threshold
-        after_score = round(max(0.0, raw_after), 1)
-        point_reduction = round(max(0.0, before_score - after_score), 1)
     else:
-        # When cumulative smell debt exceeds 100, calculate proportional reduction
-        # so that resolving major smells produces a meaningful score reduction
-        reduction_ratio = (raw_before - raw_after) / raw_before
-        point_reduction = round(min(before_score, before_score * reduction_ratio), 1)
-        after_score = round(max(0.0, before_score - point_reduction), 1)
+        # The after-score is always the true computed after-value capped at 100.0.
+        # point_reduction represents the observable risk reduction on the 0-100 scale.
+        point_reduction = round(max(0.0, before_score - after_score), 1)
 
     measurable_change = (point_reduction > 0) or (smells_resolved > 0)
 
