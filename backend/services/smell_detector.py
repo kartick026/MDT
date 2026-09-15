@@ -84,11 +84,7 @@ class SmellDetector:
             """,
         )
         edges = [f"{record['source']}->{record['target']}" for record in edge_records]
-        from core.registry import RegistryManager
-        if RegistryManager.get_project_context().get("source") == "local_demo":
-            signature = "local-demo-current-v2"
-        else:
-            signature = hashlib.sha256("\n".join(edges).encode()).hexdigest()
+        signature = hashlib.sha256("\n".join(edges).encode()).hexdigest()
         # A snapshot represents a topology version, not an application start.
         # Keeping one per signature makes drift comparison meaningful and
         # prevents the graph growing forever on unchanged deployments.
@@ -160,10 +156,18 @@ class SmellDetector:
             from core.registry import RegistryManager
             reg = RegistryManager.get_services()
             if reg and self.driver and not self._is_mock():
-                active = [s["name"] for s in reg]
+                dep_nodes = [d["to"] for d in RegistryManager.get_dependencies() if d.get("to")] + [d["from"] for d in RegistryManager.get_dependencies() if d.get("from")]
+                active = list(set([s["name"] for s in reg] + dep_nodes))
                 await _run_query(
                     self.driver,
-                    "MATCH (s:Service) WHERE NOT (s.name IN $active) DETACH DELETE s",
+                    """
+                    MATCH (s:Service)
+                    WHERE NOT (s.name IN $active)
+                      AND NOT toLower(s.name) CONTAINS 'postgres'
+                      AND NOT toLower(s.name) CONTAINS 'database'
+                      AND NOT toLower(s.name) CONTAINS 'db'
+                    DETACH DELETE s
+                    """,
                     active=active,
                 )
         except Exception:
@@ -349,6 +353,9 @@ class SmellDetector:
                 records = await _run_query(self.driver, """
                     MATCH (s:Service)
                     WHERE NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
+                      AND NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway'
+                      AND NOT s.name = 'event_broker'
+                      AND coalesce(s.is_external, false) = false
                     RETURN s.name AS name
                 """)
             except Exception as exc:
@@ -368,8 +375,15 @@ class SmellDetector:
                         connected.add(tgt)
                 for svc in services:
                     name = svc.get("name")
-                    if name and name not in connected:
-                        records.append({"name": name})
+                    if not name or name in connected:
+                        continue
+                    # Skip externally-imported services — they are not "dead", just not yet connected
+                    if svc.get("is_external"):
+                        continue
+                    # Skip architectural infrastructure names (matches Cypher query behavior)
+                    if name.endswith("_facade") or name.endswith("_gateway") or name == "event_broker":
+                        continue
+                    records.append({"name": name})
             except Exception as exc:
                 logger.debug("In-memory isolated service detection failed: %s", exc)
 

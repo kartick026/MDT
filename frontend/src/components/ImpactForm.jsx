@@ -8,6 +8,19 @@ const RISK_COLORS = {
   high: 'var(--orange)', critical: 'var(--red)'
 };
 
+const TRACKED_SMELLS_LIST = [
+  { key: 'circular_dependency', label: 'Circular Dependency' },
+  { key: 'bottleneck_service', label: 'Bottleneck Service' },
+  { key: 'high_coupling', label: 'High Coupling' },
+  { key: 'chatty_communication', label: 'Chatty Communication' },
+  { key: 'missing_circuit_breaker', label: 'Missing Circuit Breaker' },
+  { key: 'hub_and_spoke', label: 'Hub And Spoke' },
+  { key: 'dependency_explosion', label: 'Dependency Explosion' },
+  { key: 'api_instability', label: 'Api Instability' },
+  { key: 'shared_database', label: 'Shared Database' },
+  { key: 'isolated_service', label: 'Isolated Service' },
+];
+
 function ScoreGauge({ score, level, size = 120 }) {
   const r = (size / 2) - 10;
   const cx = size / 2;
@@ -57,7 +70,7 @@ export default function ImpactForm({
   const [error,   setError]   = useState(null);
   const [projectContext, setProjectContext] = useState(null);
 
-  const currentRepo = activeProject?.repo_url || projectContext?.repo_url || 'https://github.com/kartick026/MDT';
+  const currentRepo = activeProject?.repo_url || projectContext?.repo_url || '';
   const currentBranch = activeProject?.branch || projectContext?.branch || 'main';
 
   // What-If Preview state
@@ -96,6 +109,10 @@ export default function ImpactForm({
   }, []);
 
   const runAnalysis = async (targetRepo = currentRepo, targetBranch = currentBranch, overrideFiles = files, triggerKey = null) => {
+    if (!targetRepo || !targetRepo.trim()) {
+      setError('Please import or select a repository from Overview to run impact analysis.');
+      return;
+    }
     setLoading(true);
     setResults(null);
     setError(null);
@@ -173,7 +190,13 @@ export default function ImpactForm({
   };
 
   const loadSample = () => {
-    setFiles('services/payment_service/main.py, services/user_service/main.py');
+    const mappings = projectContext?.file_mappings || {};
+    const keys = Object.keys(mappings);
+    if (keys.length > 0) {
+      setFiles(keys.slice(0, 2).map(p => `${p}/main.py`).join(', '));
+    } else {
+      setFiles('');
+    }
   };
 
   // Parse structured edits from suggestion if explicitly provided,
@@ -184,7 +207,8 @@ export default function ImpactForm({
     }
     const text = typeof suggestion === 'object' ? suggestion.text : String(suggestion || '');
     const impacted = result?.impacted_services || [];
-    const primary = impacted[0] || 'order-service';
+    const primary = impacted[0] || null;
+    if (!primary) return null;
     const lower = text.toLowerCase();
 
     if (lower.includes('circuit breaker') || lower.includes('facade') || lower.includes('resilience') || lower.includes('safeguard')) {
@@ -245,8 +269,8 @@ export default function ImpactForm({
             </span>
           </div>
 
-          <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text)', wordBreak: 'break-all', fontFamily: 'var(--mono)' }}>
-            {currentRepo.replace(/\.git$/i, '').split('/').slice(-2).join('/') || currentRepo}
+          <div style={{ fontWeight: 600, fontSize: '13px', color: currentRepo ? 'var(--text)' : 'var(--text-dim)', wordBreak: 'break-all', fontFamily: 'var(--mono)' }}>
+            {currentRepo ? (currentRepo.replace(/\.git$/i, '').split('/').slice(-2).join('/') || currentRepo) : 'No active repository'}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -784,13 +808,13 @@ export default function ImpactForm({
                                   <span style={{ fontSize: '10.5px', fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>
                                     Architectural Smells Impact
                                   </span>
-                                  {Object.entries(previewData.before.smells).map(([key, val]) => {
-                                    const afterVal = previewData.after.smells[key] || 0;
+                                  {TRACKED_SMELLS_LIST.map(({ key, label }) => {
+                                    const val = previewData.before?.smells?.[key] ?? 0;
+                                    const afterVal = previewData.after?.smells?.[key] ?? 0;
                                     const diff = val - afterVal;
-                                    if (val === 0 && afterVal === 0) return null;
                                     return (
                                       <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
-                                        <span style={{ color: 'var(--text)', textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
+                                        <span style={{ color: 'var(--text)' }}>{label}</span>
                                         <span style={{ fontFamily: 'var(--mono)' }}>
                                           {val} → {afterVal}
                                           {diff > 0 && <span style={{ color: 'var(--green)', fontWeight: 600, marginLeft: '6px' }}>(-{diff} resolved)</span>}

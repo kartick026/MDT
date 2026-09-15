@@ -545,8 +545,6 @@ def _is_local_workspace_match(repo_url: str) -> bool:
                 local_key = RegistryManager.repository_key(res.stdout.strip())
                 if local_key == req_key:
                     return True
-        if req_key in ("kartick026/mdt", "kartick026/mdt.git"):
-            return True
         if os.path.isdir(repo_url):
             return True
     except Exception:

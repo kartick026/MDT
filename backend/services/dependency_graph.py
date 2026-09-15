@@ -195,13 +195,16 @@ class DependencyGraph:
                 ts=_now_iso(),
             )
 
-        # Upsert dependency edges
+        # Remove stale dependency edges before re-seeding to keep graph in sync with registry
+        await _run_query(self.driver, "MATCH (s:Service)-[r:DEPENDS_ON]->() DELETE r")
+
+        # Upsert dependency edges (using MERGE for target so database nodes like local-demo-postgres are linked)
         for dep in _get_known_dependencies():
             await _run_query(
                 self.driver,
                 """
-                MATCH (from:Service {name: $from_name})
-                MATCH (to:Service   {name: $to_name})
+                MERGE (from:Service {name: $from_name})
+                MERGE (to:Service   {name: $to_name})
                 MERGE (from)-[r:DEPENDS_ON {type: $dep_type, endpoint: $endpoint}]->(to)
                 SET r.updated_at = $ts
                 """,
@@ -288,10 +291,10 @@ class DependencyGraph:
         await _run_query(
             self.driver,
             """
-            MATCH (from:Service {name: $from_name})
-            MATCH (to:Service   {name: $to_name})
-            MERGE (from)-[r:DEPENDS_ON {type: $dep_type}]->(to)
-            SET r.endpoint = $endpoint, r.updated_at = $ts
+            MERGE (from:Service {name: $from_name})
+            MERGE (to:Service   {name: $to_name})
+            MERGE (from)-[r:DEPENDS_ON {type: $dep_type, endpoint: $endpoint}]->(to)
+            SET r.updated_at = $ts
             """,
             from_name=from_service,
             to_name=to_service,
@@ -424,10 +427,21 @@ class DependencyGraph:
         self._refresh_driver()
         if not self.driver or not active_names:
             return
+        from core.registry import RegistryManager
+        deps = RegistryManager.get_dependencies()
+        dep_targets = [d["to"] for d in deps if d.get("to")] + [d["from"] for d in deps if d.get("from")]
+        full_active = list(set(active_names + dep_targets))
         await _run_query(
             self.driver,
-            "MATCH (s:Service) WHERE NOT (s.name IN $active) DETACH DELETE s",
-            active=active_names,
+            """
+            MATCH (s:Service)
+            WHERE NOT (s.name IN $active)
+              AND NOT toLower(s.name) CONTAINS 'postgres'
+              AND NOT toLower(s.name) CONTAINS 'database'
+              AND NOT toLower(s.name) CONTAINS 'db'
+            DETACH DELETE s
+            """,
+            active=full_active,
         )
 
     async def get_all_services(self) -> List[Dict[str, Any]]:

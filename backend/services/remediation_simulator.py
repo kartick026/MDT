@@ -82,6 +82,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
             MATCH (s:Service)
             WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
               AND NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
+              AND coalesce(s.is_external, false) = false
             RETURN s.name AS name
         """,
     },
@@ -107,7 +108,10 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
             WHERE a <> b AND (b)-[:DEPENDS_ON]->(a) AND a.name < b.name
               AND NOT a.name ENDS WITH '_facade' AND NOT a.name ENDS WITH '_gateway' AND NOT a.name = 'event_broker'
               AND NOT b.name ENDS WITH '_facade' AND NOT b.name ENDS WITH '_gateway' AND NOT b.name = 'event_broker'
-            RETURN a.name AS a_name, b.name AS b_name
+            MATCH (x:Service)-[r:DEPENDS_ON]-(y:Service)
+            WHERE (x = a AND y = b) OR (x = b AND y = a)
+            WITH a.name AS a_name, b.name AS b_name, count(DISTINCT r) AS edge_count
+            RETURN a_name, b_name, edge_count
         """,
     },
     "missing_circuit_breaker": {
@@ -232,6 +236,28 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
         logger.debug("Shared DB query failed: %s", exc)
         counts["shared_database"] = 0
 
+    if counts["shared_database"] == 0:
+        # Fallback to in-memory registry check if database nodes were not in Neo4j
+        try:
+            from core.registry import RegistryManager
+            deps = RegistryManager.get_dependencies()
+            db_targets = defaultdict(list)
+            for d in deps:
+                target = d.get("to", "").lower()
+                dtype = d.get("type", "").lower()
+                endpoint = d.get("endpoint", "").lower()
+                if (
+                    dtype in ("database", "db", "sql", "postgres", "postgresql", "mysql", "mongodb")
+                    or any(db_kw in target for db_kw in ("db", "database", "postgres", "mysql", "mongo", "redis"))
+                    or any(db_port in endpoint for db_port in (":5432", ":3306", ":27017", ":6379"))
+                ):
+                    db_targets[target].append(d["from"])
+            shared_cnt = sum(1 for callers in db_targets.values() if len(set(callers)) > 1)
+            if shared_cnt > 0:
+                counts["shared_database"] = shared_cnt
+        except Exception:
+            pass
+
     # --- Chatty communication ---
     try:
         result = tx.run(_SMELL_QUERIES["chatty_communication"]["query"])
@@ -239,6 +265,10 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
         chatty_count = 0
         for rec in records:
             pair = tuple(sorted([rec.get("a_name", ""), rec.get("b_name", "")]))
+            edge_count = rec.get("edge_count", 2)
+            # Match smell_detector: if this pair is a 2-node cycle, require >= 3 edges to count as chatty
+            if pair in two_node_cycles and edge_count < 3:
+                continue
             chatty_count += 1
         counts["chatty_communication"] = chatty_count
     except Exception as exc:
@@ -569,6 +599,24 @@ def _compute_uncapped_score_from_smells(smell_counts: Dict[str, int]) -> float:
     return score
 
 
+# Deliberately chosen anchor point: a single critical circular dependency (raw=30)
+# corresponds to a moderate MEDIUM risk score of 45.0 on the 0-100 scale.
+# Solving: 45 = 100 * (30 / (30 + k)) => 45 * 30 + 45 * k = 3000 => k = 1650 / 45 = 110 / 3 ≈ 36.6667
+SATURATION_CONSTANT_K: float = 110.0 / 3.0
+
+
+def _normalize_score(raw: float, k: float = SATURATION_CONSTANT_K) -> float:
+    """Monotonically map an unbounded non-negative raw smell score to [0.0, 100.0).
+
+    Uses a saturating rational function S(R) = 100 * R / (R + k).
+    Ensures that distinct raw smell values strictly produce distinct normalized scores,
+    preventing score ties when raw debt exceeds 100.
+    """
+    if raw <= 0.0:
+        return 0.0
+    return round((100.0 * raw) / (raw + k), 1)
+
+
 def _calculate_simulation_metrics(
     before_smells: Dict[str, int],
     after_smells: Dict[str, int],
@@ -593,23 +641,13 @@ def _calculate_simulation_metrics(
     raw_before = _compute_uncapped_score_from_smells(before_smells)
     raw_after = _compute_uncapped_score_from_smells(after_smells)
 
+    before_score = _normalize_score(raw_before)
     if raw_before == 0.0 or raw_after >= raw_before:
         point_reduction = 0.0
-        before_score = round(min(100.0, max(0.0, raw_before)), 1)
         after_score = before_score
-    elif raw_before <= 100.0:
-        # Standard linear point reduction below saturation threshold
-        before_score = round(raw_before, 1)
-        after_score = round(max(0.0, raw_after), 1)
-        point_reduction = round(max(0.0, before_score - after_score), 1)
     else:
-        # When cumulative smell debt exceeds 100 (saturated baseline at 100.0),
-        # calculate proportional debt reduction so that resolving major smells
-        # produces a meaningful, monotonic score reduction on the 0-100 scale.
-        before_score = 100.0
-        reduction_ratio = (raw_before - raw_after) / raw_before
-        point_reduction = round(min(before_score, before_score * reduction_ratio), 1)
-        after_score = round(max(0.0, before_score - point_reduction), 1)
+        after_score = _normalize_score(raw_after)
+        point_reduction = round(max(0.0, before_score - after_score), 1)
 
     measurable_change = (point_reduction > 0) or (smells_resolved > 0)
 

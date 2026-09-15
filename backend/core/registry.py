@@ -6,19 +6,36 @@ import threading
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 REGISTRY_FILE = Path(__file__).parent.parent / "data" / "registry.json"
+
+
+def _normalize_repository_key(repo_url: str) -> str:
+    """Return a stable, comparison-safe identity for a repository URL."""
+    value = (repo_url or "").strip().replace("\\", "/")
+    value = value.rstrip("/")
+    if value.lower().endswith(".git"):
+        value = value[:-4]
+
+    github_match = re.search(r"github\.com[:/]([^/]+)/([^/]+)$", value, re.IGNORECASE)
+    if github_match:
+        owner, repo = github_match.groups()
+        return f"github:{owner}/{repo}".lower()
+
+    return value.lower()
+
 
 DEFAULT_REGISTRY: Dict[str, Any] = {
     # The bundled graph represents this repository's local demo fleet.  This
     # context is deliberately persisted alongside the topology: a topology is
     # only meaningful for the repository from which it was imported.
     "project": {
-        "repository_key": "github:kartick026/mdt",
-        "repo_url": "https://github.com/kartick026/MDT",
-        "branch": "main",
+        "repository_key": _normalize_repository_key(settings.DEMO_REPO_URL),
+        "repo_url": settings.DEMO_REPO_URL,
+        "branch": settings.DEMO_REPO_BRANCH,
         "source": "local_demo",
     },
     "services": [
@@ -215,24 +232,8 @@ class RegistryManager:
 
     @staticmethod
     def repository_key(repo_url: str) -> str:
-        """Return a stable, comparison-safe identity for a repository URL.
-
-        GitHub's HTTPS and SSH URL forms refer to the same repository, so a
-        trailing ``.git``, slash, casing, or transport must not create a new
-        architecture context.  For local paths and other Git hosts we retain a
-        normalized path/URL rather than guessing an unrelated identity.
-        """
-        value = (repo_url or "").strip().replace("\\", "/")
-        value = value.rstrip("/")
-        if value.lower().endswith(".git"):
-            value = value[:-4]
-
-        github_match = re.search(r"github\.com[:/]([^/]+)/([^/]+)$", value, re.IGNORECASE)
-        if github_match:
-            owner, repo = github_match.groups()
-            return f"github:{owner}/{repo}".lower()
-
-        return value.lower()
+        """Return a stable, comparison-safe identity for a repository URL."""
+        return _normalize_repository_key(repo_url)
 
     @classmethod
     def get_project_context(cls) -> Dict[str, Any]:

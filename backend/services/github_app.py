@@ -48,7 +48,7 @@ class GitHubAppAuth:
             return settings.GITHUB_TOKEN # fallback to PAT
             
         # Parse owner/repo from URL
-        # e.g., https://github.com/kartick026/MDT or kartick026/MDT
+        # e.g., https://github.com/owner/repo or owner/repo
         repo_path = repo_url.replace("https://github.com/", "").replace(".git", "")
         if repo_path.startswith("http"):
             # fallback if it's a weird url

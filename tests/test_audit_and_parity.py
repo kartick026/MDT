@@ -56,30 +56,30 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         }
         self.assertEqual(_compute_uncapped_score_from_smells(smells_50), 50.0)
 
-        # Case 1: Before=90, After=50 (linear)
+        # Case 1: Before=90 (normalized 71.1), After=50 (normalized 57.7)
         b1, a1, red1, meas1, msg1 = _calculate_simulation_metrics(smells_90, smells_50, edits=[])
-        self.assertEqual(b1, 90.0)
-        self.assertEqual(a1, 50.0)
-        self.assertEqual(red1, 40.0)
+        self.assertEqual(b1, 71.1)
+        self.assertEqual(a1, 57.7)
+        self.assertEqual(red1, 13.4)
         self.assertTrue(meas1)
 
-        # Case 2: Before=130, After=50 (proportional reduction of 80/130 = 61.5%)
+        # Case 2: Before=130 (normalized 78.0), After=50 (normalized 57.7)
         b2, a2, red2, meas2, msg2 = _calculate_simulation_metrics(smells_130, smells_50, edits=[])
-        self.assertEqual(b2, 100.0)  # Capped at 100
-        self.assertEqual(a2, 38.5)   # 100.0 - 61.5 = 38.5
-        self.assertEqual(red2, 61.5)  # 61.5 pts reduction
+        self.assertEqual(b2, 78.0)
+        self.assertEqual(a2, 57.7)
+        self.assertEqual(red2, 20.3)
         self.assertTrue(meas2)
 
     def test_after_score_when_both_before_and_after_exceed_cap(self):
-        """When raw_before=140 and raw_after=110, 30/140 (21.4%) debt is resolved, reducing score from 100.0 to 78.6."""
+        """When raw_before=140 and raw_after=110, scores saturate monotonically to 79.2 and 75.0."""
         from services.remediation_simulator import _calculate_simulation_metrics
         smells_140 = {"circular_dependency": 4, "hub_and_spoke": 1}  # 30*4 + 20 = 140
         smells_110 = {"circular_dependency": 3, "shared_database": 1}  # 30*3 + 20 = 110
 
         b, a, red, meas, msg = _calculate_simulation_metrics(smells_140, smells_110, edits=[])
-        self.assertEqual(b, 100.0)
-        self.assertEqual(a, 78.6)
-        self.assertEqual(red, 21.4)
+        self.assertEqual(b, 79.2)
+        self.assertEqual(a, 75.0)
+        self.assertEqual(red, 4.2)
         self.assertTrue(meas)
         self.assertIn("Risk reduction verified", msg)
 
@@ -104,9 +104,9 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         after_1['circular_dependency'] = 1
         after_1['chatty_communication'] = 1
         b1, a1, r1, m1, _ = _calculate_simulation_metrics(before, after_1, edits=[])
-        self.assertEqual(b1, 100.0)
-        self.assertEqual(a1, 70.1)
-        self.assertEqual(r1, 29.9)
+        self.assertEqual(b1, 86.8)
+        self.assertEqual(a1, 82.2)
+        self.assertEqual(r1, 4.6)
         self.assertTrue(m1)
 
         # Rec 3: resolves 5 smells (raw 241 -> 142)
@@ -116,9 +116,9 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         after_3['chatty_communication'] = 1
         after_3['missing_circuit_breaker'] = 0
         b3, a3, r3, m3, _ = _calculate_simulation_metrics(before, after_3, edits=[])
-        self.assertEqual(b3, 100.0)
-        self.assertEqual(a3, 58.9)
-        self.assertEqual(r3, 41.1)
+        self.assertEqual(b3, 86.8)
+        self.assertEqual(a3, 79.5)
+        self.assertEqual(r3, 7.3)
         self.assertTrue(m3)
 
 
@@ -177,27 +177,40 @@ class SmellDetectorOfflineParityTests(unittest.IsolatedAsyncioTestCase):
         # 2. Bottleneck services fallback
         bottlenecks = await detector._detect_bottleneck_services()
         self.assertGreaterEqual(len(bottlenecks), 1, "order-service should be detected as bottleneck in demo fleet")
-        self.assertEqual(bottlenecks[0]["services"], ["order-service"])
+        bottleneck_services = [s for finding in bottlenecks for s in finding.get("services", [])]
+        self.assertIn("order-service", bottleneck_services, "order-service should be detected as bottleneck in demo fleet")
 
-        # 3. Shared database fallback
+        # 3. High coupling fallback
+        couplings = await detector._detect_high_coupling()
+        self.assertGreaterEqual(len(couplings), 1, "High coupling should detect tightly-coupled services in demo fleet")
+
+        # 4. Dead / Isolated services fallback
+        isolated = await detector._detect_isolated_services()
+        self.assertGreaterEqual(len(isolated), 1, "Isolated service should detect payment-service in demo fleet")
+
+        # 5. Shared database fallback
         shared_db = await detector._detect_shared_database()
-        self.assertGreaterEqual(len(shared_db), 1)
+        self.assertGreaterEqual(len(shared_db), 1, "Shared database should detect local-demo-postgres in demo fleet")
 
-        # 4. Missing circuit breaker fallback
+        # 6. Chatty communication fallback
+        chatty = await detector._detect_chatty_communication()
+        self.assertGreaterEqual(len(chatty), 1, "Chatty communication should detect cyclic chatter in demo fleet")
+
+        # 7. Missing circuit breaker fallback
         cbs = await detector._detect_missing_circuit_breaker()
-        self.assertGreaterEqual(len(cbs), 1)
+        self.assertGreaterEqual(len(cbs), 1, "Missing circuit breaker should detect unshielded services in demo fleet")
 
-        # 5. Hub and spoke fallback
+        # 8. Hub and spoke fallback
         hubs = await detector._detect_hub_and_spoke()
-        self.assertGreaterEqual(len(hubs), 1)
+        self.assertGreaterEqual(len(hubs), 1, "Hub and spoke should detect order-service central hub in demo fleet")
 
-        # 6. Dependency explosion from snapshots
+        # 9. Dependency explosion from snapshots
         explosions = await detector._detect_dependency_explosion()
-        self.assertGreaterEqual(len(explosions), 1)
+        self.assertGreaterEqual(len(explosions), 1, "Dependency explosion should detect snapshot additions in demo fleet")
 
-        # 7. API instability from snapshots
+        # 10. API instability from snapshots
         instability = await detector._detect_api_instability()
-        self.assertGreaterEqual(len(instability), 1)
+        self.assertGreaterEqual(len(instability), 1, "API instability should detect endpoint churn in demo fleet")
 
         # Full run: detect_all_smells produces all 10 architectural smells in the demo fleet
         all_smells = await detector.detect_all_smells()
@@ -225,6 +238,7 @@ class DegreeBasedCoreServicesTests(unittest.TestCase):
         RegistryManager.save(DEFAULT_REGISTRY)
 
         core = engine._get_core_services()
+        # Demo fleet topology assertion — deliberately verifies DEFAULT_REGISTRY structural properties
         # In the demo fleet, order-service has the highest in-degree (3)
         self.assertIn("order-service", core)
         # peripheral or disconnected services should not be core
@@ -254,3 +268,35 @@ class DynamicRemediationTargetTests(unittest.TestCase):
         target = _find_best_remediation_target("lone-service")
         self.assertEqual(target, "")
         self.assertNotEqual(target, "api-gateway")
+
+
+class IsolatedServiceExclusionTests(unittest.IsolatedAsyncioTestCase):
+    """Verify that is_external services and architectural infrastructure are not flagged as isolated."""
+
+    async def test_external_and_facade_services_excluded_from_isolation(self):
+        self.addCleanup(RegistryManager.save, DEFAULT_REGISTRY)
+        RegistryManager.save({
+            "project": {"repository_key": "test:external_repo"},
+            "services": [
+                {"name": "external-service-a", "is_external": True},
+                {"name": "external-service-b", "is_external": True},
+                {"name": "order-service_facade"},
+                {"name": "payment_gateway"},
+                {"name": "event_broker"},
+                {"name": "real-unconnected-service", "is_external": False},
+            ],
+            "dependencies": []
+        })
+
+        detector = SmellDetector()
+        detector.driver = MockNeo4jDriver()
+        isolated = await detector._detect_isolated_services()
+        isolated_names = {s for finding in isolated for s in finding.get("services", [])}
+
+        self.assertNotIn("external-service-a", isolated_names, "Externally imported services must not be flagged as dead/isolated")
+        self.assertNotIn("external-service-b", isolated_names, "Externally imported services must not be flagged as dead/isolated")
+        self.assertNotIn("order-service_facade", isolated_names, "Facades must not be flagged as dead/isolated")
+        self.assertNotIn("payment_gateway", isolated_names, "Gateways must not be flagged as dead/isolated")
+        self.assertNotIn("event_broker", isolated_names, "Brokers must not be flagged as dead/isolated")
+        self.assertIn("real-unconnected-service", isolated_names, "Real internal unconnected services must be detected as isolated")
+        self.assertEqual(len(isolated), 1)

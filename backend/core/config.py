@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     PAYMENT_SERVICE_URL: str = "http://payment-service:8003"
     NOTIFICATION_SERVICE_URL: str = "http://notification-service:8004"
 
+    # Demo Repository Configuration
+    DEMO_REPO_URL: str = "https://github.com/kartick026/MDT"
+    DEMO_REPO_BRANCH: str = "main"
+
     # Risk thresholds
     RISK_LOW: int = 25
     RISK_MEDIUM: int = 50

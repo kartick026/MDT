@@ -9,6 +9,9 @@ from services.remediation_simulator import (
     _compute_score_from_smells,
     _compute_uncapped_score_from_smells,
     _get_severity,
+    _normalize_score,
+    SATURATION_CONSTANT_K,
+    _calculate_simulation_metrics,
 )
 
 
@@ -256,12 +259,12 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         ]
         result = await sim.simulate_fix(edits, baseline_risk_score=85.0, affected_files_count=14)
 
-        # Architectural smell risk is independent of git diff score
-        self.assertEqual(result["before"]["score"], 30.0)
+        # Architectural smell risk is independent of git diff score; normalized raw=30 -> 45.0
+        self.assertEqual(result["before"]["score"], 45.0)
         self.assertEqual(result["before"]["severity"], "MEDIUM")
         self.assertEqual(result["after"]["score"], 0.0)
         self.assertEqual(result["after"]["severity"], "LOW")
-        self.assertEqual(result["delta"]["score_reduction"], 30.0)
+        self.assertEqual(result["delta"]["score_reduction"], 45.0)
         self.assertTrue(result["delta"]["measurable_change"])
         self.assertEqual(result["metric"], "Architectural Smell Risk")
 
@@ -313,8 +316,8 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         ]
         result = await sim.simulate_fix(edits)
 
-        # Before: 1 Shared Database (weight 20) -> score = 20.0
-        self.assertEqual(result["before"]["score"], 20.0)
+        # Before: 1 Shared Database (weight 20) -> normalized score = 35.3
+        self.assertEqual(result["before"]["score"], 35.3)
         self.assertEqual(result["before"]["smells"]["shared_database"], 1)
 
         # After: 0 Shared Database -> score = 0.0
@@ -322,7 +325,7 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["after"]["smells"]["shared_database"], 0)
 
         # Score reduction & measurable change verified
-        self.assertEqual(result["delta"]["score_reduction"], 20.0)
+        self.assertEqual(result["delta"]["score_reduction"], 35.3)
         self.assertEqual(result["delta"]["smells_resolved"], 1)
         self.assertTrue(result["delta"]["measurable_change"])
         self.assertIn("shared database resolved", result["delta"]["message"])
@@ -376,6 +379,60 @@ class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["after"]["smells"]["circular_dependency"], 0)
         self.assertTrue(result["delta"]["measurable_change"])
         self.assertGreater(result["delta"]["score_reduction"], 0)
+
+
+class SaturatingScoreRegressionTests(unittest.TestCase):
+    """Regression test for saturating score calculation.
+    
+    Verifies that _normalize_score properly differentiates after-states
+    when raw cumulative smell debt is large, eliminating score ties.
+    """
+
+    def test_normalize_score_anchor_point(self):
+        """Single circular dependency (raw=30) anchors to MEDIUM score (45.0)."""
+        self.assertEqual(_normalize_score(0.0), 0.0)
+        self.assertEqual(_normalize_score(30.0), 45.0)
+
+    def test_screenshot_scenario_no_ties(self):
+        """Actual screenshot scenario: raw_before=216, after-states 144 and 75.
+        
+        Asserts that two different after-states produce two strictly distinct scores
+        and distinct point reductions rather than tying.
+        """
+        raw_before = 216.0
+        raw_after_1 = 144.0
+        raw_after_2 = 75.0
+
+        score_before = _normalize_score(raw_before)
+        score_after_1 = _normalize_score(raw_after_1)
+        score_after_2 = _normalize_score(raw_after_2)
+
+        self.assertEqual(score_before, 85.5)
+        self.assertEqual(score_after_1, 79.7)
+        self.assertEqual(score_after_2, 67.2)
+        # Crucial assertion: the two after states must NOT tie!
+        self.assertNotEqual(score_after_1, score_after_2)
+        self.assertGreater(score_after_1, score_after_2)
+
+        # Verify via _calculate_simulation_metrics end-to-end
+        # High before-state (raw=215: 7 cycles * 30 + 1 isolated * 5)
+        smells_high = {"circular_dependency": 7, "isolated_service": 1}
+        # Two distinct reduced after-states
+        smells_mid = {"circular_dependency": 4, "bottleneck_service": 1}  # raw=140: 4*30 + 1*20
+        smells_low = {"circular_dependency": 2, "high_coupling": 1}       # raw=75: 2*30 + 1*15
+
+        # Directly verify that metrics calculation uses _normalize_score:
+        b1, a1, red1, change1, msg1 = _calculate_simulation_metrics(smells_high, smells_mid, [])
+        b2, a2, red2, change2, msg2 = _calculate_simulation_metrics(smells_high, smells_low, [])
+
+        self.assertEqual(b1, b2)  # baseline before score is identical
+        self.assertEqual(b1, _normalize_score(215.0))
+        self.assertEqual(a1, _normalize_score(140.0))
+        self.assertEqual(a2, _normalize_score(75.0))
+        self.assertNotEqual(a1, a2, "Two different after-states must produce two distinct scores, not ties!")
+        self.assertNotEqual(red1, red2, "Two different after-states must produce distinct point reductions!")
+        self.assertTrue(change1)
+        self.assertTrue(change2)
 
 
 if __name__ == "__main__":
