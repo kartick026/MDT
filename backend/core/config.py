@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     CHROMADB_MODE: str = "local"  # "local" (PersistentClient) or "server" (HttpClient)
     CHROMADB_HOST: str = "localhost"
     CHROMADB_PORT: int = 8000
+    CHROMADB_COLLECTION: str = "mdt_code_context"
 
     # GitHub Webhook Security
     GITHUB_WEBHOOK_SECRET: str = Field(
@@ -82,6 +83,16 @@ class Settings(BaseSettings):
     RISK_LOW: int = 25
     RISK_MEDIUM: int = 50
     RISK_HIGH: int = 75
+
+    # HMDA deterministic risk calculation weights
+    HMDA_WEIGHT_FILE: int = 5
+    HMDA_MAX_FILE_PTS: int = 30
+    HMDA_PTS_API_CHANGE: int = 25
+    HMDA_PTS_CORE_SERVICE: int = 30
+    HMDA_WEIGHT_DEPTH: int = 5
+    HMDA_MAX_DEPTH_PTS: int = 15
+    HMDA_PTS_SCHEMA_CHANGE: int = 15
+    HMDA_PTS_CONFIG_CHANGE: int = 10
 
     # Architectural-smell thresholds. Set these per environment instead of
     # baking demo-sized limits into detector queries.

@@ -1,5 +1,8 @@
+import logging
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from core.registry import RegistryManager
 from core.auth import require_admin
@@ -68,6 +71,7 @@ def add_file_mapping(payload: FileMappingPayload, current_user: UserOut = Depend
     return StatusResponse(status="success")
 
 
+@router.post("/import", include_in_schema=False)
 @router.post("/import-repo")
 async def import_repo(payload: ImportRepoRequest, current_user: UserOut = Depends(require_admin)):
     """
@@ -110,6 +114,6 @@ async def reset_default_registry(current_user: UserOut = Depends(require_admin))
         for dep in defaults.get("dependencies", []):
             await graph.add_dependency(dep["from"], dep["to"], dep.get("type", "http"), dep.get("endpoint", ""))
         await graph.seed_demo_history(RegistryManager.get_local_demo_smell_history())
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Demo fleet restoration error: %s", exc)
     return StatusResponse(status="success", message="Restored local demo fleet (ports 8001-8004) with all ten detector scenarios.")

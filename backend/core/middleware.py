@@ -53,7 +53,7 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
         response.headers["X-Response-Time-MS"] = f"{duration_ms:.2f}"
 
         # Skip spamming logs on healthcheck polls unless in error
-        if request.url.path != "/health/" or response.status_code >= 400:
+        if request.url.path.rstrip("/") != "/health" or response.status_code >= 400:
             logger.info(
                 f"{request.method} {request.url.path} {response.status_code} [{duration_ms:.2f}ms] (id={request_id})",
                 extra={"request_id": request_id, "latency_ms": round(duration_ms, 2)}

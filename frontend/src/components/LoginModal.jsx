@@ -39,7 +39,8 @@ export default function LoginModal({ onOpenPortal }) {
       console.error('Login modal error:', err);
       let msg = 'Authentication failed. Please check your credentials.';
       if (!err.response || err.code === 'ERR_NETWORK') {
-        msg = 'Cannot reach MDT Backend at http://localhost:8000. Please ensure the backend server is running.';
+        const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        msg = `Cannot reach MDT Backend at ${backendUrl}. Please ensure the backend server is running.`;
         setGatewayOnline(false);
       } else if (err.response.status === 401) {
         msg = 'Invalid username or password. Click the Admin Demo button below.';

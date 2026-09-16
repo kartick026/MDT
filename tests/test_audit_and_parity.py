@@ -300,3 +300,182 @@ class IsolatedServiceExclusionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("event_broker", isolated_names, "Brokers must not be flagged as dead/isolated")
         self.assertIn("real-unconnected-service", isolated_names, "Real internal unconnected services must be detected as isolated")
         self.assertEqual(len(isolated), 1)
+
+    async def test_notification_service_detected_as_isolated_and_simulated(self):
+        self.addCleanup(RegistryManager.save, DEFAULT_REGISTRY)
+        RegistryManager.save({
+            "project": {"repository_key": "github:kartick026/mdt"},
+            "services": [
+                {"name": "frontend", "is_external": False},
+                {"name": "backend", "is_external": False},
+                {"name": "user", "is_external": False},
+                {"name": "order", "is_external": False},
+                {"name": "payment", "is_external": False},
+                {"name": "notification", "is_external": False},
+            ],
+            "dependencies": [
+                {"from": "frontend", "to": "backend", "type": "http"},
+                {"from": "payment", "to": "order", "type": "http"},
+                {"from": "order", "to": "user", "type": "http"},
+            ]
+        })
+
+        detector = SmellDetector()
+        detector.driver = MockNeo4jDriver()
+        isolated = await detector._detect_isolated_services()
+        isolated_names = {s for finding in isolated for s in finding.get("services", [])}
+        self.assertIn("notification", isolated_names, "Notification with degree 0 must be detected as isolated")
+
+        from services.remediation_simulator import RemediationSimulator, GraphEdit
+        sim = RemediationSimulator()
+        sim.driver = MockNeo4jDriver()
+        preview = await sim.simulate_fix([
+            GraphEdit(action="add_edge", from_service="order", to_service="notification")
+        ])
+        self.assertEqual(preview["before"]["smells"]["isolated_service"], 1)
+        self.assertEqual(preview["after"]["smells"]["isolated_service"], 0)
+        self.assertTrue(preview["delta"]["measurable_change"])
+        self.assertGreater(preview["delta"]["score_reduction"], 0)
+
+    async def test_baseline_smells_shared_between_analysis_and_simulation(self):
+        from services.remediation_simulator import RemediationSimulator, GraphEdit, compute_architecture_health
+
+        # Analysis computed 3 smells: dependency explosion, api instability, isolated service
+        baseline = {
+            "circular_dependency": 0, "shared_database": 0, "hub_and_spoke": 0,
+            "bottleneck_service": 0, "dependency_explosion": 1, "high_coupling": 0,
+            "api_instability": 1, "chatty_communication": 0, "missing_circuit_breaker": 0,
+            "isolated_service": 1,
+        }
+        health = compute_architecture_health(baseline)
+        self.assertEqual(health["score"], 52.2)
+        self.assertEqual(health["total_smells"], 3)
+
+        sim = RemediationSimulator()
+        sim.driver = MockNeo4jDriver()
+        preview = await sim.simulate_fix(
+            edits=[GraphEdit(action="add_edge", from_service="order", to_service="notification")],
+            baseline_smells=baseline,
+        )
+
+        # Before MUST strictly equal Architecture Health from analysis (same function, same baseline)
+        self.assertEqual(preview["before"]["score"], health["score"])
+        self.assertEqual(preview["before"]["total_smells"], health["total_smells"])
+        # After resolves isolated service but preserves historical snapshot smells
+        self.assertEqual(preview["after"]["smells"]["isolated_service"], 0)
+        self.assertEqual(preview["after"]["smells"]["dependency_explosion"], 1)
+        self.assertEqual(preview["after"]["smells"]["api_instability"], 1)
+        self.assertEqual(preview["after"]["total_smells"], 2)
+        self.assertLess(preview["after"]["score"], preview["before"]["score"])
+        self.assertTrue(preview["delta"]["measurable_change"])
+
+
+class Phase9CodeAuditTests(unittest.IsolatedAsyncioTestCase):
+    """Verify Phase 9 Codebase Audit fixes."""
+
+    def test_simulation_negative_degradation_handling(self):
+        """When an edit introduces new smells, after_score increases and warning message is emitted."""
+        from services.remediation_simulator import _calculate_simulation_metrics
+
+        before_smells = {"circular_dependency": 1}  # raw 30, score 45.0
+        # Simulated edit accidentally introduces an additional cycle and a shared database
+        after_smells = {"circular_dependency": 2, "shared_database": 1}  # raw 80, score 68.6
+
+        b, a, red, meas, msg = _calculate_simulation_metrics(before_smells, after_smells, edits=[])
+        self.assertEqual(b, 45.0)
+        self.assertEqual(a, 68.6)
+        self.assertLess(red, 0.0)
+        self.assertEqual(red, -23.6)
+        self.assertTrue(meas)
+        self.assertIn("Warning: Proposed edit increases architectural risk by +23.6 pts", msg)
+        self.assertIn("new smell(s) introduced", msg)
+
+    def test_parse_github_url_robustness(self):
+        """Verify _parse_github_url handles various formats including dots and trailing slashes."""
+        from services.git_analyzer import _parse_github_url
+
+        urls = [
+            ("https://github.com/owner/repo", ("owner", "repo")),
+            ("https://github.com/owner/repo.git", ("owner", "repo")),
+            ("https://github.com/owner/repo.name", ("owner", "repo.name")),
+            ("https://github.com/owner/repo.name.git", ("owner", "repo.name")),
+            ("https://github.com/owner/repo/", ("owner", "repo")),
+            ("git@github.com:owner/repo.git", ("owner", "repo")),
+        ]
+        for url, expected in urls:
+            result = _parse_github_url(url)
+            self.assertEqual(result, expected, f"Failed for {url}")
+
+    def test_impact_engine_clamping(self):
+        """Verify final_risk is clamped strictly between 0.0 and 100.0."""
+        def clamp_risk(base_risk: float, semantic_boost: float) -> float:
+            return max(0.0, min(100.0, round(float(base_risk + semantic_boost), 1)))
+
+        self.assertEqual(clamp_risk(95.0, 20.0), 100.0)
+        self.assertEqual(clamp_risk(5.0, -20.0), 0.0)
+        self.assertEqual(clamp_risk(50.0, 10.0), 60.0)
+
+    def test_settings_dynamic_thresholds(self):
+        """Verify core.config settings expose required risk and demo properties."""
+        from core.config import settings
+
+        self.assertEqual(settings.RISK_LOW, 25)
+        self.assertEqual(settings.RISK_MEDIUM, 50)
+        self.assertEqual(settings.RISK_HIGH, 75)
+        self.assertTrue(settings.DEMO_REPO_URL.startswith("https://github.com/"))
+        self.assertTrue(bool(settings.DEMO_REPO_BRANCH))
+
+    def test_is_supported_file_includes_html_templates_and_configs(self):
+        """Verify web templates, styles, configs, and non-binary files are supported in git analyzer."""
+        from services.git_analyzer import is_supported_file
+
+        self.assertTrue(is_supported_file("app/templates/base.html"))
+        self.assertTrue(is_supported_file("index.html"))
+        self.assertTrue(is_supported_file("static/style.css"))
+        self.assertTrue(is_supported_file("render.yaml"))
+        self.assertTrue(is_supported_file("config.json"))
+        self.assertTrue(is_supported_file("Dockerfile"))
+        self.assertTrue(is_supported_file("services/order_service/main.py"))
+
+        # Binaries must be rejected
+        self.assertFalse(is_supported_file("logo.png"))
+        self.assertFalse(is_supported_file("font.woff2"))
+        self.assertFalse(is_supported_file("cache.pyc"))
+        self.assertFalse(is_supported_file("bundle.zip"))
+
+    @pytest.mark.asyncio
+    async def test_imported_repo_does_not_leak_demo_snapshots(self):
+        """Verify an imported repository (e.g. AyushBajaj7/Luxon) never inherits demo snapshots."""
+        import tempfile
+        from pathlib import Path
+
+        tmp_dir = tempfile.mkdtemp()
+        orig_file = RegistryManager.REGISTRY_FILE
+        try:
+            RegistryManager.REGISTRY_FILE = Path(tmp_dir) / "registry.json"
+            RegistryManager.clear()
+            RegistryManager.set_project_context(
+                repo_url="https://github.com/AyushBajaj7/Luxon",
+                branch="main",
+                source="repository",
+            )
+            RegistryManager.add_service({"name": "luxon", "port": 8808, "endpoints": ["/"]})
+            RegistryManager.add_service({"name": "app", "port": 8092, "endpoints": ["/home"]})
+
+            detector = SmellDetector()
+            detector.driver = MockNeo4jDriver()
+
+            smells = await detector.detect_all_smells()
+            smell_types = {s["type"] for s in smells}
+            all_services = [svc for s in smells for svc in s.get("services", [])]
+
+            # Neither Dependency Explosion nor API Instability should be triggered by demo snapshots
+            self.assertNotIn("Dependency Explosion", smell_types)
+            self.assertNotIn("API Instability", smell_types)
+            self.assertNotIn("order-service", all_services)
+            self.assertNotIn("notification-service", all_services)
+        finally:
+            RegistryManager.REGISTRY_FILE = orig_file
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+

@@ -21,6 +21,7 @@ Welcome to the comprehensive features guide for **Microservice Drift Tracker (MD
 13. [Feature 11: Distributed Request Tracing & Deep Observability](#feature-11-distributed-request-tracing--deep-observability)
 14. [API Reference & Schema Specifications](#api-reference--schema-specifications)
 15. [End-to-End Workflow Examples](#end-to-end-workflow-examples)
+16. [Known Limitations & Architectural Trade-offs](#known-limitations--architectural-trade-offs)
 
 ---
 
@@ -100,11 +101,18 @@ Static dependency declarations in Compose files often hide runtime bugs: a servi
 
 ## Feature 3: HMDA Engine & Git Branch Resolution
 
-The **HMDA Engine** is MDT's core risk algorithm. It evaluates code modifications against graph topology and semantic historical context.
+The **HMDA Engine** is MDT's core risk algorithm. It evaluates code modifications against graph topology, semantic historical context, and architectural smell metrics.
 
 ### Git Branch & Ref Resolution (`resolve_commit_sha`)
-MDT eliminates the need for developers to manually look up 40-character commit hashes:
-- **Sub-Second `git ls-remote` Resolution:** Leverages `git ls-remote <repo_url> <ref>` in an async threadpool to resolve branch names (`main`, `master`, `develop`, tags, or `HEAD`) into exact 40-character commit SHAs in <1.5s, completely immune to GitHub REST API token rate limits.
+MDT eliminates the need for developers to manually look up exact 40-character commit hashes:
+- **Comprehensive Ref Resolution Support:**
+  - **Branch Names & Tags:** `main`, `master`, `develop`, `release/v2.1`, tags.
+  - **Short Git SHAs (7 to 39 hex characters):** Native prefix matching (e.g. `c876e48`, `0f1c420`) resolved to canonical 40-character objects.
+  - **Full 40-character SHAs:** Direct commit object inspection.
+  - **Relative Git Revisions:** Evaluates relative ancestor syntax such as `HEAD~1` (previous commit), `HEAD~2`, or `main~1`.
+  - **Root Commits:** Detects initial repository commits with zero parents and diffs against the Git empty tree hash (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`), preventing crash failures on initial commits.
+- **Sub-Second `git ls-remote` Resolution:** Leverages `git ls-remote <repo_url> <ref>` in an async threadpool to resolve remote branch names into exact commit SHAs in <1.5s, completely immune to GitHub REST API token rate limits.
+- **Direct Local `.git` Fast-Path (<50ms):** When operating on a local repository, bypasses remote network calls entirely and inspects the local `.git` object database directly.
 - **Commit Patch Fallback:** Inspects `https://github.com/{owner}/{repo}/commit/{ref}.patch` headers (`From <sha> ...`) to parse commit diffs even under anonymous rate limiting.
 - **Auto-Diff Detection:** If `changed_files` is omitted, automatically extracts all modified, added, and deleted files directly from the unified commit diff.
 
@@ -113,18 +121,23 @@ MDT eliminates the need for developers to manually look up 40-character commit h
 $$\text{Total Risk Score} = \min(100, \text{Deterministic Score} + \text{Semantic Modifier})$$
 
 #### 1. Deterministic Graph & Code Factors (Base 0–100 pts)
-- **File Impact Factor (up to 30 pts):** Evaluates number of changed files and line change volumes ($\min(30, \text{files} \times 5)$).
-- **Core Service Modification (adds 30 pts):** Extra weighting applied if the modified service acts as a primary dependency sink (high fan-in).
+Configured via dynamic settings in `backend/core/config.py`:
+- **File Impact Factor (up to 30 pts):** Evaluates number of changed files and line change volumes ($\min(30, \text{files} \times \text{HMDA\_FILE\_WEIGHT})$).
+- **Core Service Modification (adds 30 pts):** Extra weighting applied if the modified service acts as a primary dependency sink (high fan-in $\ge 3$).
 - **API Signature Changes (adds 25 pts):** AST parser checks if function definitions, route decorators, or request schemas changed.
-- **Dependency Graph Depth (up to 15 pts):** Cypher shortest-path queries calculate the maximum depth of cascading downstream impact ($\min(15, \text{depth} \times 5)$).
+- **Dependency Graph Depth (up to 15 pts):** Cypher shortest-path queries calculate the maximum depth of cascading downstream impact ($\min(15, \text{depth} \times \text{HMDA\_DEPTH\_WEIGHT})$).
+- **Database Schema & Migration DDL (adds 15 pts):** Flags database migration scripts, Alembic revisions, or SQL schema alterations.
+- **Infrastructure & Deployment Config (adds 10 pts):** Flags changes to `docker-compose.yml`, Kubernetes manifests, Helm charts, or cloud deployment specs.
 
 #### 2. Semantic Code Retrieval (ChromaDB RAG)
 - Changed code snippets are embedded and matched against historical PR changes in ChromaDB.
 - Flags whether similar code modifications in the past induced outages or high defect rates.
+- In offline mode, persists locally to DuckDB/Parquet disk storage (`chroma_db/`) without external cloud vector databases.
 
-#### 3. AI-Assisted Reasoning (LLM Explainer)
-- Generates natural-language executive summaries explaining the exact cause of the risk score.
-- Categorizes risk into 4 standardized tiers matching `config.py` (`RISK_LOW=25`, `RISK_MEDIUM=50`, `RISK_HIGH=75`):
+#### 3. AI-Assisted Reasoning (LLM Explainer) vs. Deterministic Heuristics
+- **Online Mode:** Generates natural-language executive summaries via Gemini 2.5 Flash / GPT-4o explaining the root-cause of the score.
+- **Offline Mode:** Uses pure deterministic heuristic generation to output concrete, actionable refactoring steps and risk justifications without external API calls.
+- Standardized risk tiers matching `config.py`:
   - **`LOW` (0–24):** Localized edits, minimal downstream caller exposure.
   - **`MEDIUM` (25–49):** Moderate blast radius or intermediate dependency depth.
   - **`HIGH` (50–74):** Broad blast radius or breaking API schema changes.
@@ -266,20 +279,40 @@ Located in the **Analysis History** tab, this view maintains an audit log of all
 
 ---
 
-## Feature 8: GitHub Webhook & GitHub App Automation
+## Feature 8: Git Hooks, Webhooks & GitHub App Automation
 
-MDT integrates natively into developer workflows via GitHub Webhooks and GitHub Apps.
+MDT integrates natively into developer workflows before commit, before push, and across remote pull requests.
 
-### Capabilities
-- **Push Event Webhooks (`POST /webhook/github`):**
-  - Verifies HMAC `X-Hub-Signature-256` payload signatures.
-  - Automatically fetches commit diffs from the GitHub REST API.
-  - Executes HMDA analysis and records history.
-- **GitHub App Support:**
-  - Authenticates via RS256 Private Key (`.pem`) and App ID.
-  - Mints short-lived Installation Access Tokens on the fly without relying on personal developer accounts.
-- **PR Check Gating:**
-  - Can be integrated into GitHub Actions / status checks to block pull requests whose HMDA risk exceeds defined thresholds (e.g. `risk_score > 75`).
+### 1. Client-Side Git Hook CLI (`mdt-hook/mdt_check.py`)
+MDT provides a zero-dependency Python utility (`mdt-hook/mdt_check.py`) that acts as both an interactive developer tool and an automated Git lifecycle hook.
+
+- **Pre-Commit Hook (`--install-hook pre-commit`):**
+  - Installs an executable wrapper script at `.git/hooks/pre-commit`.
+  - Analyzes files staged via `git add` (`git diff --cached --name-only`).
+  - Blocks `git commit` if the computed HMDA risk is `HIGH` or `CRITICAL`.
+- **Pre-Push Hook (`--install-hook pre-push`):**
+  - Installs an executable wrapper script at `.git/hooks/pre-push`.
+  - Analyzes outgoing changes (`HEAD~1..HEAD`) before transmission to remote branches.
+  - Blocks `git push` if high-risk architectural drift is detected.
+- **Interactive Flags & Modes:**
+  - `python mdt-hook/mdt_check.py --staged`: Evaluates staged files.
+  - `python mdt-hook/mdt_check.py --working`: Evaluates all modified/added files in the working directory against `HEAD`.
+  - `python mdt-hook/mdt_check.py file1.py file2.py`: Evaluates specific paths.
+  - `python mdt-hook/mdt_check.py --dry-run`: Previews HMDA score and colorized severity report without returning an exit error.
+- **Bypass & Configuration Environment Variables:**
+  - `MDT_FORCE=1`: Overrides high-risk blocks during emergencies (e.g. `MDT_FORCE=1 git commit -m "Emergency fix"` or `$env:MDT_FORCE="1"` in PowerShell).
+  - `MDT_SKIP=1`: Skips MDT hook execution entirely.
+  - `MDT_API_URL`: Points to a remote or containerized MDT backend (default: `http://localhost:8000`).
+
+### 2. GitHub Webhook Ingestion (`POST /webhook/github`)
+- **HMAC Signature Verification:** Verifies payload integrity via `X-Hub-Signature-256` using the configured `WEBHOOK_SECRET`.
+- **Sliding-Window Rate Limiting:** Enforces in-memory IP rate limiting (`RATE_LIMIT_WEBHOOK_PER_MINUTE: 30`) and rejects payloads exceeding 25MB.
+- **Event Handling:** Ingests `push` and `pull_request` events, running unified diff extraction and logging the results into the persistent session history.
+
+### 3. Enterprise GitHub App Integration
+- **Key-Based Authentication:** Authenticates via RS256 private key (`.pem`) and GitHub App ID.
+- **Dynamic JWT Token Exchange:** Automatically mints short-lived Installation Access Tokens on the fly, eliminating reliance on developer Personal Access Tokens (PATs).
+- **PR Check Gating & Automated Comments:** Updates commit status checks (`pending`, `success`, `failure`) and publishes structured review comments with architectural drift breakdown and smell warnings.
 
 ---
 
@@ -356,21 +389,116 @@ Built for enterprise production telemetry:
 
 ## End-to-End Workflow Examples
 
-### Example: Simulating a Breaking Change in Payment Service
-1. Navigate to the **Impact Analysis** tab.
-2. In **Configure Analysis**, enter:
+### Workflow 1: Operating Offline (Air-Gapped & Local Development)
+**Scenario:** A developer works in a secure air-gapped corporate network without external internet or OpenAI API keys.
+
+1. **Launch Local Infrastructure:**
+   ```bash
+   docker compose up -d neo4j chromadb backend frontend
+   ```
+2. **Launch Reference Microservices Fleet:**
+   ```bash
+   python scripts/run_microservices.py
+   ```
+   Runs `user-service` (8001), `order-service` (8002), `payment-service` (8003), and `notification-service` (8004) concurrently via Python multiprocessing.
+3. **Execute Local Git Pre-Flight Check:**
+   When editing `services/payment_service/main.py`, the developer runs:
+   ```bash
+   python mdt-hook/mdt_check.py --working
+   ```
+   MDT queries the local `.git` repository in under 50ms, computes the 100% deterministic HMDA score (`HMDA_FILE_WEIGHT`, `HMDA_CORE_SERVICE_WEIGHT`, etc.), runs the 10 Cypher smell queries locally against Neo4j, and returns a concrete heuristic mitigation plan with zero cloud API dependencies.
+
+---
+
+### Workflow 2: Operating Online (Cloud Ingestion, GitHub App & LLM Reasoning)
+**Scenario:** An engineering organization governance team audits a multi-service repository hosted on GitHub.
+
+1. **Import Remote Repository:**
+   In the **Overview** tab, the architect imports `https://github.com/kartick026/MDT` on branch `main`.
+   MDT authenticates via GitHub App (RS256 JWT) or Personal Access Token (`GITHUB_TOKEN`), shallow-clones the tree, parses `docker-compose.yml`, and maps all 4 microservices and their dependencies into Neo4j.
+2. **Run AI-Augmented Drift Analysis:**
+   In **Impact Analysis**, the architect triggers HMDA analysis. MDT calculates graph shortest paths, embeds changed code into ChromaDB, and queries Google Gemini (`gemini-2.5-flash`) or OpenAI.
+3. **Executive Explanation:**
+   The dashboard displays a structured executive narrative detailing the exact cascading risks across upstream and downstream services, broken endpoint alerts, and recommended code patterns.
+
+---
+
+### Workflow 3: Operating Before Commit (Pre-Commit Governance & Simulation)
+**Scenario:** A developer edits `services/order_service/main.py` by removing an endpoint, risking cascading 404s for upstream callers.
+
+1. **Install Git Pre-Commit Hook:**
+   ```bash
+   python mdt-hook/mdt_check.py --install-hook pre-commit
+   ```
+2. **Stage Changes:**
+   ```bash
+   git add services/order_service/main.py
+   ```
+3. **Attempt Commit:**
+   ```bash
+   git commit -m "Refactor order status endpoint"
+   ```
+   The `.git/hooks/pre-commit` hook automatically executes `mdt-hook/mdt_check.py --staged`. MDT detects `[ENDPOINT_MISMATCH]` and an API Instability smell:
+   ```text
+   ━━━ MDT HMDA Pre-Commit Analysis (Staged Files) ━━━
+     Risk score : 85/100
+     Severity   : CRITICAL
+     Impacted   : order-service, user-service, notification-service
+
+   MDT: Commit/Push blocked — risk score is 85/100 (CRITICAL).
+        Fix the architectural issues or bypass with:  MDT_FORCE=1 git commit
+   ```
+4. **Simulate Graph Remediation in What-If Sandbox:**
+   The developer opens the dashboard's **What-If Simulation** tab, tests adding an `order-service_facade` to maintain route backward compatibility, observes the risk score decrease from `85 → 45`, and implements the adapter in code before committing cleanly.
+
+---
+
+### Workflow 4: Operating After Commit (Target Commit SHA, Pre-Push & CI/CD)
+**Scenario:** A tech lead reviews a specific committed revision (`c876e48`) and enforces push gating across the engineering team.
+
+1. **Install Git Pre-Push Hook:**
+   ```bash
+   python mdt-hook/mdt_check.py --install-hook pre-push
+   ```
+   Prevents unvetted outgoing commits (`HEAD~1..HEAD`) from being pushed to remote branches if risk exceeds `HIGH` (50) or `CRITICAL` (75).
+2. **Target Commit / Revision Inspection in Dashboard:**
+   In the **Impact Analysis** form, the tech lead inputs:
    - **Repository URL:** `https://github.com/kartick026/MDT`
-   - **Commit SHA:** `main`
-   - **Changed Files:** `services/payment_service/main.py`
-3. Click **⚡ Run HMDA Analysis**.
-4. The dashboard displays:
-   - **Score:** `60 HIGH`
-   - **Impacted Services:** `order-service`, `notification-service`, `user-service`.
-   - **Integrity Alert:** Any broken URLs detected in code.
-5. In the **Recommendations** tab, locate:
-   `"Introduce resilience facade for 'order-service' to isolate downstream failure cascade."`
-6. Click **⚡ Preview Fix Impact**:
-   - The **What-If Remediation Preview** panel opens.
-   - You observe the score drop from `60` to `25` (`▼ 35 pts Reduction`).
-   - You confirm that isolated service smells decrease from `2 → 1`.
-7. Once verified, developers proceed to apply the facade pattern in code with full confidence.
+   - **Target Commit / Revision:** `c876e48` (or `HEAD~1`)
+   - Leaves **Manual File Overrides** empty.
+   MDT automatically extracts the exact unified diff introduced by `c876e48`, resolves the revision, and presents the full impact blast radius.
+3. **CI/CD Pull Request Automation:**
+   The team registers `mdt-hook/mdt_check.py --working` into `.github/workflows/mdt-gate.yml`. When PRs are created, MDT analyzes the branch diff and blocks merges if the HMDA score exceeds the team's risk threshold.
+
+
+---
+
+## Known Limitations & Architectural Trade-offs
+
+Engineering a robust distributed architectural tracking platform requires clear trade-offs between rapid onboarding and security hardening. This section openly documents known architectural trade-offs, deliberate design decisions, and planned evolutionary upgrades.
+
+### 1. Client-Side JWT Storage in `localStorage` (Security Trade-off)
+- **Current Pattern**:
+  The React SPA client in `frontend/src/api.js` persists authentication credentials (`mdt_token`, `mdt_user`) in browser `localStorage`. Outgoing API requests automatically attach the token via an Axios request interceptor (`Authorization: Bearer <token>`).
+- **Trade-off Analysis**:
+  - *Benefits*: Highly ergonomic for Single-Page Application (SPA) development, avoids cross-origin cookie configuration hurdles during multi-domain or local container development, simplifies session hydration, and eliminates the immediate need for synchronized anti-CSRF token handling.
+  - *Risk*: `localStorage` is accessible to any script running within the same origin. If an unmitigated Cross-Site Scripting (XSS) vulnerability exists anywhere within the application or its third-party frontend dependencies, an attacker could potentially extract the stored JWT.
+- **Production Hardening Path**:
+  Prior to enterprise production deployment, the recommended architectural path is:
+  1. Migrate token issuance to set `httpOnly`, `Secure`, and `SameSite=Strict` (or `SameSite=Lax`) session cookies on the backend (`/auth/login` and `/auth/refresh`).
+  2. Implement anti-CSRF protection (e.g. Double Submit Cookie pattern or stateful CSRF token exchange header).
+  3. Ensure JavaScript execution contexts cannot directly read the sensitive session credential.
+
+### 2. Multi-Language AST Parsing: Python Native AST vs. Regex Heuristics
+- **Current Pattern**:
+  - **Python (`.py`)**: Parsed with 100% syntactic fidelity using Python's native `ast` module (`ast.parse()`). MDT accurately extracts class definitions, function decorators (e.g. FastAPI `@app.get`, `@router.post`, Flask `@app.route`), docstrings, and call arguments.
+  - **Polyglot Services (JavaScript/TypeScript, Go, Java, Rust)**: Non-Python languages are analyzed via high-performance regex heuristics in `git_analyzer.py` and `repo_onboarding.py`. These heuristics identify standard route definitions (e.g. `app.get('/path', ...)`, Express routers, Spring annotations, Go `http.HandleFunc`).
+- **Documented Limitation**:
+  Regex heuristics, while dependency-free, fast, and resilient across varied file layouts, cannot build full abstract syntax trees for dynamic metaprogramming, complex nested factory functions, or non-standard routing frameworks in TypeScript/Go.
+- **Next Architectural Evolution (Tree-sitter Upgrade)**:
+  The designated next step for deeper multi-language accuracy is integrating `tree-sitter` (via `tree-sitter` Python bindings with grammar libraries for JavaScript, TypeScript, Go, Java, and C#). Tree-sitter generates concrete syntax trees (CSTs) incrementally without requiring external runtime compilers or language runtimes installed on the host.
+
+### 3. Multi-Strategy Fallback Exception Observability
+- **Traceability Guarantee**:
+  MDT relies on multi-stage fallback chains across operations like Git branch resolution (trying branch candidates, commit SHAs, remote refs, and symbolic heads) and container port extraction. All fallback branches are instrumented with explicit `logger.debug(...)` output. If every strategy in a fallback chain fails, the complete debug trail is captured in system logs rather than silently discarded.
+

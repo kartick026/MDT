@@ -31,7 +31,7 @@ from core.database import get_chroma_client
 
 logger = logging.getLogger(__name__)
 
-COLLECTION_NAME = "mdt_code_context"
+COLLECTION_NAME = getattr(settings, "CHROMADB_COLLECTION", "mdt_code_context")
 CHUNK_SIZE = 50       # lines per chunk
 CHUNK_OVERLAP = 10    # lines of overlap between chunks
 FIXED_EMBED_DIM = 256 # Guaranteed fixed embedding dimension for fallback/hashing embeddings

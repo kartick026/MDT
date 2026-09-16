@@ -146,11 +146,11 @@ Provide a brief explanation (2-3 sentences) of:
 
     def _get_severity_label(self, risk_score: float) -> str:
         """Convert score to severity label"""
-        if risk_score >= 75:
+        if risk_score >= settings.RISK_HIGH:
             return "Critical"
-        elif risk_score >= 50:
+        elif risk_score >= settings.RISK_MEDIUM:
             return "High"
-        elif risk_score >= 25:
+        elif risk_score >= settings.RISK_LOW:
             return "Medium"
         else:
             return "Low"
@@ -215,7 +215,7 @@ Focus on testing, coordination, and safeguards. Be specific and actionable.
         """Fallback remediation suggestions"""
         suggestions = []
 
-        if risk_score >= 50:
+        if risk_score >= settings.RISK_MEDIUM:
             suggestions.append("Schedule a code review with impacted service owners")
 
         if impacted_services:
@@ -307,8 +307,8 @@ Respond as a JSON array of objects, each with "text" (string) and
                     for e in item.get("edits", []):
                         try:
                             edits.append(GraphEdit(**e).model_dump())
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Parsing LLM GraphEdit suggestion failed: %s", exc)
                     if text and edits:
                         results.append({"text": text, "edits": edits})
                 if results:
@@ -403,11 +403,17 @@ Respond as a JSON array of objects, each with "text" (string) and
                     "edits": []  # Code-level fix; not a Neo4j graph topology mutation
                 })
 
-        # 3. Architectural resilience recommendations (when topological smells are present)
-        if smells:
+        # 3. Architectural resilience recommendations (fallback when no specific graph edits exist)
+        if smells and not any(r.get("edits") for r in results):
             impacted = [s for s in (impacted_services or []) if s and s != "unknown"]
-            if impacted:
-                primary_svc = impacted[0]
+            # Exclude isolated services from receiving a downstream circuit breaker facade
+            isolated_services = {
+                s for smell in smells if "Dead" in smell.get("type", "") or "Isolated" in smell.get("type", "")
+                for s in smell.get("services", [])
+            }
+            connected_impacted = [s for s in impacted if s not in isolated_services]
+            primary_svc = connected_impacted[0] if connected_impacted else (impacted[0] if impacted else None)
+            if primary_svc:
                 results.append({
                     "text": f"Introduce circuit breaker / resilience facade for '{primary_svc}' to isolate downstream failure propagation.",
                     "edits": [

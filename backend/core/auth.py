@@ -214,7 +214,8 @@ async def get_current_user_optional(
         return UserOut(username=username, role=role, is_active=True)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.debug("Token validation failed: %s", exc)
         return None
 
 

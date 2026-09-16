@@ -66,13 +66,41 @@ Issues a fresh JWT token extending an active user session.
 ## 3. Impact Analysis Pipeline
 
 ### `POST /analysis/analyze`
-Executes Hierarchical Microservice Drift Analysis (HMDA) against a commit or branch ref. Automatically resolves branch references (`main`, `master`, `HEAD`, tags) to 40-character commit hashes and auto-detects changed files from the unified diff when not explicitly provided.
+Executes Hierarchical Microservice Drift Analysis (HMDA) against a target revision, commit SHA, branch ref, or explicit file list.
 
-#### Request Body
+#### Request Parameters
+- `repo_url` *(string, required)*: The repository URL or local repository path. In offline/local mode, matching the active repository triggers the direct local `.git` fast-path (<50ms).
+- `commit_sha` *(string, optional, default: `"HEAD"`)*: The target commit or revision to evaluate. Supports:
+  - **Branch names:** `"main"`, `"master"`, `"develop"`, `"feature/v2"`
+  - **Short Git SHAs:** 7 to 39 hexadecimal characters (e.g. `"c876e48"`, `"0f1c420"`)
+  - **Full 40-character Git SHAs:** e.g. `"0f1c4204c2f22d97d27b7a847b2fe057f36afd42"`
+  - **Relative Git Revisions:** e.g. `"HEAD~1"`, `"HEAD~2"`, `"main~1"`
+  - **Root Commits:** Initial repository commits with no parents are automatically diffed against the Git empty tree hash (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`).
+- `changed_files` *(array of strings, optional)*: Explicit list of file paths to evaluate.
+  - **Before Commit Usage:** Provide staged or uncommitted files (e.g. `["backend/api/registry.py"]`) to evaluate risk *before* committing.
+  - **After Commit Usage:** Leave empty (`[]`) to allow MDT to automatically extract the exact file diff introduced by the `commit_sha` revision.
+
+#### Execution Modes
+- **Offline / Air-Gapped Mode:** When operating locally without external internet or when `OPENAI_API_KEY` is omitted, the endpoint evaluates 100% deterministic mathematical HMDA formulas, queries the local Neo4j topology and ChromaDB disk index, and returns rule-based mitigation strategies with zero cloud API dependencies.
+- **Online / Cloud Mode:** When configured with `OPENAI_API_KEY`, MDT enhances the analysis with Cloud LLM (Gemini 2.5 Flash / GPT-4o) executive summaries, natural-language risk explanations, and contextual refactoring guides.
+
+#### Request Body Example (Before Commit — Staged Files)
 ```json
 {
   "repo_url": "https://github.com/kartick026/MDT",
-  "commit_sha": "main",
+  "commit_sha": "HEAD",
+  "changed_files": [
+    "backend/api/registry.py",
+    "backend/services/git_analyzer.py"
+  ]
+}
+```
+
+#### Request Body Example (After Commit — Historical Revision)
+```json
+{
+  "repo_url": "https://github.com/kartick026/MDT",
+  "commit_sha": "c876e48",
   "changed_files": []
 }
 ```

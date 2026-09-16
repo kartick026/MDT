@@ -47,18 +47,20 @@ function buildPositions(nodes, edges) {
     nodeMap[n.id] = n;
   }
 
-  for (const node of nodes) {
-    const label = node.label || node.id.replace(/-service$/i, '');
-    const w = getNodeWidth(label);
-    const h = NODE_H;
-    if (PRESET_POS[node.id]) {
+  const allNodesHavePresets = nodes.length > 0 && nodes.every(n => Boolean(PRESET_POS[n.id]));
+
+  if (allNodesHavePresets) {
+    for (const node of nodes) {
+      const label = node.label || node.id.replace(/-service$/i, '');
+      const w = getNodeWidth(label);
+      const h = NODE_H;
       positions[node.id] = { ...PRESET_POS[node.id], w, h };
-    } else {
-      unplaced.push(node);
     }
+    return positions;
   }
 
-  if (unplaced.length === 0) return positions;
+  // When any node is not in presets (e.g. imported repo), layout all nodes topologically
+  unplaced.push(...nodes);
 
   // Layered topological sorting for imported repositories
   const inDegree = {}, outDegree = {};

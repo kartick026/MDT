@@ -20,9 +20,10 @@ def _normalize_repository_key(repo_url: str) -> str:
     if value.lower().endswith(".git"):
         value = value[:-4]
 
-    github_match = re.search(r"github\.com[:/]([^/]+)/([^/]+)$", value, re.IGNORECASE)
+    pattern = r"github\.com[:/]([^/]+)/([^/#?]+?)(?:\.git)?(?:[/?#]|$)"
+    github_match = re.search(pattern, value, re.IGNORECASE)
     if github_match:
-        owner, repo = github_match.groups()
+        owner, repo = github_match.group(1), github_match.group(2)
         return f"github:{owner}/{repo}".lower()
 
     return value.lower()
@@ -169,6 +170,7 @@ class RegistryManager:
     """
     Central microservice registry with thread-safe in-memory caching and atomic file persistence.
     """
+    REGISTRY_FILE = REGISTRY_FILE
     _cache: Optional[Dict[str, Any]] = None
     _lock = threading.Lock()
 
@@ -178,13 +180,17 @@ class RegistryManager:
             if cls._cache is not None:
                 return copy.deepcopy(cls._cache)
 
-            if REGISTRY_FILE.exists():
+            if cls.REGISTRY_FILE.exists():
                 try:
-                    with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
+                    with open(cls.REGISTRY_FILE, "r", encoding="utf-8") as f:
                         cls._cache = json.load(f)
+                        if isinstance(cls._cache, dict) and "services" in cls._cache:
+                            for svc in cls._cache["services"]:
+                                if svc.get("is_external") and not svc.get("name", "").startswith("external-"):
+                                    svc["is_external"] = False
                         return copy.deepcopy(cls._cache)
                 except Exception as exc:
-                    logger.warning("Failed to load registry file %s: %s. Using default.", REGISTRY_FILE, exc)
+                    logger.warning("Failed to load registry file %s: %s. Using default.", cls.REGISTRY_FILE, exc)
 
             cls._cache = copy.deepcopy(DEFAULT_REGISTRY)
             return copy.deepcopy(cls._cache)
@@ -192,24 +198,28 @@ class RegistryManager:
     @classmethod
     def save(cls, data: Dict[str, Any]):
         with cls._lock:
+            if isinstance(data, dict) and "services" in data:
+                for svc in data["services"]:
+                    if svc.get("is_external") and not svc.get("name", "").startswith("external-"):
+                        svc["is_external"] = False
             cls._cache = copy.deepcopy(data)
-            REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
-            temp_file = REGISTRY_FILE.with_suffix(".tmp")
+            cls.REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            temp_file = cls.REGISTRY_FILE.with_suffix(".tmp")
             try:
                 with open(temp_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
                 # Atomic rename on Windows/POSIX
-                if os.path.exists(REGISTRY_FILE):
-                    os.replace(temp_file, REGISTRY_FILE)
+                if os.path.exists(cls.REGISTRY_FILE):
+                    os.replace(temp_file, cls.REGISTRY_FILE)
                 else:
-                    temp_file.rename(REGISTRY_FILE)
+                    temp_file.rename(cls.REGISTRY_FILE)
             except Exception as exc:
                 logger.error("Failed to save registry to file: %s", exc)
                 if temp_file.exists():
                     try:
                         temp_file.unlink()
-                    except Exception:
-                        pass
+                    except Exception as unlink_exc:
+                        logger.debug("Failed unlinking temp registry file %s: %s", temp_file, unlink_exc)
 
     @classmethod
     def reload(cls) -> Dict[str, Any]:

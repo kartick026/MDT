@@ -170,8 +170,8 @@ class SmellDetector:
                     """,
                     active=active,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Active services sync cleanup failed: %s", exc)
 
         cycles = await self._detect_circular_dependencies()
         cycle_pairs = {tuple(sorted(f["services"])) for f in cycles if len(f.get("services", [])) == 2}
@@ -355,7 +355,7 @@ class SmellDetector:
                     WHERE NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
                       AND NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway'
                       AND NOT s.name = 'event_broker'
-                      AND coalesce(s.is_external, false) = false
+                      AND (s.is_external IS NULL OR s.is_external = false OR NOT s.name STARTS WITH 'external-')
                     RETURN s.name AS name
                 """)
             except Exception as exc:
@@ -377,8 +377,8 @@ class SmellDetector:
                     name = svc.get("name")
                     if not name or name in connected:
                         continue
-                    # Skip externally-imported services — they are not "dead", just not yet connected
-                    if svc.get("is_external"):
+                    # Skip externally-imported third-party services — they are not "dead", just not yet connected
+                    if svc.get("is_external") and name.startswith("external-"):
                         continue
                     # Skip architectural infrastructure names (matches Cypher query behavior)
                     if name.endswith("_facade") or name.endswith("_gateway") or name == "event_broker":
@@ -394,35 +394,74 @@ class SmellDetector:
         } for record in records]
 
     async def _detect_dependency_explosion(self) -> List[Dict[str, Any]]:
+        from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
+        context = RegistryManager.get_project_context()
+        is_demo = context.get("source") == "local_demo"
+        active_services = {s["name"] for s in RegistryManager.get_services()}
+
         records = []
         if self.driver and not self._is_mock():
             try:
                 records = await _run_query(self.driver, """
                     MATCH (snapshot:DependencySnapshot)
                     RETURN snapshot.edges AS edges, snapshot.created_at AS created_at
-                    ORDER BY created_at DESC LIMIT 2
+                    ORDER BY created_at DESC
                 """)
             except Exception as exc:
                 logger.debug("Cypher dependency snapshot query failed: %s", exc)
 
         if not records:
             try:
-                from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
                 data = RegistryManager.load()
-                raw_snapshots = (
-                    data.get("dependency_snapshots")
-                    or data.get("snapshots")
-                    or LOCAL_DEMO_SMELL_HISTORY.get("dependency_snapshots", [])
-                )
+                if is_demo:
+                    raw_snapshots = (
+                        data.get("dependency_snapshots")
+                        or data.get("snapshots")
+                        or LOCAL_DEMO_SMELL_HISTORY.get("dependency_snapshots", [])
+                    )
+                else:
+                    raw_snapshots = data.get("dependency_snapshots") or data.get("snapshots") or []
+
                 if raw_snapshots:
                     sorted_snaps = sorted(raw_snapshots, key=lambda s: s.get("created_at", ""), reverse=True)
-                    records = sorted_snaps[:2]
+                    records = sorted_snaps
             except Exception as exc:
                 logger.debug("In-memory dependency snapshot fallback failed: %s", exc)
 
         if len(records) < 2:
             return []
-        current, previous = set(records[0]["edges"]), set(records[1]["edges"])
+
+        # Filter foreign demo fleet edges if an external repository is active
+        if not is_demo and active_services:
+            demo_services = {"order-service", "user-service", "payment-service", "notification-service"}
+            foreign_demo = demo_services - active_services
+            if foreign_demo:
+                filtered_records = []
+                for rec in records:
+                    valid_edges = [
+                        e for e in rec.get("edges", [])
+                        if "->" in e and e.split("->", 1)[0] not in foreign_demo
+                    ]
+                    filtered_records.append({
+                        "edges": valid_edges,
+                        "created_at": rec.get("created_at", "")
+                    })
+                records = filtered_records
+
+        if len(records) < 2:
+            return []
+
+        current = set(records[0]["edges"])
+        previous_record = None
+        for prev in records[1:]:
+            if set(prev["edges"]) != current:
+                previous_record = prev
+                break
+
+        if not previous_record:
+            return []
+
+        previous = set(previous_record["edges"])
         added = sorted(current - previous)
         if len(added) < settings.SMELL_DEPENDENCY_GROWTH_THRESHOLD:
             return []
@@ -432,11 +471,16 @@ class SmellDetector:
         return [{
             "type": "Dependency Explosion", "severity": "HIGH", "confidence": "high",
             "services": sorted(by_service),
-            "evidence": {"added_edges": added, "previous_snapshot": records[1]["created_at"], "current_snapshot": records[0]["created_at"]},
+            "evidence": {"added_edges": added, "previous_snapshot": previous_record["created_at"], "current_snapshot": records[0]["created_at"]},
             "description": f"{len(added)} dependencies were added since the previous topology snapshot.",
         }]
 
     async def _detect_api_instability(self) -> List[Dict[str, Any]]:
+        from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
+        context = RegistryManager.get_project_context()
+        is_demo = context.get("source") == "local_demo"
+        active_services = {s["name"] for s in RegistryManager.get_services()}
+
         records = []
         if self.driver and not self._is_mock():
             try:
@@ -451,16 +495,26 @@ class SmellDetector:
 
         if not records:
             try:
-                from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
                 data = RegistryManager.load()
-                raw_snaps = (
-                    data.get("api_snapshots")
-                    or LOCAL_DEMO_SMELL_HISTORY.get("api_snapshots", [])
-                )
+                if is_demo:
+                    raw_snaps = (
+                        data.get("api_snapshots")
+                        or LOCAL_DEMO_SMELL_HISTORY.get("api_snapshots", [])
+                    )
+                else:
+                    raw_snaps = data.get("api_snapshots") or []
+
                 if raw_snaps:
                     records = sorted(raw_snaps, key=lambda s: s.get("created_at", ""), reverse=True)
             except Exception as exc:
                 logger.debug("In-memory API snapshot fallback failed: %s", exc)
+
+        # Filter foreign demo fleet services if an external repository is active
+        if not is_demo and active_services:
+            demo_services = {"order-service", "user-service", "payment-service", "notification-service"}
+            foreign_demo = demo_services - active_services
+            if foreign_demo:
+                records = [r for r in records if r.get("service") not in foreign_demo]
 
         snapshots: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for record in records:
@@ -616,6 +670,61 @@ class SmellDetector:
 
     async def _detect_hub_and_spoke(self) -> List[Dict[str, Any]]:
         """Detect microservice monolith / central hub using Freeman degree centrality and asymmetry ratio."""
+        records = []
+        if self.driver and not self._is_mock():
+            try:
+                records = await _run_query(self.driver, """
+                    MATCH (all_s:Service)
+                    WHERE NOT all_s.name ENDS WITH '_facade' AND NOT all_s.name ENDS WITH '_gateway' AND NOT all_s.name = 'event_broker'
+                      AND NOT toLower(all_s.name) CONTAINS 'postgres' AND NOT toLower(all_s.name) CONTAINS 'database' AND NOT toLower(all_s.name) CONTAINS 'db'
+                    WITH collect(DISTINCT all_s) AS fleet, count(DISTINCT all_s) AS total_services
+                    WHERE total_services >= 3
+                    UNWIND fleet AS s
+                    OPTIONAL MATCH (s)-[:DEPENDS_ON]-(neighbor:Service)
+                    WHERE neighbor IN fleet AND neighbor <> s
+                    WITH fleet, total_services, s, count(DISTINCT neighbor) AS deg
+                    WITH total_services,
+                         collect({service: s, deg: deg}) AS svc_degrees,
+                         avg(deg) AS avg_deg,
+                         toInteger(ceil(
+                           CASE 
+                             WHEN (1.0 - 1.0/sqrt(total_services)) > 0.60 THEN (1.0 - 1.0/sqrt(total_services)) 
+                             ELSE 0.60 
+                           END * (total_services - 1)
+                         )) AS min_hub_deg
+                    UNWIND svc_degrees AS item
+                    WITH item.service AS s, item.deg AS deg, total_services, avg_deg, min_hub_deg
+                    WHERE deg >= min_hub_deg AND deg > avg_deg
+                    RETURN s.name AS name, deg, total_services, avg_deg, min_hub_deg
+                """)
+            except Exception as exc:
+                logger.debug("Cypher hub and spoke detection failed: %s", exc)
+
+        if records:
+            findings = []
+            for r in records:
+                svc_name = r["name"]
+                deg = r["deg"]
+                total_services = r["total_services"]
+                avg_deg = r["avg_deg"]
+                threshold = r["min_hub_deg"]
+                ratio = round(deg / (total_services - 1), 2) if total_services > 1 else 1.0
+                findings.append({
+                    "type": "Hub-and-Spoke Centralization",
+                    "severity": "HIGH",
+                    "confidence": "high",
+                    "services": [svc_name],
+                    "evidence": {
+                        "connected_count": deg,
+                        "total_services": total_services,
+                        "ratio": ratio,
+                        "dynamic_threshold": threshold,
+                        "average_degree": round(avg_deg, 2),
+                    },
+                    "description": f"Hub-and-spoke centralization: '{svc_name}' directly connects to {deg}/{total_services - 1} ({int(ratio*100)}%) of services (dynamic threshold: {threshold}, avg degree: {round(avg_deg, 1)}), creating a single point of failure.",
+                })
+            return findings
+
         findings = []
         try:
             from core.registry import RegistryManager

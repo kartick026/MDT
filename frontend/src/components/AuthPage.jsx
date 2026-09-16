@@ -57,7 +57,8 @@ export default function AuthPage({ onNavigateTab }) {
       console.error('Login error:', err);
       let msg = 'Authentication failed. Please verify your credentials.';
       if (!err.response || err.code === 'ERR_NETWORK') {
-        msg = 'Cannot reach MDT Backend at http://localhost:8000. Please ensure the backend server is running.';
+        const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        msg = `Cannot reach MDT Backend at ${backendUrl}. Please ensure the backend server is running.`;
       } else if (err.response.status === 401) {
         msg = 'Invalid username or password. Click one of the Quick Demo chips below.';
       } else if (err.response.status === 404) {
@@ -85,7 +86,8 @@ export default function AuthPage({ onNavigateTab }) {
       console.error('Demo login error:', err);
       let msg = 'Cannot connect to backend server. Please verify port 8000 is running.';
       if (!err.response || err.code === 'ERR_NETWORK') {
-        msg = 'Cannot reach MDT Backend at http://localhost:8000. Please ensure the backend server is running.';
+        const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        msg = `Cannot reach MDT Backend at ${backendUrl}. Please ensure the backend server is running.`;
       } else if (err.response.status === 404) {
         msg = 'Authentication route not found (404). Please ensure the backend server on port 8000 has the latest auth endpoints.';
       } else if (err.response?.data?.detail) {

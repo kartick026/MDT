@@ -58,6 +58,38 @@ FastAPI Backend Core ────► Git Diff Analyzer & AST Inspector
 
 ---
 
+## ⚡ Hierarchical Microservice Drift Analysis (HMDA) Scoring Model
+
+MDT quantifies cross-service architectural impact using a normalized 0–100 risk score that synthesizes deterministic AST metrics, graph traversal depth, and semantic vector context.
+
+### The HMDA Formula
+
+$$\text{Final Risk Score} = \max\left(0.0, \min\left(100.0, \text{Deterministic Base Risk} + \text{Semantic Modifier}\right)\right)$$
+
+$$\text{Deterministic Base Risk} = \min\left(100, F_{\text{files}} + F_{\text{api}} + F_{\text{core}} + F_{\text{depth}} + F_{\text{schema}} + F_{\text{config}}\right)$$
+
+### The 7 HMDA Scoring Factors
+
+| Factor | Description & Detection Logic | Default Weight / Formula | Config Key in `backend/core/config.py` |
+|---|---|:---:|---|
+| **1. File Count ($F_{\text{files}}$)** | Scales risk with the volume of modified files in the change. | $\min(30, \text{file\_count} \times 5)$ | `HMDA_MAX_FILE_PTS: 30`<br>`HMDA_WEIGHT_FILE: 5` |
+| **2. API Alterations ($F_{\text{api}}$)** | Triggered when modified files alter HTTP routes, controllers, or endpoints (`api`, `route`, `endpoint`, `controller`, `handler`). | $+25\text{ pts}$ | `HMDA_PTS_API_CHANGE: 25` |
+| **3. Core Service Impact ($F_{\text{core}}$)** | Triggered when modified files belong to high-centrality dependency sinks ($\text{in-degree} \ge \max(2, \lceil\bar{k}_{\text{in}}\rceil)$). | $+30\text{ pts}$ | `HMDA_PTS_CORE_SERVICE: 30` |
+| **4. Dependency Depth ($F_{\text{depth}}$)** | Variable-length shortest-path traversal across the Neo4j graph calculating maximum cascading call depth. | $\min(15, \text{max\_depth} \times 5)$ | `HMDA_MAX_DEPTH_PTS: 15`<br>`HMDA_WEIGHT_DEPTH: 5` |
+| **5. Database Schema / DDL ($F_{\text{schema}}$)** | Triggered when changes touch database migration scripts, Alembic, Flyway, Prisma, or `.sql` definitions. | $+15\text{ pts}$ | `HMDA_PTS_SCHEMA_CHANGE: 15` |
+| **6. Infrastructure & Config ($F_{\text{config}}$)** | Triggered when changes modify `docker-compose`, Kubernetes manifests, Helm charts, terraform, or `.env` configs. | $+10\text{ pts}$ | `HMDA_PTS_CONFIG_CHANGE: 10` |
+| **7. Semantic Modifier ($S_{\text{semantic}}$)** | Cosine similarity against historical outage and incident code vectors retrieved from ChromaDB. | $+0.0 \text{ to } +10.0\text{ pts}$<br>($\text{round}(10 \times \text{similarity}, 1)$) | Embedded ChromaDB RAG |
+
+### Standardized Severity Tiers
+
+The final score maps to 4 standardized severity tiers configured in `backend/core/config.py`:
+- 🟢 **`LOW` (0.0 – 24.9):** Localized changes with minimal downstream impact.
+- 🟡 **`MEDIUM` (25.0 – 49.9):** Moderate blast radius or intermediate dependency depth (`RISK_LOW = 25`).
+- 🟠 **`HIGH` (50.0 – 74.9):** Broad blast radius or breaking API contract changes (`RISK_MEDIUM = 50`).
+- 🔴 **`CRITICAL` (75.0 – 100.0):** Core dependency sink modification, deep cascading chains, or connection integrity failures (`RISK_HIGH = 75`).
+
+---
+
 ## The 10 Architectural Smells Detected by MDT
 
 MDT continuously analyzes the live Neo4j graph topology, OpenAPI contract snapshots, and dependency declarations to detect 10 distributed microservice anti-patterns:
@@ -74,6 +106,163 @@ MDT continuously analyzes the live Neo4j graph topology, OpenAPI contract snapsh
 | **8** | **Chatty Communication** | `MEDIUM` | Mutual bidirectional calls ($A \rightarrow B$ and $B \rightarrow A$) or excessive fine-grained connections ($\ge 3$ distinct connections) between the same pair. | Excessive round-trips create ping-pong network chatter, latency amplification, and tight temporal coupling between services. |
 | **9** | **Missing Circuit Breaker** | `MEDIUM` | Dynamic percolation scale $\theta_{cb}(N) = \max(2, \lceil\sqrt{N}\rceil)$, modulated by statistical outlier bounds $\min(\theta_{percolation}, \max(2, \lceil \bar{k}_{out} + \sigma_{out} \rceil))$ without resilience flags (`has_circuit_breaker`/`resilient`). | Fragile synchronous calls where a slow downstream service exhausts caller thread/connection pools, inducing cascading outage across the fleet. |
 | **10** | **Hub-and-Spoke Centralization** | `HIGH` | Freeman degree centrality $\tau(N) = \max(0.60, 1.0 - 1/\sqrt{N})$, critical hub degree $\theta_{hub}(N) = \max(2, \lceil \tau(N) \cdot (N-1) \rceil)$, and topological dominance condition ($\text{degree} > \bar{k}$) in fleets with $\ge 3$ microservices. | Monolith disguised as microservices; concentrates excessive architectural gravity into a pseudo-monolith, preventing team autonomy. |
+
+---
+
+## 🚀 Operating MDT: Offline vs. Online, Before vs. After Commit
+
+MDT is engineered to function seamlessly across **four operational quadrants**, adapting whether you are working in an air-gapped local environment without external APIs, or orchestrating enterprise CI/CD workflows across cloud repositories.
+
+### Operational Quadrant Matrix
+
+| Operational Quadrant | Primary Interface / Tool | Network Dependency | Primary Use Case & Capabilities |
+|---|---|---|---|
+| **Offline + Before Commit** | `mdt-hook/mdt_check.py --staged`<br>Dashboard Manual Overrides | **None (Zero Network)**<br>Local `.git` + Local Backend | Inspect uncommitted/staged code, local HMDA deterministic scoring (<50ms), What-If sandbox simulations. |
+| **Offline + After Commit** | `mdt-hook/mdt_check.py --pre-push`<br>Dashboard Target Commit SHA | **None (Zero Network)**<br>Local Git Object Database | Evaluate local commits (`HEAD~1..HEAD`, short SHAs, relative refs) against local Neo4j topology before pushing. |
+| **Online + Before Commit** | PR Gating CI Workflows<br>Developer CLI (`MDT_API_URL`) | **Target Backend / Cloud LLM** | Pre-merge PR simulation, Gemini/OpenAI executive risk summaries, remote architecture contract verification. |
+| **Online + After Commit** | GitHub App (RS256 JWT)<br>Webhooks (`/webhook/github`) | **GitHub API + Cloud LLM** | Automated commit & PR webhook ingestion, persistent historical audit trail, automated PR status checks & review comments. |
+
+---
+
+### 1. Operating Offline (Air-Gapped & Local Development)
+
+MDT is fully operational in 100% offline or air-gapped environments with zero external network connectivity or cloud subscriptions.
+
+- **Local `.git` Repository Fast-Path:** When analyzing local repositories, MDT's `git_analyzer.py` directly queries the local `.git` filesystem via GitPython and subprocess calls. Diffs, file trees, and commit metadata resolve in under 50ms without hitting the GitHub REST API or consuming rate limits.
+- **Deterministic HMDA Risk Scoring:** When `OPENAI_API_KEY` is not provided or omitted in `.env`, MDT automatically executes its high-precision deterministic scoring engine:
+  - 10 Cypher graph queries run locally against the Neo4j container (`bolt://localhost:7687`) or embedded mock fallback.
+  - AST connection integrity checks analyze source code locally across 8 languages without external linters.
+  - Heuristic-based remediation suggestions and concrete mitigation rules are generated with zero external API calls.
+- **Local Persistent Vector Store:** ChromaDB runs in embedded persistent disk mode (`chroma_db/`), maintaining historical code embeddings locally without external vector SaaS dependencies.
+- **Local Microservices Fleet:** Run the reference microservice fleet locally via the multi-process runner:
+  ```bash
+  # Run user, order, payment, and notification services locally on ports 8001-8004
+  python scripts/run_microservices.py
+  ```
+
+---
+
+### 2. Operating Online (Cloud, GitHub App & LLM Integration)
+
+In connected cloud environments, MDT unlocks automated repository ingestion, AI-driven executive remediation, and repository-wide webhook governance.
+
+- **Multi-Manifest GitHub Ingestion:** Ingest any public or private GitHub repository URL via `POST /api/registry/import`. Automatically parses `docker-compose.yml`, `render.yaml`, or polyglot monorepo service directories.
+- **GitHub App & PAT Integration:** Authenticates via GitHub App using RS256 private key JWT exchange, or via Personal Access Tokens (`GITHUB_TOKEN` in `.env`) for private repo access and high rate-limit allowances.
+- **Cloud AI Executive Reasoning:** Connects to Google Gemini (`gemini-2.5-flash`) or OpenAI models to generate natural-language executive summaries, risk root-cause explanations, and step-by-step refactoring guides.
+- **Automated Webhook Ingestion (`POST /webhook/github`):**
+  - Validates GitHub webhook payloads using HMAC SHA-256 signatures (`X-Hub-Signature-256`).
+  - Automatically analyzes `push` and `pull_request` events, storing historical drift assessments in the audit trail.
+  - Posts automated PR status checks and warning comments when high-risk architectural drift is detected.
+
+---
+
+### 3. Operating Before Commit (Pre-Commit Governance & Local Previews)
+
+Catching architectural drift *before* code is committed prevents costly branch rollbacks, broken downstream contracts, and polluted git histories.
+
+#### Developer CLI Check (`mdt-hook/mdt_check.py`)
+Run the interactive pre-flight CLI directly from your terminal:
+
+```bash
+# 1. Analyze files currently staged with `git add`
+python mdt-hook/mdt_check.py --staged
+
+# 2. Analyze all modified working tree files (staged & unstaged vs HEAD)
+python mdt-hook/mdt_check.py --working
+
+# 3. Analyze specific candidate files
+python mdt-hook/mdt_check.py backend/api/orders.py services/user_service/main.py
+
+# 4. Dry-run preview (displays HMDA score without exiting with error code)
+python mdt-hook/mdt_check.py --dry-run
+```
+
+#### Automated Git Pre-Commit Hook
+Install the automated pre-commit hook with a single command:
+
+```bash
+# Automatically creates executable .git/hooks/pre-commit
+python mdt-hook/mdt_check.py --install-hook pre-commit
+```
+Whenever a developer runs `git commit`, the hook automatically evaluates the staged files against the MDT analysis engine. If the risk score is `HIGH` ($\ge 50$) or `CRITICAL` ($\ge 75$), the commit is **blocked**:
+
+```text
+━━━ MDT HMDA Pre-Commit Analysis (Staged Files) ━━━
+  Risk score : 85/100
+  Severity   : CRITICAL
+  Impacted   : order-service, user-service, notification-service
+
+  High risk detected due to API contract alterations in order-service...
+
+MDT: Commit/Push blocked — risk score is 85/100 (CRITICAL).
+     Fix the architectural issues or bypass with:  MDT_FORCE=1 git commit
+```
+
+- **Emergency Override:**
+  - Bash / Linux / macOS: `MDT_FORCE=1 git commit -m "Hotfix for billing outage"`
+  - PowerShell (Windows): `$env:MDT_FORCE="1"; git commit -m "Hotfix for billing outage"`
+  - Skip completely: `MDT_SKIP=1 git commit -m "..."`
+
+#### Dashboard Manual File Override & What-If Sandbox
+- **Manual File Overrides:** In the React dashboard's **Impact Analysis** form, toggle *Manual File Overrides* and paste candidate file paths to simulate blast radius before writing code.
+- **What-If Simulation Sandbox:** In the **What-If Simulation** tab, propose graph refactorings (e.g. inserting an API facade node or severing a cyclic edge) to test how they reduce architectural smell risk in an isolated, rolled-back transaction.
+
+---
+
+### 4. Operating After Commit (Target Commit SHA, Pre-Push Hook & CI/CD)
+
+Once code has been committed, MDT governs code promotions, verifies specific revisions, gates remote pushes, and audits historical drift.
+
+#### Dashboard Target Commit / Revision Analysis
+The MDT Web Dashboard features a dedicated **Target Commit / Revision** input field supporting multiple ref formats:
+
+- **Short Git SHA (7–39 hex characters):** e.g. `c876e48`
+- **Full 40-character Git SHA:** e.g. `0f1c4204c2f22d97d27b7a847b2fe057f36afd42`
+- **Relative Revisions:** e.g. `HEAD~1` (previous commit), `HEAD~2`, `main~1`
+- **Branch Names & Tags:** e.g. `main`, `master`, `v1.2.0`
+- **Root Commits:** MDT detects initial repository root commits with no parents and diffs against the Git empty tree (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`).
+
+When a revision is provided, MDT extracts the exact commit diff from the repository and runs full HMDA scoring against that specific historical snapshot.
+
+#### Automated Git Pre-Push Hook
+Install the automated pre-push hook to prevent high-risk commits from reaching remote repositories:
+
+```bash
+# Automatically creates executable .git/hooks/pre-push
+python mdt-hook/mdt_check.py --install-hook pre-push
+```
+When running `git push`, the hook analyzes the changes introduced in the outgoing commit (`HEAD~1..HEAD`). If the risk is `HIGH` or `CRITICAL`, the push is halted before touching GitHub/GitLab.
+
+#### CI/CD Pull Request Gating (GitHub Actions)
+Add MDT to your `.github/workflows/mdt-gate.yml` to automatically gate PR merges:
+
+```yaml
+name: MDT Architectural Governance Gate
+
+on:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  mdt-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run MDT HMDA Drift Gate
+        env:
+          MDT_API_URL: ${{ secrets.MDT_API_URL || 'http://mdt.internal.company.com:8000' }}
+        run: |
+          python mdt-hook/mdt_check.py --working
+```
 
 ---
 

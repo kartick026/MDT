@@ -5,6 +5,8 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const api = axios.create({ baseURL: BASE, timeout: 60000 });
 
 // Attach JWT access token if present in localStorage
+// NOTE (Known Architectural Trade-off): Token is stored in localStorage for SPA convenience.
+// In real production deployments, migrate to httpOnly cookies + CSRF protection to mitigate XSS risks.
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('mdt_token');
   if (token) {

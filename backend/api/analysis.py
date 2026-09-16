@@ -19,6 +19,7 @@ from services.impact_engine import ImpactEngine
 from services.git_analyzer import GitAnalyzer
 from services.dependency_graph import DependencyGraph
 from services.remediation_simulator import GraphEdit, RemediationSimulator
+from core.config import settings
 from core.registry import RegistryManager
 from core.auth import get_current_user_optional, require_admin
 from core.history import history_store
@@ -110,8 +111,8 @@ async def analyze_impact(
     """
     try:
         active_context = RegistryManager.get_project_context()
-        target_repo = request.repo_url or active_context.get("repo_url") or "https://github.com/kartick026/MDT"
-        target_ref = request.commit_sha or active_context.get("branch") or "main"
+        target_repo = request.repo_url or active_context.get("repo_url") or settings.DEMO_REPO_URL
+        target_ref = request.commit_sha or active_context.get("branch") or settings.DEMO_REPO_BRANCH
 
         # Validate before fetching a commit, querying retrieval, or consulting
         # the graph. This is the hard boundary that prevents repository B
@@ -154,48 +155,17 @@ async def analyze_impact(
         architecture_smell_score = 0.0
         architecture_smell_severity = "low"
         architecture_smells_count = 0
-        architecture_smells_breakdown: Dict[str, int] = {
-            "circular_dependency": 0,
-            "shared_database": 0,
-            "hub_and_spoke": 0,
-            "bottleneck_service": 0,
-            "dependency_explosion": 0,
-            "high_coupling": 0,
-            "api_instability": 0,
-            "chatty_communication": 0,
-            "missing_circuit_breaker": 0,
-            "isolated_service": 0,
-        }
+        architecture_smells_breakdown: Dict[str, int] = {}
         try:
             from services.smell_detector import SmellDetector
-            from services.remediation_simulator import _compute_score_from_smells, _get_severity
+            from services.remediation_simulator import compute_architecture_health, breakdown_smells
             detector = SmellDetector()
             smells = await detector.detect_all_smells()
-            architecture_smells_count = len(smells)
-            for s in smells:
-                stype = s.get("type", "")
-                if "Circular" in stype:
-                    architecture_smells_breakdown["circular_dependency"] += 1
-                elif "Shared Database" in stype:
-                    architecture_smells_breakdown["shared_database"] += 1
-                elif "Hub-and-Spoke" in stype or "Hub and Spoke" in stype:
-                    architecture_smells_breakdown["hub_and_spoke"] += 1
-                elif "Bottleneck" in stype or "God" in stype:
-                    architecture_smells_breakdown["bottleneck_service"] += 1
-                elif "Dependency Explosion" in stype:
-                    architecture_smells_breakdown["dependency_explosion"] += 1
-                elif "API Instability" in stype:
-                    architecture_smells_breakdown["api_instability"] += 1
-                elif "Coupling" in stype:
-                    architecture_smells_breakdown["high_coupling"] += 1
-                elif "Chatty" in stype:
-                    architecture_smells_breakdown["chatty_communication"] += 1
-                elif "Circuit Breaker" in stype:
-                    architecture_smells_breakdown["missing_circuit_breaker"] += 1
-                elif "Isolated" in stype or "Dead" in stype:
-                    architecture_smells_breakdown["isolated_service"] += 1
-            architecture_smell_score = round(_compute_score_from_smells(architecture_smells_breakdown), 1)
-            architecture_smell_severity = _get_severity(architecture_smell_score).lower()
+            architecture_smells_breakdown = breakdown_smells(smells)
+            health = compute_architecture_health(architecture_smells_breakdown)
+            architecture_smell_score = health["score"]
+            architecture_smell_severity = health["severity"].lower()
+            architecture_smells_count = health["total_smells"]
 
             structured_fixes = await engine.explainer.suggest_remediation_with_edits(
                 smells=smells,
@@ -284,11 +254,11 @@ async def get_analysis_history(
         for item in persisted:
             score = item.get("risk_score") or 0.0
             sev = (item.get("severity") or "LOW").upper()
-            if score >= 75:
+            if score >= settings.RISK_HIGH:
                 sev = "CRITICAL"
-            elif score >= 50:
+            elif score >= settings.RISK_MEDIUM:
                 sev = "HIGH"
-            elif score >= 25:
+            elif score >= settings.RISK_LOW:
                 sev = "MEDIUM"
             else:
                 sev = "LOW"
@@ -325,10 +295,10 @@ async def get_analysis_history(
 async def get_severity_thresholds() -> Dict[str, Dict[str, Any]]:
     """Get the current severity thresholds."""
     return {
-        "low":      {"max": 25,  "color": "green"},
-        "medium":   {"max": 50,  "color": "yellow"},
-        "high":     {"max": 75,  "color": "orange"},
-        "critical": {"max": 100, "color": "red"},
+        "low":      {"max": settings.RISK_LOW,    "color": "green"},
+        "medium":   {"max": settings.RISK_MEDIUM, "color": "yellow"},
+        "high":     {"max": settings.RISK_HIGH,   "color": "orange"},
+        "critical": {"max": 100,                  "color": "red"},
     }
 
 
@@ -337,6 +307,7 @@ class PreviewFixRequest(BaseModel):
     edits: List[GraphEdit]
     baseline_risk_score: Optional[float] = None
     affected_files_count: Optional[int] = None
+    baseline_smells: Optional[Dict[str, int]] = None
 
 
 @router.post("/preview-fix", summary="Simulate graph edits in a sandbox transaction")
@@ -354,6 +325,7 @@ async def preview_fix(
             request.edits,
             baseline_risk_score=request.baseline_risk_score,
             affected_files_count=request.affected_files_count,
+            baseline_smells=request.baseline_smells,
         )
         return result
     except HTTPException:

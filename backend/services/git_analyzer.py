@@ -24,10 +24,10 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 
 import httpx
-from git import Repo, InvalidGitRepositoryError, GitCommandError
+from git import Repo, InvalidGitRepositoryError, GitCommandError, NULL_TREE
 
 from core.config import settings
 
@@ -91,9 +91,54 @@ _EXT_TO_LANG: Dict[str, str] = {
     ".cs": "csharp",
     ".kt": "kotlin",
     ".swift": "swift",
+    ".html": "html",
+    ".htm": "html",
+    ".jinja": "html",
+    ".jinja2": "html",
+    ".j2": "html",
+    ".ejs": "html",
+    ".vue": "javascript",
+    ".svelte": "javascript",
+    ".css": "css",
+    ".scss": "css",
+    ".sass": "css",
+    ".less": "css",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".xml": "xml",
+    ".sql": "sql",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".dockerfile": "dockerfile",
+}
+
+BINARY_EXTENSIONS: Set[str] = {
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf",
+    ".pdf", ".zip", ".tar", ".gz", ".7z", ".rar",
+    ".exe", ".dll", ".so", ".dylib", ".bin",
+    ".pyc", ".pyo", ".class", ".jar", ".war",
+    ".lock",
 }
 
 SUPPORTED_EXTENSIONS = set(_EXT_TO_LANG.keys())
+
+
+def is_supported_file(file_path: str) -> bool:
+    """Return True if file is a code, template, config or markup file that should be analyzed."""
+    p = Path(file_path)
+    suffix = p.suffix.lower()
+    name = p.name.lower()
+    if suffix in BINARY_EXTENSIONS:
+        return False
+    if name in {"dockerfile", "dockerfile.dev", "makefile", "procfile", "gemfile"}:
+        return True
+    if suffix in SUPPORTED_EXTENSIONS:
+        return True
+    # If no suffix or standard text/config file, include it unless it's binary
+    return suffix not in BINARY_EXTENSIONS
 
 # GitHub API base
 _GH_API = "https://api.github.com"
@@ -124,8 +169,8 @@ def _parse_github_url(repo_url: str) -> Optional[tuple[str, str]]:
     Handles https://github.com/owner/repo and https://github.com/owner/repo.git
     Returns None if not a GitHub URL.
     """
-    pattern = r"github\.com[:/]([^/]+)/([^/\.]+)"
-    match = re.search(pattern, repo_url)
+    pattern = r"github\.com[:/]([^/]+)/([^/#?]+?)(?:\.git)?(?:[/?#]|$)"
+    match = re.search(pattern, (repo_url or "").strip())
     if match:
         return match.group(1), match.group(2).removesuffix(".git")
     return None
@@ -280,8 +325,8 @@ class GitHubAPIClient:
                         r = await client.get(raw_url)
                         if r.status_code == 200:
                             return r.text
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Raw githubusercontent fallback failed for %s: %s", clean_path, exc)
         return ""
 
     async def get_commit_diff(
@@ -486,21 +531,8 @@ class ASTAnalyzer:
 
 
 # ---------------------------------------------------------------------------
-# GitAnalyzer — main service class
+# Local repository detection helpers
 # ---------------------------------------------------------------------------
-
-class GitAnalyzer:
-    """
-    Analyses a push event and produces a list of fully-populated ChangeInfo
-    objects, each with diff content, line counts, and AST metadata.
-
-    Strategy:
-      1. If repo_url points to GitHub and GITHUB_TOKEN is set (or even
-         without it for public repos), use the GitHub API — no clone needed.
-      2. Otherwise attempt a shallow clone into a temp dir and use gitpython.
-      3. On any failure, return minimal ChangeInfo with what we know from the
-         webhook payload (file path + change_type) so the pipeline still runs.
-    """
 
 def _find_git_dir() -> Optional[Path]:
     """Locate the .git directory either in local dev or Docker container mount."""
@@ -515,7 +547,8 @@ def _find_git_dir() -> Optional[Path]:
         try:
             if p.is_dir() or (p.is_file() and p.name == ".git"):
                 return p
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed checking git dir candidate %s: %s", p, exc)
             continue
     return None
 
@@ -547,8 +580,8 @@ def _is_local_workspace_match(repo_url: str) -> bool:
                     return True
         if os.path.isdir(repo_url):
             return True
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_is_local_workspace_match failed for %s: %s", repo_url, exc)
     return False
 
 
@@ -612,9 +645,9 @@ def _resolve_local_workspace_sha(ref: str) -> Optional[str]:
                     return head_content.lower()
 
         # 4. Fallback: git rev-parse with --git-dir (bypasses working dir access issues)
-        for candidate in [clean_ref, f"origin/{clean_ref}", f"refs/heads/{clean_ref}"]:
+        for candidate in [clean_ref, f"{clean_ref}^{{commit}}", f"origin/{clean_ref}", f"refs/heads/{clean_ref}"]:
             res = subprocess.run(
-                ["git", "--git-dir", str(git_dir), "rev-parse", f"{candidate}^{{commit}}"],
+                ["git", "--git-dir", str(git_dir), "rev-parse", candidate],
                 capture_output=True,
                 text=True,
                 timeout=2,
@@ -623,8 +656,8 @@ def _resolve_local_workspace_sha(ref: str) -> Optional[str]:
                 sha = res.stdout.strip().splitlines()[0].strip()
                 if re.match(r"^[0-9a-fA-F]{40}$", sha):
                     return sha.lower()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Local git rev-parse failed for %s: %s", clean_ref, exc)
     return None
 
 
@@ -655,8 +688,8 @@ class GitAnalyzer:
         ref: str,
     ) -> Optional[str]:
         """
-        Resolve a git reference (e.g. 'main', 'master', branch tag, or commit hash)
-        to a full 40-character commit SHA.
+        Resolve a git reference (e.g. 'main', 'master', branch tag, commit hash,
+        short SHA, or relative revision like 'HEAD~1') to a full 40-character commit SHA.
         """
         clean_ref = (ref or "").strip()
         if not clean_ref:
@@ -680,7 +713,8 @@ class GitAnalyzer:
                     try:
                         r = Repo(repo_url)
                         return r.commit(clean_ref).hexsha
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("Repo.commit failed for %s: %s", clean_ref, exc)
                         return None
                 local_sha = await asyncio.to_thread(_resolve_local)
                 if local_sha:
@@ -688,57 +722,89 @@ class GitAnalyzer:
             except Exception as exc:
                 logger.debug("Local repo SHA resolution failed: %s", exc)
 
-        # 3. git ls-remote (fast, rate-limit free for any remote git repository)
-        try:
-            def _run_ls_remote() -> Optional[str]:
-                # Try specific query refs first
-                for query_ref in [clean_ref, f"refs/heads/{clean_ref}", f"refs/tags/{clean_ref}"]:
-                    try:
-                        cmd = ["git", "ls-remote", repo_url, query_ref]
-                        res = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
-                        if res.returncode == 0 and res.stdout:
-                            for line in res.stdout.strip().splitlines():
-                                parts = line.strip().split()
-                                if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
-                                    return parts[0].lower()
-                    except Exception:
-                        continue
+        gh_coords = _parse_github_url(repo_url)
 
-                # If specific ref query returned nothing, list all refs to match
-                try:
-                    res = subprocess.run(["git", "ls-remote", repo_url], capture_output=True, text=True, timeout=15)
-                    if res.returncode == 0 and res.stdout:
-                        lines = res.stdout.strip().splitlines()
-                        for line in lines:
-                            parts = line.strip().split()
-                            if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
-                                ref_name = parts[1]
-                                if (
-                                    ref_name == f"refs/heads/{clean_ref}"
-                                    or ref_name == f"refs/tags/{clean_ref}"
-                                    or ref_name == clean_ref
-                                    or ref_name.endswith(f"/{clean_ref}")
-                                ):
-                                    return parts[0].lower()
-                        # Only fall back to default branch if user specifically requested a default branch name
-                        if clean_ref.lower() in ("main", "master", "head"):
+        # 2c. Handle relative revisions like HEAD~1, main~2, or <sha>~1 for remote repos
+        if ("~" in clean_ref or "^" in clean_ref) and gh_coords:
+            owner, repo = gh_coords
+            parts = re.split(r"([~^].*)", clean_ref, maxsplit=1)
+            base_part = parts[0].strip() or "HEAD"
+            rel_part = parts[1].strip() if len(parts) > 1 else ""
+
+            base_sha = await self.resolve_commit_sha(repo_url, base_part)
+            if base_sha and re.match(r"^[0-9a-fA-F]{40}$", base_sha):
+                curr_sha = base_sha
+                steps = 1
+                if rel_part.startswith("~"):
+                    try:
+                        steps = int(rel_part[1:]) if len(rel_part) > 1 else 1
+                    except ValueError:
+                        steps = 1
+                elif rel_part.startswith("^"):
+                    steps = 1
+
+                for _ in range(min(steps, 20)):
+                    parent = await self._get_parent_sha(owner, repo, curr_sha)
+                    if parent:
+                        curr_sha = parent
+                    else:
+                        break
+                return curr_sha.lower()
+
+        # 3. git ls-remote (fast, rate-limit free for branches and tags)
+        # Skip ls-remote for commit SHAs or relative refs since ls-remote only lists refs
+        is_sha_candidate = bool(re.match(r"^[0-9a-fA-F]{7,39}$", clean_ref))
+        if not is_sha_candidate and "~" not in clean_ref and "^" not in clean_ref:
+            try:
+                def _run_ls_remote() -> Optional[str]:
+                    # Try specific query refs first
+                    for query_ref in [clean_ref, f"refs/heads/{clean_ref}", f"refs/tags/{clean_ref}"]:
+                        try:
+                            cmd = ["git", "ls-remote", repo_url, query_ref]
+                            res = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+                            if res.returncode == 0 and res.stdout:
+                                for line in res.stdout.strip().splitlines():
+                                    parts = line.strip().split()
+                                    if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
+                                        return parts[0].lower()
+                        except Exception as exc:
+                            logger.debug("git ls-remote candidate %s failed: %s", query_ref, exc)
+                            continue
+
+                    # If specific ref query returned nothing, list all refs to match
+                    try:
+                        res = subprocess.run(["git", "ls-remote", repo_url], capture_output=True, text=True, timeout=15)
+                        if res.returncode == 0 and res.stdout:
+                            lines = res.stdout.strip().splitlines()
                             for line in lines:
                                 parts = line.strip().split()
-                                if len(parts) >= 2 and parts[1] in ("HEAD", "refs/heads/main", "refs/heads/master"):
-                                    return parts[0].lower()
-                except Exception:
-                    pass
-                return None
+                                if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
+                                    ref_name = parts[1]
+                                    if (
+                                        ref_name == f"refs/heads/{clean_ref}"
+                                        or ref_name == f"refs/tags/{clean_ref}"
+                                        or ref_name == clean_ref
+                                        or ref_name.endswith(f"/{clean_ref}")
+                                    ):
+                                        return parts[0].lower()
+                            # Only fall back to default branch if user specifically requested a default branch name
+                            if clean_ref.lower() in ("main", "master", "head"):
+                                for line in lines:
+                                    parts = line.strip().split()
+                                    if len(parts) >= 2 and parts[1] in ("HEAD", "refs/heads/main", "refs/heads/master"):
+                                        return parts[0].lower()
+                    except Exception as exc:
+                        logger.debug("git ls-remote fallback scan failed: %s", exc)
+                    return None
 
-            sha = await asyncio.to_thread(_run_ls_remote)
-            if sha:
-                logger.info("Resolved %s on %s -> %s via git ls-remote", clean_ref, repo_url, sha)
-                return sha
-        except Exception as exc:
-            logger.warning("git ls-remote failed for %s: %s", repo_url, exc)
+                sha = await asyncio.to_thread(_run_ls_remote)
+                if sha:
+                    logger.info("Resolved %s on %s -> %s via git ls-remote", clean_ref, repo_url, sha)
+                    return sha
+            except Exception as exc:
+                logger.warning("git ls-remote failed for %s: %s", repo_url, exc)
 
-        # 4. GitHub REST API fallback
-        gh_coords = _parse_github_url(repo_url)
+        # 4. GitHub REST API fallback (works for short SHAs, branches, and tags)
         if gh_coords:
             owner, repo = gh_coords
             try:
@@ -766,7 +832,7 @@ class GitAnalyzer:
             except Exception as exc:
                 logger.warning("GitHub patch SHA resolution fallback failed: %s", exc)
 
-        return clean_ref
+        return clean_ref.lower()
 
     async def analyze_push(
         self,
@@ -793,7 +859,7 @@ class GitAnalyzer:
         files = None
         if changed_files:
             files = [f for f in changed_files
-                     if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
+                     if is_supported_file(f)]
             if not files:
                 logger.info("No supported-extension files in specified list, skipping")
                 return []
@@ -842,9 +908,28 @@ class GitAnalyzer:
         sha = _resolve_local_workspace_sha(target_ref) or target_ref
 
         # 2. Determine diff base
-        # If target_ref is a branch other than main, diff against main or merge-base
-        base_ref = f"{sha}~1"
-        if target_ref.lower() not in ("main", "master", "head"):
+        is_explicit_commit = bool(
+            re.match(r"^[0-9a-fA-F]{7,40}$", target_ref)
+            or "~" in target_ref
+            or "^" in target_ref
+        )
+
+        if is_explicit_commit or target_ref.lower() in ("main", "master", "head"):
+            # Check if sha has a parent commit
+            rev_parse_parent = subprocess.run(
+                ["git", "--git-dir", str(git_dir), "rev-parse", "--verify", f"{sha}~1"],
+                cwd=safe_cwd,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if rev_parse_parent.returncode == 0 and rev_parse_parent.stdout.strip():
+                base_ref = rev_parse_parent.stdout.strip()
+            else:
+                # Root commit: diff against git empty tree hash
+                base_ref = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        else:
+            # Feature branch: diff against merge-base with main
             main_sha = _resolve_local_workspace_sha("main")
             if main_sha and main_sha != sha:
                 mb_res = subprocess.run(
@@ -854,10 +939,13 @@ class GitAnalyzer:
                     text=True,
                     timeout=3,
                 )
-                if mb_res.returncode == 0 and mb_res.stdout.strip():
-                    base_ref = mb_res.stdout.strip()
+                mb_val = mb_res.stdout.strip() if mb_res.returncode == 0 else ""
+                if mb_val and mb_val != sha:
+                    base_ref = mb_val
                 else:
-                    base_ref = main_sha
+                    base_ref = f"{sha}~1"
+            else:
+                base_ref = f"{sha}~1"
 
         # 3. Detect changed files if not explicitly provided
         file_status_map: Dict[str, str] = {}
@@ -877,7 +965,7 @@ class GitAnalyzer:
                     if len(parts) == 2:
                         status_code = parts[0][0].upper()
                         fpath = parts[1].strip()
-                        if Path(fpath).suffix.lower() in SUPPORTED_EXTENSIONS:
+                        if is_supported_file(fpath):
                             st_map = {"A": "added", "D": "deleted", "M": "modified", "R": "modified"}
                             file_status_map[fpath] = st_map.get(status_code, "modified")
                 files = list(file_status_map.keys())
@@ -958,7 +1046,7 @@ class GitAnalyzer:
         # If files was not specified, auto-detect all supported files in this commit
         if not files:
             files = [f for f in file_diffs.keys()
-                     if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
+                     if is_supported_file(f)]
             logger.info("Auto-detected %d changed files from commit diff", len(files))
 
         if not files:
@@ -1009,7 +1097,15 @@ class GitAnalyzer:
         # Only fetch full file content for primary service entrypoints
         new_content = ""
         old_content = ""
-        is_entrypoint = any(file_path.endswith(k) for k in ["main.py", "app.py", "server.js", "index.js"])
+        entrypoint_names = {
+            "main.py", "app.py", "server.py", "manage.py", "wsgi.py", "asgi.py",
+            "server.js", "index.js", "app.js", "main.js", "server.ts", "index.ts", "app.ts", "main.ts",
+            "main.go", "app.go", "main.rs"
+        }
+        is_entrypoint = (
+            any(file_path.endswith(k) for k in ["main.py", "app.py", "server.js", "index.js", "app.js", "index.ts", "server.ts"])
+            or Path(file_path).name in entrypoint_names
+        )
 
         if is_entrypoint:
             try:
@@ -1017,7 +1113,8 @@ class GitAnalyzer:
                     self._gh.get_file_content(owner, repo, file_path, commit_sha),
                     timeout=3.0,
                 )
-            except Exception:
+            except Exception as exc:
+                logger.debug("Fetching entrypoint %s via GitHub API failed: %s", file_path, exc)
                 new_content = ""
 
         lang = _EXT_TO_LANG.get(Path(file_path).suffix.lower(), "unknown")
@@ -1060,19 +1157,26 @@ class GitAnalyzer:
         commit_sha: str,
         files: List[str],
     ) -> List[ChangeInfo]:
-        """Shallow-clone the repo and use gitpython to extract diffs."""
+        """Clone the repo and use gitpython to extract diffs."""
         logger.info("Falling back to gitpython clone | url=%s", repo_url)
         tmp_dir = tempfile.mkdtemp(prefix="mdt_clone_")
         try:
+            dynamic_token = self._gh._token if hasattr(self, '_gh') and self._gh._token else settings.GITHUB_TOKEN
             repo = await asyncio.to_thread(
-                self._clone_repo, repo_url, tmp_dir, commit_sha)
+                self._clone_repo, repo_url, tmp_dir, commit_sha, dynamic_token)
             if not files:
                 try:
                     c = repo.commit(commit_sha)
-                    diffs = c.parents[0].diff(c) if c.parents else c.diff(None)
+                    if c.parents:
+                        diffs = c.parents[0].diff(c)
+                    else:
+                        diffs = c.diff(NULL_TREE)
                     extracted_files = [str(d.a_path or d.b_path) for d in diffs if (d.a_path or d.b_path)]
-                    files = [f for f in extracted_files if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS]
-                except Exception:
+                    if not extracted_files and not c.parents:
+                        extracted_files = [item.path for item in c.tree.traverse() if item.type == 'blob']
+                    files = [f for f in extracted_files if is_supported_file(f)]
+                except Exception as exc:
+                    logger.debug("Failed extracting diff from commit %s: %s", commit_sha, exc)
                     files = []
 
             changes = []
@@ -1093,12 +1197,33 @@ class GitAnalyzer:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     @staticmethod
-    def _clone_repo(repo_url: str, target_dir: str, commit_sha: str) -> Repo:
-        """Shallow clone (depth=2 so we can diff HEAD vs parent)."""
-        repo = Repo.clone_from(repo_url, target_dir, depth=2,
-                               no_single_branch=True)
+    def _clone_repo(repo_url: str, target_dir: str, commit_sha: str, token: Optional[str] = None) -> Repo:
+        """Clone the repo and checkout target commit with resilience."""
+        clone_url = repo_url
+        if token and "github.com" in repo_url and "@" not in repo_url:
+            clone_url = repo_url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
+
+        # Clone with depth=50 to capture recent commit histories
+        try:
+            repo = Repo.clone_from(clone_url, target_dir, depth=50, no_single_branch=True)
+        except Exception:
+            repo = Repo.clone_from(clone_url, target_dir)
+
         # Checkout the target commit
-        repo.git.checkout(commit_sha)
+        try:
+            repo.git.checkout(commit_sha)
+        except Exception:
+            # If commit_sha is older than depth=50, fetch it specifically
+            try:
+                repo.git.fetch("origin", commit_sha, depth=20)
+                repo.git.checkout(commit_sha)
+            except Exception:
+                try:
+                    repo.git.fetch("--unshallow")
+                    repo.git.checkout(commit_sha)
+                except Exception as exc:
+                    logger.warning("Checkout commit %s failed: %s", commit_sha, exc)
+                    raise
         return repo
 
     def _extract_from_repo(
@@ -1128,6 +1253,10 @@ class GitAnalyzer:
         else:
             # First commit — everything is new
             change_type = "added"
+            try:
+                diff_text = repo.git.diff(NULL_TREE, commit_sha, "--", file_path)
+            except Exception:
+                diff_text = ""
 
         # New content
         try:

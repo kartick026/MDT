@@ -61,6 +61,7 @@ export default function ImpactForm({
   isActive
 }) {
   const [files, setFiles] = useState('');
+  const [commitRef, setCommitRef] = useState('');
 
   const initialResults = cachedAnalysis
     ? (Array.isArray(cachedAnalysis) ? cachedAnalysis : [cachedAnalysis])
@@ -108,7 +109,13 @@ export default function ImpactForm({
     getProjectContext().then(setProjectContext).catch(() => setProjectContext(null));
   }, []);
 
-  const runAnalysis = async (targetRepo = currentRepo, targetBranch = currentBranch, overrideFiles = files, triggerKey = null) => {
+  const runAnalysis = async (
+    targetRepo = currentRepo,
+    targetBranch = currentBranch,
+    overrideFiles = files,
+    triggerKey = null,
+    overrideCommit = commitRef
+  ) => {
     if (!targetRepo || !targetRepo.trim()) {
       setError('Please import or select a repository from Overview to run impact analysis.');
       return;
@@ -118,13 +125,14 @@ export default function ImpactForm({
     setError(null);
     setPreviewData(null);
     setActivePreviewIdx(null);
-    const key = triggerKey || `${targetRepo.trim()}@${targetBranch.trim()}:${activeProject?.importedAt || 'initial'}`;
+    const chosenCommit = (overrideCommit && overrideCommit.trim()) ? overrideCommit.trim() : targetBranch.trim();
+    const key = triggerKey || `${targetRepo.trim()}@${chosenCommit}:${activeProject?.importedAt || 'initial'}`;
     lastAnalyzedKeyRef.current = key;
     try {
       const changedFiles = overrideFiles.trim() ? overrideFiles.split(',').map(f => f.trim()).filter(Boolean) : null;
       const data = await analyzeImpact({
         repo_url: targetRepo.trim(),
-        commit_sha: targetBranch.trim(),
+        commit_sha: chosenCommit,
         ...(changedFiles && changedFiles.length > 0 ? { changed_files: changedFiles } : {}),
       });
       setResults([data]);
@@ -157,15 +165,15 @@ export default function ImpactForm({
     }
 
     lastAnalyzedKeyRef.current = key;
-    runAnalysis(repo, branch, files, key);
+    runAnalysis(repo, branch, files, key, '');
   }, [isActive, activeProject, projectContext?.repo_url, projectContext?.branch, analyzedProjectKey]);
 
   const submit = async (e) => {
     e.preventDefault();
-    runAnalysis(currentRepo, currentBranch, files);
+    runAnalysis(currentRepo, currentBranch, files, null, commitRef);
   };
 
-  const handlePreviewFix = async (edits, idx, baselineScore) => {
+  const handlePreviewFix = async (edits, idx, baselineScore, baselineSmells) => {
     if (activePreviewIdx === idx) {
       setPreviewData(null);
       setActivePreviewIdx(null);
@@ -178,6 +186,7 @@ export default function ImpactForm({
       const data = await previewFix({
         edits,
         baseline_risk_score: baselineScore !== undefined ? baselineScore : (results?.[0]?.risk_score || 0),
+        baseline_smells: baselineSmells || results?.[0]?.architecture_smells_breakdown,
         affected_files_count: results?.[0]?.affected_files?.length || 0
       });
       setPreviewData(data);
@@ -301,6 +310,40 @@ export default function ImpactForm({
           <div className="form-field">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-dim)' }}>
+                Target Commit / Revision (Optional)
+              </label>
+              {commitRef.trim() && (
+                <button type="button" className="btn btn-ghost" onClick={() => setCommitRef('')} style={{ padding: '2px 8px', fontSize: '11px', color: 'var(--text-dim)' }} title="Reset to branch HEAD">
+                  ✕ Reset to HEAD
+                </button>
+              )}
+            </div>
+            <input
+              type="text"
+              className="input"
+              placeholder={`Branch HEAD (${currentBranch}) — or enter SHA (e.g. c876e48, HEAD~1)`}
+              value={commitRef}
+              onChange={e => setCommitRef(e.target.value)}
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: '12px',
+                height: '38px',
+                width: '100%',
+                background: 'var(--bg-card-subtle, rgba(255,255,255,0.03))',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                padding: '0 12px',
+                color: 'var(--text)'
+              }}
+            />
+            <div className="text-dim text-xs" style={{ marginTop: '4px', fontSize: '11px' }}>
+              Specify a previous commit SHA (e.g. <code style={{ color: 'var(--cyan)' }}>c876e48</code>), relative revision (<code style={{ color: 'var(--cyan)' }}>HEAD~1</code>), or leave blank to analyze latest branch HEAD.
+            </div>
+          </div>
+
+          <div className="form-field">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-dim)' }}>
                 Changed Files (Optional) {files.trim() ? <span style={{ color: 'var(--yellow)', fontSize: '10px', textTransform: 'none' }}>(manual override)</span> : <span style={{ color: 'var(--cyan)', fontSize: '10px', textTransform: 'none' }}>(auto-detects branch diff)</span>}
               </label>
               <div style={{ display: 'flex', gap: '6px' }}>
@@ -316,7 +359,7 @@ export default function ImpactForm({
             </div>
             <textarea
               className="diff-editor"
-              placeholder={"Leave blank to automatically detect all changed files in this branch\nOr specify: services/order_service/main.py, services/user_service/main.py"}
+              placeholder={"Leave blank to automatically detect all changed files in this commit/branch\nOr specify: services/order_service/main.py, services/user_service/main.py"}
               value={files}
               onChange={e => setFiles(e.target.value)}
               rows={4}
@@ -326,7 +369,9 @@ export default function ImpactForm({
 
           <button type="submit" className="btn btn-primary" disabled={loading} style={{ height: '42px', width: '100%', justifyContent: 'center' }}>
             {loading ? (
-              <><span className="spinner-xs" /> Analyzing @{currentBranch.length > 14 ? currentBranch.substring(0, 12) + '…' : currentBranch}…</>
+              <><span className="spinner-xs" /> Analyzing @{(commitRef.trim() || currentBranch).length > 14 ? (commitRef.trim() || currentBranch).substring(0, 12) + '…' : (commitRef.trim() || currentBranch)}…</>
+            ) : commitRef.trim() ? (
+              `⚡ Analyze Commit / Revision (${commitRef.trim().length > 10 ? commitRef.trim().substring(0, 8) + '…' : commitRef.trim()})`
             ) : files.trim() ? (
               '⚡ Re-run Analysis with Overrides'
             ) : (
@@ -647,7 +692,7 @@ export default function ImpactForm({
                               {edits && edits.length > 0 && (
                                 <button
                                   type="button"
-                                  onClick={() => handlePreviewFix(edits, `${idx}-${i}`, result?.risk_score)}
+                                  onClick={() => handlePreviewFix(edits, `${idx}-${i}`, result?.risk_score, result?.architecture_smells_breakdown)}
                                   disabled={previewLoading}
                                   style={{
                                     flexShrink: 0,
@@ -791,7 +836,7 @@ export default function ImpactForm({
                                     gap: '8px'
                                   }}>
                                     <span>ℹ</span>
-                                    <span>No measurable change in tracked architectural smells (0 → 0). The previewed edit does not affect the 10 tracked architectural smells.</span>
+                                    <span>No measurable change in tracked architectural smells ({previewData.before?.total_smells ?? 0} → {previewData.after?.total_smells ?? 0}). The previewed edit does not affect the 10 tracked architectural smells.</span>
                                   </div>
                                 )}
 

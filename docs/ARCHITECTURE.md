@@ -212,3 +212,118 @@ MDT provides a transactional sandbox to simulate architectural refactorings with
   - Computes sub-millisecond execution latency returned via `X-Response-Time-MS`.
   - Structured JSON logging (`JSONLogFormatter`) for distributed log aggregation.
   - Deep health diagnostics via `GET /health/detailed` verifying Neo4j, ChromaDB, LLM, and GitHub tokens.
+
+---
+
+## 8. Dual-Mode Execution Architecture (Offline vs. Online)
+
+MDT features a bifurcated execution engine designed to operate with identical architectural rigor in both disconnected/air-gapped local workflows and connected enterprise cloud environments.
+
+```mermaid
+graph TD
+    subgraph "Input Triggers"
+        OFF_IN[Offline: Local CLI / Staged Files / Working Tree]
+        ON_IN[Online: GitHub Push / PR / Webhook / Remote URL]
+    end
+
+    subgraph "Git Extraction Layer"
+        OFF_IN -->|Local .git Fast-Path <50ms| GITA_OFF[Local Git Analyzer]
+        ON_IN -->|HMAC RS256 / Shallow Clone depth=50| GITA_ON[Remote Git Ingestion]
+    end
+
+    subgraph "Knowledge & Graph Substrate"
+        GITA_OFF --> NEO_LOC[Neo4j Container / Embedded Mock]
+        GITA_OFF --> CHROMA_LOC[Local Persistent ChromaDB]
+        GITA_ON --> NEO_LOC
+        GITA_ON --> CHROMA_LOC
+    end
+
+    subgraph "Intelligence & Analysis Layer"
+        NEO_LOC --> HMDA_DET[Deterministic HMDA Engine 0-100]
+        CHROMA_LOC --> HMDA_DET
+        
+        HMDA_DET -->|No API Key / Offline| RULE_GEN[Deterministic Rule-Based Remediation]
+        HMDA_DET -->|API Key Present / Online| CLOUD_LLM[Cloud LLM Reasoning Gemini/OpenAI]
+    end
+
+    subgraph "Outputs & Enforcement"
+        RULE_GEN --> CLI_OUT[Pre-Commit / Pre-Push Terminal Block]
+        RULE_GEN --> DASH_OUT[Cybernetic Glass Dashboard]
+        CLOUD_LLM --> DASH_OUT
+        CLOUD_LLM --> GH_CHECK[GitHub PR Status Check & Review Comment]
+    end
+```
+
+### Technical Subsystem Comparison
+
+| Subsystem | Offline Operation (Air-Gapped) | Online Operation (Cloud & CI/CD) |
+|---|---|---|
+| **Git Ingestion** | Reads `.git/` object directory directly via GitPython and subprocess; zero network calls; sub-50ms execution. | Authenticates via GitHub App (RS256 JWT) or PAT; performs shallow clones (`--depth 50`) with auto-fallback to unified patch diffs. |
+| **Commit Resolution** | Native `git rev-parse` and local git tree traversals; handles short SHAs, relative refs (`HEAD~1`), and root commit diffs. | Asynchronous `git ls-remote` (<1.5s) queries remote refs without consuming GitHub API rate limits. |
+| **Topology Engine** | Local Neo4j container (`bolt://localhost:7687`) with automatic in-memory mock fallback if Docker is offline. | Connected Neo4j cluster (Docker or Neo4j Aura) maintaining canonical multi-service topology. |
+| **Vector Index** | Local embedded ChromaDB client persisting vectors to `chroma_db/` using DuckDB/Parquet format. | Client-server ChromaDB integration or persistent multi-container deployment. |
+| **Risk Scoring** | 100% deterministic HMDA algorithm using configurable weights (`HMDA_FILE_WEIGHT`, `HMDA_CORE_SERVICE_WEIGHT`, etc.). | Deterministic HMDA score augmented with semantic drift modifiers and historical outage clustering. |
+| **Remediation Advice** | Static heuristic rule generation (mitigation plans, circuit breaker code templates, interface decoupling rules). | AI-assisted natural-language reasoning (Gemini 2.5 Flash / GPT-4o) producing contextual executive narratives. |
+| **Enforcement Point** | Local Git hooks (`.git/hooks/pre-commit`, `.git/hooks/pre-push`) halting terminal actions on exit code 1. | GitHub Actions CI/CD workflows and webhook status checks blocking pull request merges. |
+
+---
+
+## 9. Lifecycle Governance Points (Before vs. After Commit)
+
+MDT establishes two distinct architectural governance gates within the software delivery lifecycle:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant Git as Local Git Repo
+    participant Hook as MDT Hook / CLI
+    participant MDT as MDT Backend Core
+    participant Remote as GitHub / Remote CI
+
+    Note over Dev, MDT: PHASE 1: BEFORE COMMIT (Pre-Flight Safety Net)
+    Dev->>Git: Modifies code & stages files (git add)
+    Dev->>Hook: python mdt-hook/mdt_check.py --staged
+    Hook->>MDT: POST /analysis/analyze (repo_url, commit_sha, changed_files)
+    MDT-->>Hook: Return HMDA Risk Score & Severity
+    alt Risk >= 50 (HIGH or CRITICAL)
+        Hook-->>Dev: ❌ BLOCKED: Commit aborted (Bypass: MDT_FORCE=1)
+    else Risk < 50 (LOW or MEDIUM)
+        Hook-->>Dev: ✓ Approved: Architectural drift within tolerances
+        Dev->>Git: git commit -m "Feature update"
+    end
+
+    Note over Dev, Remote: PHASE 2: AFTER COMMIT (Promotion & Push Governance)
+    Dev->>Git: git push origin feature
+    Git->>Hook: Trigger .git/hooks/pre-push (HEAD~1..HEAD)
+    Hook->>MDT: POST /analysis/analyze (commit diff evaluation)
+    MDT-->>Hook: Return Commit Risk Assessment
+    alt Push Risk >= 50
+        Hook-->>Dev: ❌ BLOCKED: Remote push rejected
+    else Push Approved
+        Hook->>Remote: Push transmitted to remote
+    end
+
+    Note over Remote, MDT: PHASE 3: CI/CD & PR GATING
+    Remote->>MDT: Webhook push / pull_request event (HMAC verified)
+    MDT->>Remote: Set commit status check (pending/success/failure)
+    MDT->>Remote: Post architectural drift summary & smell warnings
+```
+
+### 1. Before Commit Capabilities
+- **Staged File Inspection:** `mdt-hook/mdt_check.py --staged` runs `git diff --cached --name-only` to evaluate only the changes about to be committed.
+- **Working Tree Inspection:** `mdt-hook/mdt_check.py --working` evaluates unstaged edits against `HEAD` before `git add`.
+- **Pre-Commit Hook Installation:** Running `python mdt-hook/mdt_check.py --install-hook pre-commit` installs an executable Bash wrapper into `.git/hooks/pre-commit`.
+- **Dashboard What-If Simulation:** Developers use the **What-If Simulation** tab to simulate graph fixes (adding facades, removing cyclic edges) in an isolated, rolled-back Neo4j transaction before altering code.
+- **Manual Overrides:** The **Manual File Overrides** toggle in `ImpactForm.jsx` allows pasting arbitrary file paths for hypothetical blast radius exploration.
+- **Emergency Bypass:** Developers can bypass local blocks during critical emergencies via `MDT_FORCE=1 git commit` or `$env:MDT_FORCE="1"; git commit` in PowerShell.
+
+### 2. After Commit Capabilities
+- **Dashboard Target Commit / Revision Analysis:** 
+  - Resolves short SHAs (e.g. `c876e48`), full 40-character SHAs, relative revisions (`HEAD~1`, `main~2`), or branch names.
+  - Automatically fetches the unified commit diff and parses changed files.
+  - Handles initial root commits by comparing against the Git empty tree hash (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`).
+- **Pre-Push Hook:** Installed via `python mdt-hook/mdt_check.py --install-hook pre-push`, evaluates `HEAD~1..HEAD` to prevent high-risk commits from reaching upstream branches.
+- **CI/CD Pull Request Gating:** Executed within GitHub Actions / GitLab CI using `python mdt-hook/mdt_check.py --working` or direct REST API calls, failing pipeline jobs if risk exceeds project thresholds.
+- **Session History & Audit Trail:** All post-commit analyses are recorded in `GET /analysis/history` with timestamped diff breakdowns, affected services, and risk delta tracking.
+

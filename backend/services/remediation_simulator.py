@@ -8,6 +8,7 @@ For local/test environments running MockNeo4jDriver the simulator falls back
 to a deterministic in-memory estimation so the feature is always available.
 """
 import asyncio
+from collections import defaultdict
 import logging
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -58,6 +59,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
         "query": """
             MATCH (s:Service)
             WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
+              AND NOT toLower(s.name) CONTAINS 'postgres' AND NOT toLower(s.name) CONTAINS 'database' AND NOT toLower(s.name) CONTAINS 'db'
             OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
             WHERE incoming <> s AND NOT incoming.name ENDS WITH '_facade' AND NOT incoming.name ENDS WITH '_gateway' AND NOT incoming.name = 'event_broker'
             OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
@@ -82,7 +84,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
             MATCH (s:Service)
             WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
               AND NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
-              AND coalesce(s.is_external, false) = false
+              AND (s.is_external IS NULL OR s.is_external = false OR NOT s.name STARTS WITH 'external-')
             RETURN s.name AS name
         """,
     },
@@ -97,6 +99,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
                OR toLower(target.name) CONTAINS 'redis'
                OR toLower(coalesce(r.type, '')) IN ['database', 'db', 'sql', 'postgres', 'postgresql', 'mysql', 'mongodb']
                OR coalesce(r.endpoint, '') CONTAINS ':5432' OR coalesce(r.endpoint, '') CONTAINS ':3306'
+               OR coalesce(r.endpoint, '') CONTAINS ':27017' OR coalesce(r.endpoint, '') CONTAINS ':6379'
             WITH toLower(target.name) AS db_target, count(DISTINCT caller) AS caller_count
             WHERE caller_count > 1
             RETURN db_target, caller_count
@@ -118,6 +121,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
         "query": """
             MATCH (all_s:Service)
             WHERE NOT all_s.name ENDS WITH '_facade' AND NOT all_s.name ENDS WITH '_gateway' AND NOT all_s.name = 'event_broker'
+              AND NOT toLower(all_s.name) CONTAINS 'postgres' AND NOT toLower(all_s.name) CONTAINS 'database' AND NOT toLower(all_s.name) CONTAINS 'db'
             WITH count(DISTINCT all_s) AS total_services
             WITH total_services,
                  CASE 
@@ -127,6 +131,9 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
             MATCH (s:Service)-[:DEPENDS_ON]->(dep:Service)
             WHERE dep <> s
               AND NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
+              AND NOT toLower(s.name) CONTAINS 'postgres' AND NOT toLower(s.name) CONTAINS 'database' AND NOT toLower(s.name) CONTAINS 'db'
+              AND NOT dep.name ENDS WITH '_facade' AND NOT dep.name ENDS WITH '_gateway' AND NOT dep.name = 'event_broker'
+              AND NOT toLower(dep.name) CONTAINS 'postgres' AND NOT toLower(dep.name) CONTAINS 'database' AND NOT toLower(dep.name) CONTAINS 'db'
               AND coalesce(s.has_circuit_breaker, false) = false AND coalesce(s.resilient, false) = false
             WITH s, cb_threshold, count(DISTINCT dep) AS fan_out
             WHERE fan_out >= cb_threshold
@@ -137,6 +144,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
         "query": """
             MATCH (all_s:Service)
             WHERE NOT all_s.name ENDS WITH '_facade' AND NOT all_s.name ENDS WITH '_gateway' AND NOT all_s.name = 'event_broker'
+              AND NOT toLower(all_s.name) CONTAINS 'postgres' AND NOT toLower(all_s.name) CONTAINS 'database' AND NOT toLower(all_s.name) CONTAINS 'db'
             WITH collect(DISTINCT all_s) AS fleet, count(DISTINCT all_s) AS total_services
             WHERE total_services >= 3
             UNWIND fleet AS s
@@ -228,6 +236,34 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
         logger.debug("Isolation query failed: %s", exc)
         counts["isolated_service"] = 0
 
+    if counts["isolated_service"] == 0:
+        # Fallback to in-memory registry check if isolated nodes were not in Neo4j
+        try:
+            from core.registry import RegistryManager
+            services = RegistryManager.get_services()
+            deps = RegistryManager.get_dependencies()
+            connected = set()
+            for d in deps:
+                src, tgt = d.get("from"), d.get("to")
+                if src:
+                    connected.add(src)
+                if tgt:
+                    connected.add(tgt)
+            isolated_cnt = 0
+            for svc in services:
+                name = svc.get("name")
+                if not name or name in connected:
+                    continue
+                if svc.get("is_external") and name.startswith("external-"):
+                    continue
+                if name.endswith("_facade") or name.endswith("_gateway") or name == "event_broker":
+                    continue
+                isolated_cnt += 1
+            if isolated_cnt > 0:
+                counts["isolated_service"] = isolated_cnt
+        except Exception as exc:
+            logger.debug("In-memory isolated service fallback failed: %s", exc)
+
     # --- Shared database ---
     try:
         result = tx.run(_SMELL_QUERIES["shared_database"]["query"])
@@ -255,8 +291,8 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
             shared_cnt = sum(1 for callers in db_targets.values() if len(set(callers)) > 1)
             if shared_cnt > 0:
                 counts["shared_database"] = shared_cnt
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("In-memory shared database fallback failed: %s", exc)
 
     # --- Chatty communication ---
     try:
@@ -292,17 +328,59 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
         counts["hub_and_spoke"] = 0
 
     # --- Snapshot-based trend smells on transaction ---
+    from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
+    context = RegistryManager.get_project_context()
+    is_demo = context.get("source") == "local_demo"
+    active_services = {s["name"] for s in RegistryManager.get_services()}
+
     try:
         snap_res = tx.run("""
             MATCH (snapshot:DependencySnapshot)
             RETURN snapshot.edges AS edges, snapshot.created_at AS created_at
-            ORDER BY created_at DESC LIMIT 2
+            ORDER BY created_at DESC
         """)
         snap_records = [dict(r) for r in snap_res]
+        if len(snap_records) < 2:
+            try:
+                data = RegistryManager.load()
+                if is_demo:
+                    raw_snapshots = (
+                        data.get("dependency_snapshots")
+                        or data.get("snapshots")
+                        or LOCAL_DEMO_SMELL_HISTORY.get("dependency_snapshots", [])
+                    )
+                else:
+                    raw_snapshots = data.get("dependency_snapshots") or data.get("snapshots") or []
+
+                if raw_snapshots:
+                    snap_records = sorted(raw_snapshots, key=lambda s: s.get("created_at", ""), reverse=True)
+            except Exception as exc:
+                logger.debug("In-memory dependency snapshot fallback failed: %s", exc)
+
         if len(snap_records) >= 2:
-            current, previous = set(snap_records[0].get("edges") or []), set(snap_records[1].get("edges") or [])
-            added = current - previous
-            counts["dependency_explosion"] = 1 if len(added) >= settings.SMELL_DEPENDENCY_GROWTH_THRESHOLD else 0
+            filtered_snaps = []
+            for rec in snap_records:
+                edges = [
+                    e for e in rec.get("edges", [])
+                    if "->" in e and e.split("->", 1)[0] in active_services
+                ]
+                if edges or is_demo:
+                    filtered_snaps.append(edges if active_services else rec.get("edges", []))
+            if len(filtered_snaps) >= 2:
+                current = set(filtered_snaps[0])
+                prev_edges = None
+                for pe in filtered_snaps[1:]:
+                    pe_set = set(pe)
+                    if pe_set != current:
+                        prev_edges = pe_set
+                        break
+                if prev_edges is not None:
+                    added = current - prev_edges
+                    counts["dependency_explosion"] = 1 if len(added) >= settings.SMELL_DEPENDENCY_GROWTH_THRESHOLD else 0
+                else:
+                    counts["dependency_explosion"] = 0
+            else:
+                counts["dependency_explosion"] = 0
         else:
             counts["dependency_explosion"] = 0
     except Exception as exc:
@@ -310,7 +388,6 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
         counts["dependency_explosion"] = 0
 
     try:
-        from collections import defaultdict
         api_res = tx.run("""
             MATCH (snapshot:ApiSnapshot)
             RETURN snapshot.service AS service, snapshot.endpoints AS endpoints,
@@ -318,6 +395,25 @@ def _count_smells_on_tx(tx) -> Dict[str, int]:
             ORDER BY service, created_at DESC
         """)
         api_records = [dict(r) for r in api_res]
+        if not api_records:
+            try:
+                data = RegistryManager.load()
+                if is_demo:
+                    raw_snaps = (
+                        data.get("api_snapshots")
+                        or LOCAL_DEMO_SMELL_HISTORY.get("api_snapshots", [])
+                    )
+                else:
+                    raw_snaps = data.get("api_snapshots") or []
+
+                if raw_snaps:
+                    api_records = sorted(raw_snaps, key=lambda s: s.get("created_at", ""), reverse=True)
+            except Exception as exc:
+                logger.debug("In-memory API snapshot fallback failed: %s", exc)
+
+        if active_services:
+            api_records = [r for r in api_records if r.get("service") in active_services]
+
         api_snapshots: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for r in api_records:
             svc = r.get("service")
@@ -423,11 +519,11 @@ def _apply_edits_on_tx(tx, edits: List[GraphEdit]) -> None:
 
 
 def _compute_score_from_smells(smell_counts: Dict[str, int]) -> float:
-    """Derive a synthetic risk score from smell counts (capped at 100.0).
+    """Derive a normalized architectural risk score from smell counts [0.0, 100.0).
 
-    Synchronized with _compute_uncapped_score_from_smells.
+    Synchronized with _compute_uncapped_score_from_smells and _normalize_score.
     """
-    return min(100.0, _compute_uncapped_score_from_smells(smell_counts))
+    return _normalize_score(_compute_uncapped_score_from_smells(smell_counts))
 
 
 def _get_severity(score: float) -> str:
@@ -617,15 +713,76 @@ def _normalize_score(raw: float, k: float = SATURATION_CONSTANT_K) -> float:
     return round((100.0 * raw) / (raw + k), 1)
 
 
+def compute_architecture_health(smell_counts: Dict[str, int]) -> Dict[str, Any]:
+    """Single canonical function to calculate the Architecture Health score and severity from smell counts.
+
+    Used by both the main Architecture Health dial and the Simulator Before/After gauges
+    to guarantee 100% mathematical and topological parity across the entire application.
+    """
+    raw = _compute_uncapped_score_from_smells(smell_counts)
+    score = _normalize_score(raw)
+    severity = _get_severity(score)
+    return {
+        "score": score,
+        "severity": severity,
+        "raw_score": raw,
+        "total_smells": sum(smell_counts.values()),
+        "smells": smell_counts,
+    }
+
+
+def breakdown_smells(smells: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Map a list of detected smell findings to canonical smell count keys."""
+    counts: Dict[str, int] = {
+        "circular_dependency": 0,
+        "shared_database": 0,
+        "hub_and_spoke": 0,
+        "bottleneck_service": 0,
+        "dependency_explosion": 0,
+        "high_coupling": 0,
+        "api_instability": 0,
+        "chatty_communication": 0,
+        "missing_circuit_breaker": 0,
+        "isolated_service": 0,
+    }
+    for s in smells:
+        stype = s.get("type", "")
+        if "Circular" in stype:
+            counts["circular_dependency"] += 1
+        elif "Shared Database" in stype:
+            counts["shared_database"] += 1
+        elif "Hub-and-Spoke" in stype or "Hub and Spoke" in stype:
+            counts["hub_and_spoke"] += 1
+        elif "Bottleneck" in stype or "God" in stype:
+            counts["bottleneck_service"] += 1
+        elif "Dependency Explosion" in stype:
+            counts["dependency_explosion"] += 1
+        elif "API Instability" in stype:
+            counts["api_instability"] += 1
+        elif "Coupling" in stype:
+            counts["high_coupling"] += 1
+        elif "Chatty" in stype:
+            counts["chatty_communication"] += 1
+        elif "Circuit Breaker" in stype:
+            counts["missing_circuit_breaker"] += 1
+        elif "Isolated" in stype or "Dead" in stype:
+            counts["isolated_service"] += 1
+    return counts
+
+
 def _calculate_simulation_metrics(
     before_smells: Dict[str, int],
     after_smells: Dict[str, int],
     edits: List[GraphEdit],
 ) -> Tuple[float, float, float, bool, str]:
     """Calculate before_score, after_score, point_reduction, measurable_change, and message for pure architectural smell risk."""
-    before_total = sum(before_smells.values())
-    after_total = sum(after_smells.values())
-    smells_resolved = before_total - after_total
+    before_health = compute_architecture_health(before_smells)
+    after_health = compute_architecture_health(after_smells)
+
+    before_score = before_health["score"]
+    before_total = before_health["total_smells"]
+    after_total = after_health["total_smells"]
+    smells_resolved = max(0, before_total - after_total)
 
     cycles_resolved = max(0, before_smells.get("circular_dependency", 0) - after_smells.get("circular_dependency", 0))
     shared_db_resolved = max(0, before_smells.get("shared_database", 0) - after_smells.get("shared_database", 0))
@@ -638,18 +795,11 @@ def _calculate_simulation_metrics(
     dep_growth_resolved = max(0, before_smells.get("dependency_explosion", 0) - after_smells.get("dependency_explosion", 0))
     api_instability_resolved = max(0, before_smells.get("api_instability", 0) - after_smells.get("api_instability", 0))
 
-    raw_before = _compute_uncapped_score_from_smells(before_smells)
-    raw_after = _compute_uncapped_score_from_smells(after_smells)
+    after_score = after_health["score"]
+    point_reduction = round(before_score - after_score, 1)
 
-    before_score = _normalize_score(raw_before)
-    if raw_before == 0.0 or raw_after >= raw_before:
-        point_reduction = 0.0
-        after_score = before_score
-    else:
-        after_score = _normalize_score(raw_after)
-        point_reduction = round(max(0.0, before_score - after_score), 1)
-
-    measurable_change = (point_reduction > 0) or (smells_resolved > 0)
+    smells_changed = any(before_smells.get(k, 0) != after_smells.get(k, 0) for k in set(before_smells) | set(after_smells))
+    measurable_change = (point_reduction != 0.0) or (smells_resolved > 0) or (after_total != before_total) or smells_changed
 
     details = []
     if cycles_resolved > 0:
@@ -675,8 +825,18 @@ def _calculate_simulation_metrics(
     if not details and point_reduction > 0:
         details.append("architectural remediation applied")
 
-    if measurable_change and point_reduction > 0:
-        message = f"Risk reduction verified: {', '.join(details)} (-{point_reduction} pts smell risk)"
+    if point_reduction > 0:
+        if details:
+            message = f"Risk reduction verified: {', '.join(details)} (-{point_reduction} pts smell risk)"
+        else:
+            message = f"Risk reduction verified: -{point_reduction} pts smell risk"
+    elif point_reduction < 0:
+        point_increase = abs(point_reduction)
+        smells_added = max(0, after_total - before_total)
+        if smells_added > 0:
+            message = f"Warning: Proposed edit increases architectural risk by +{point_increase} pts ({smells_added} new smell(s) introduced)"
+        else:
+            message = f"Warning: Proposed edit increases architectural risk by +{point_increase} pts"
     elif measurable_change:
         message = "Smell reduction verified"
     else:
@@ -709,6 +869,7 @@ class RemediationSimulator:
         edits: List[GraphEdit],
         baseline_risk_score: Optional[float] = None,
         affected_files_count: Optional[int] = None,
+        baseline_smells: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         """Run edits in a sandbox and return before/after comparison.
 
@@ -719,11 +880,13 @@ class RemediationSimulator:
                 edits,
                 baseline_risk_score=baseline_risk_score,
                 affected_files_count=affected_files_count,
+                baseline_smells=baseline_smells,
             )
         return await self._simulate_live(
             edits,
             baseline_risk_score=baseline_risk_score,
             affected_files_count=affected_files_count,
+            baseline_smells=baseline_smells,
         )
 
 
@@ -736,6 +899,7 @@ class RemediationSimulator:
         edits: List[GraphEdit],
         baseline_risk_score: Optional[float] = None,
         affected_files_count: Optional[int] = None,
+        baseline_smells: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         """Transactional simulation on a real Neo4j instance."""
 
@@ -744,14 +908,25 @@ class RemediationSimulator:
             with self.driver.session() as session:
                 tx = session.begin_transaction()
                 try:
-                    # 1. Measure BEFORE state
-                    before_smells = _count_smells_on_tx(tx)
+                    # 1. Use the canonical baseline smells already computed by SmellDetector
+                    if baseline_smells:
+                        before_smells = dict(baseline_smells)
+                    else:
+                        before_smells = _count_smells_on_tx(tx)
 
                     # 2. Apply edits
                     _apply_edits_on_tx(tx, edits)
 
-                    # 3. Measure AFTER state
-                    after_smells = _count_smells_on_tx(tx)
+                    # 3. Measure AFTER state: evaluate structural changes on tx and preserve baseline historical smells
+                    tx_smells = _count_smells_on_tx(tx)
+                    after_smells = dict(before_smells)
+                    structural_keys = [
+                        "circular_dependency", "bottleneck_service", "high_coupling",
+                        "chatty_communication", "missing_circuit_breaker", "hub_and_spoke",
+                        "shared_database", "isolated_service"
+                    ]
+                    for k in structural_keys:
+                        after_smells[k] = tx_smells.get(k, 0)
 
                     return before_smells, after_smells
                 finally:
@@ -821,50 +996,21 @@ class RemediationSimulator:
         edits: List[GraphEdit],
         baseline_risk_score: Optional[float] = None,
         affected_files_count: Optional[int] = None,
+        baseline_smells: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         """Heuristic estimation when Neo4j is unavailable."""
-        from services.smell_detector import SmellDetector
+        if baseline_smells:
+            before_counts = dict(baseline_smells)
+        else:
+            from services.smell_detector import SmellDetector
 
-        detector = SmellDetector()
-        try:
-            current_smells = await detector.detect_all_smells()
-        except Exception:
-            current_smells = []
+            detector = SmellDetector()
+            try:
+                current_smells = await detector.detect_all_smells()
+            except Exception:
+                current_smells = []
 
-        before_counts = {
-            "circular_dependency": 0,
-            "shared_database": 0,
-            "hub_and_spoke": 0,
-            "bottleneck_service": 0,
-            "dependency_explosion": 0,
-            "high_coupling": 0,
-            "api_instability": 0,
-            "chatty_communication": 0,
-            "missing_circuit_breaker": 0,
-            "isolated_service": 0,
-        }
-        for s in current_smells:
-            stype = s.get("type", "")
-            if "Circular" in stype:
-                before_counts["circular_dependency"] += 1
-            elif "Shared Database" in stype:
-                before_counts["shared_database"] += 1
-            elif "Hub-and-Spoke" in stype or "Hub and Spoke" in stype:
-                before_counts["hub_and_spoke"] += 1
-            elif "Bottleneck" in stype or "God" in stype:
-                before_counts["bottleneck_service"] += 1
-            elif "Dependency Explosion" in stype:
-                before_counts["dependency_explosion"] += 1
-            elif "API Instability" in stype:
-                before_counts["api_instability"] += 1
-            elif "Coupling" in stype:
-                before_counts["high_coupling"] += 1
-            elif "Chatty" in stype:
-                before_counts["chatty_communication"] += 1
-            elif "Circuit Breaker" in stype:
-                before_counts["missing_circuit_breaker"] += 1
-            elif "Isolated" in stype or "Dead" in stype:
-                before_counts["isolated_service"] += 1
+            before_counts = breakdown_smells(current_smells)
 
         # Estimate after: each edit targets its corresponding smell type
         after_counts = dict(before_counts)

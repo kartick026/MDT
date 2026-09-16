@@ -68,20 +68,21 @@ class ScoringSeverityTests(unittest.TestCase):
         self.assertEqual(_compute_uncapped_score_from_smells({"missing_circuit_breaker": 1}), 12.0)
         self.assertEqual(_compute_uncapped_score_from_smells({"isolated_service": 1}), 5.0)
 
-    def test_single_cycle_scores_30(self):
+    def test_single_cycle_scores_anchor_point(self):
         counts = {
             "circular_dependency": 1,
         }
-        self.assertEqual(_compute_score_from_smells(counts), 30.0)
+        self.assertEqual(_compute_score_from_smells(counts), 45.0)
 
-    def test_score_caps_at_100(self):
+    def test_score_caps_asymptotically_below_100(self):
         counts = {
             "circular_dependency": 5,
             "bottleneck_service": 3,
             "high_coupling": 2,
             "isolated_service": 10,
         }
-        self.assertEqual(_compute_score_from_smells(counts), 100.0)
+        self.assertEqual(_compute_score_from_smells(counts), 88.8)
+        self.assertLess(_compute_score_from_smells(counts), 100.0)
         self.assertGreater(_compute_uncapped_score_from_smells(counts), 100.0)
 
     def test_severity_mapping(self):

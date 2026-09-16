@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { getServices, importRepo, getConnectionBugs, resetDefaultRegistry } from '../api';
+import { getServices, importRepo, getConnectionBugs, resetDefaultRegistry, getProjectContext } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './Toast';
 
@@ -38,7 +38,7 @@ export default function ServiceGrid({ onImportSuccess, onNavigateTab }) {
 
   // Import Repo state
   const [showImport, setShowImport]     = useState(false);
-  const [importUrl, setImportUrl]       = useState('https://github.com/kartick026/MDT');
+  const [importUrl, setImportUrl]       = useState('');
   const [importBranch, setImportBranch] = useState('main');
   const [importing, setImporting]       = useState(false);
   const [importResult, setImportResult] = useState(null);
@@ -86,7 +86,8 @@ export default function ServiceGrid({ onImportSuccess, onNavigateTab }) {
     try {
       await resetDefaultRegistry();
       addToast("Local demo fleet restored successfully!", "success");
-      onImportSuccess?.({ repo_url: 'https://github.com/kartick026/MDT', branch: 'main' });
+      const ctx = await getProjectContext().catch(() => null);
+      onImportSuccess?.(ctx || { repo_url: '', branch: 'main' });
       await fetchServices(true);
     } catch (err) {
       const msg = err.response?.status === 404

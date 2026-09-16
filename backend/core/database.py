@@ -218,6 +218,6 @@ async def close_databases():
         try:
             neo4j_driver.close()
             logger.info("Neo4j connection closed")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Error closing Neo4j driver: %s", exc)
         neo4j_driver = None

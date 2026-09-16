@@ -1,3 +1,4 @@
+import re
 import time
 import httpx
 import logging
@@ -48,11 +49,14 @@ class GitHubAppAuth:
             return settings.GITHUB_TOKEN # fallback to PAT
             
         # Parse owner/repo from URL
-        # e.g., https://github.com/owner/repo or owner/repo
-        repo_path = repo_url.replace("https://github.com/", "").replace(".git", "")
-        if repo_path.startswith("http"):
-            # fallback if it's a weird url
-            repo_path = "/".join(repo_path.split("/")[-2:])
+        # e.g., https://github.com/owner/repo or git@github.com:owner/repo.git or owner/repo
+        cleaned = (repo_url or "").strip().rstrip("/")
+        match = re.search(r"github\.com[:/]([^/]+)/([^/#?]+?)(?:\.git)?(?:/|$)", cleaned)
+        if match:
+            repo_path = f"{match.group(1)}/{match.group(2).removesuffix('.git')}"
+        else:
+            parts = [p for p in cleaned.split("/") if p]
+            repo_path = "/".join(parts[-2:]) if len(parts) >= 2 else cleaned
             
         headers = {
             "Authorization": f"Bearer {jwt_token}",

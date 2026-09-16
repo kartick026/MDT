@@ -157,7 +157,7 @@ class ImpactEngine:
 
         semantic_boost = retrieved_context.get("risk_modifier", 0)
 
-        final_risk = min(100, base_risk + semantic_boost)
+        final_risk = max(0.0, min(100.0, round(float(base_risk + semantic_boost), 1)))
 
 
 
@@ -533,56 +533,34 @@ class ImpactEngine:
 
 
     def _compute_base_risk(self, factors: RiskFactors) -> float:
-
         """Compute base risk score from deterministic factors"""
-
         score = 0.0
 
+        # File count factor
+        max_file_pts = getattr(settings, "HMDA_MAX_FILE_PTS", 30)
+        weight_file = getattr(settings, "HMDA_WEIGHT_FILE", 5)
+        score += min(max_file_pts, factors.file_count * weight_file)
 
-
-        # File count factor (up to 30 points)
-
-        score += min(30, factors.file_count * 5)
-
-
-
-        # API changes (adds 25 points)
-
+        # API changes
         if factors.api_changes:
+            score += getattr(settings, "HMDA_PTS_API_CHANGE", 25)
 
-            score += 25
-
-
-
-        # Core service impact (adds 30 points)
-
+        # Core service impact
         if factors.core_service_impact:
+            score += getattr(settings, "HMDA_PTS_CORE_SERVICE", 30)
 
-            score += 30
+        # Dependency depth
+        max_depth_pts = getattr(settings, "HMDA_MAX_DEPTH_PTS", 15)
+        weight_depth = getattr(settings, "HMDA_WEIGHT_DEPTH", 5)
+        score += min(max_depth_pts, factors.dependency_depth * weight_depth)
 
-
-
-        # Dependency depth (up to 15 points)
-
-        score += min(15, factors.dependency_depth * 5)
-
-
-
-        # Schema changes (adds 15 points)
-
+        # Schema changes
         if getattr(factors, 'schema_changes', False):
+            score += getattr(settings, "HMDA_PTS_SCHEMA_CHANGE", 15)
 
-            score += 15
-
-
-
-        # Config changes (adds 10 points)
-
+        # Config changes
         if getattr(factors, 'config_changes', False):
-
-            score += 10
-
-
+            score += getattr(settings, "HMDA_PTS_CONFIG_CHANGE", 10)
 
         return min(100, score)
 

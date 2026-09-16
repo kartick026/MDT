@@ -9,6 +9,7 @@ import yaml
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Callable
 
+from core.config import settings
 from core.registry import RegistryManager
 from services.dependency_graph import DependencyGraph
 from services.git_analyzer import (
@@ -138,8 +139,8 @@ def _get_local_tree(git_dir: Path, ref: str) -> List[str]:
                 lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
                 if lines:
                     return lines
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Local git ls-tree failed for cand_ref %s: %s", cand_ref, exc)
     return []
 
 
@@ -158,8 +159,8 @@ def _get_local_file_content(git_dir: Path, ref: str, file_path: str) -> str:
             )
             if res.returncode == 0:
                 return res.stdout
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Local git show failed for %s at %s: %s", clean_p, cand_ref, exc)
     return ""
 
 class RepoOnboarder:
@@ -278,7 +279,8 @@ class RepoOnboarder:
                         if full_p.is_file():
                             try:
                                 return full_p.read_text(encoding="utf-8", errors="replace")
-                            except Exception:
+                            except Exception as exc:
+                                logger.debug("Reading cloned file %s failed: %s", full_p, exc)
                                 return ""
                         return ""
 
@@ -470,7 +472,7 @@ class RepoOnboarder:
             # 7. Extract static endpoints & calculate baseline architectural risk scores
             for svc in services:
                 sname = svc["name"]
-                svc["is_external"] = True
+                svc["is_external"] = False
 
                 # Extract exposed endpoints from entrypoint code
                 svc_routes = []
@@ -537,7 +539,11 @@ class RepoOnboarder:
 
             # 9. Persist initial architectural risk audit in Neo4j analysis history
             avg_score = round(sum(s.get("risk_score", 0) for s in services) / max(len(services), 1), 1)
-            overall_severity = "CRITICAL" if avg_score >= 75 else ("HIGH" if avg_score >= 50 else ("MEDIUM" if avg_score >= 25 else "LOW"))
+            overall_severity = (
+                "CRITICAL" if avg_score >= settings.RISK_HIGH
+                else ("HIGH" if avg_score >= settings.RISK_MEDIUM
+                else ("MEDIUM" if avg_score >= settings.RISK_LOW else "LOW"))
+            )
 
             try:
                 await self.dep_graph.record_analysis(
@@ -569,8 +575,8 @@ class RepoOnboarder:
             if temp_dir_obj is not None:
                 try:
                     temp_dir_obj.cleanup()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed cleaning up temporary directory %s: %s", getattr(temp_dir_obj, 'name', 'unknown'), exc)
 
     def _parse_compose(self, yaml_content: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, str]]:
         """Parse docker-compose.yml into services, dependencies, and file mappings."""
@@ -608,14 +614,14 @@ class RepoOnboarder:
                     try:
                         host_port = int(parts[0].strip("'\""))
                         port = int(parts[-1].strip("'\""))  # Container internal port
-                    except ValueError:
-                        pass
+                    except ValueError as val_exc:
+                        logger.debug("Failed parsing host/container port from %s: %s", raw_port, val_exc)
                 else:
                     try:
                         port = int(raw_port)
                         host_port = port
-                    except ValueError:
-                        pass
+                    except ValueError as val_exc:
+                        logger.debug("Failed parsing raw port %s: %s", raw_port, val_exc)
 
             # Parse file context
             build_info = sconfig.get("build")

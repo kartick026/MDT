@@ -88,8 +88,8 @@ async def _run_query(driver, query: str, **params) -> List[Dict[str, Any]]:
         async with driver.session() as session:
             result = await session.run(query, **params)
             return await result.data()
-    except TypeError:
-        pass
+    except TypeError as type_exc:
+        logger.debug("Async Neo4j session unsupported, falling back to sync executor: %s", type_exc)
 
     # Fallback: sync driver — run in thread executor
     def _sync():
@@ -152,6 +152,19 @@ class DependencyGraph:
                 await _run_query(self.driver, cypher)
             except Exception as exc:
                 logger.debug("Schema statement skipped: %s", exc)
+
+        # Ensure any internal microservices erroneously flagged as external are cleaned up
+        try:
+            await _run_query(
+                self.driver,
+                """
+                MATCH (s:Service)
+                WHERE s.is_external = true AND NOT s.name STARTS WITH 'external-'
+                SET s.is_external = false
+                """
+            )
+        except Exception as exc:
+            logger.debug("is_external cleanup skipped: %s", exc)
 
         logger.info("Neo4j schema initialised")
         await self.seed_known_services()
@@ -494,8 +507,8 @@ class DependencyGraph:
         records = await _run_query(
             self.driver,
             """
-            MATCH (s:Service {name: $name})-[:DEPENDS_ON*]->(dep:Service)
-            RETURN count(DISTINCT dep) AS depth
+            OPTIONAL MATCH p = (s:Service {name: $name})-[:DEPENDS_ON*1..8]->(dep:Service)
+            RETURN coalesce(max(length(p)), 0) AS depth
             """,
             name=service_name,
         )

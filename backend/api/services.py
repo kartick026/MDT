@@ -78,7 +78,8 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
     async def probe(target: str):
         try:
             return await client.get(target, timeout=0.8, follow_redirects=True)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Health probe to %s failed: %s", target, exc)
             return None
 
     # Probe candidates in parallel.  This prevents a missing imported service
@@ -99,8 +100,8 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
                 data = last_resp.json()
                 if isinstance(data, dict) and "endpoints" in data:
                     base["api_count"] = len(data["endpoints"])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed extracting api_count for %s: %s", url, exc)
     elif svc.get("is_external"):
         base["status"] = "imported"
     else:
@@ -120,7 +121,8 @@ async def list_services():
     try:
         graph_services = await graph.get_all_services()
         graph_map = {s["name"]: s for s in graph_services}
-    except Exception:
+    except Exception as exc:
+        logger.debug("graph.get_all_services failed: %s", exc)
         graph_map = {}
 
     services = []
@@ -170,7 +172,8 @@ async def get_service_graph():
     try:
         graph_services = await graph.get_all_services()
         graph_risk = {service.get("name"): service for service in graph_services}
-    except Exception:
+    except Exception as exc:
+        logger.debug("graph.get_all_services for graph_risk failed: %s", exc)
         graph_risk = {}
 
     nodes = []
@@ -253,17 +256,33 @@ async def get_service_health(service_name: str):
         info = known
 
     port = info.get("port")
-    url = info.get("url", f"http://localhost:{port}")
+    base_url = (info.get("url") or f"http://localhost:{port}").rstrip("/")
+    candidate_urls = [f"{base_url}/health", f"{base_url}/health/", f"{base_url}/"]
 
+    if port and "//" in base_url and not os.path.exists("/.dockerenv"):
+        host = base_url.split("//", 1)[1].split(":", 1)[0]
+        if host.endswith("-service") or host in ("user-service", "order-service", "inventory-service", "notification-service", "payment-service"):
+            candidate_urls.extend([
+                f"http://localhost:{port}/health",
+                f"http://localhost:{port}/health/",
+                f"http://localhost:{port}/",
+            ])
+
+    last_exc = None
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{url}/health")
-            return {
-                "service": service_name,
-                "status": "healthy" if resp.status_code == 200 else "unhealthy",
-                "port": port,
-                "url": url,
-            }
+            for candidate in candidate_urls:
+                try:
+                    resp = await client.get(candidate, follow_redirects=True)
+                    return {
+                        "service": service_name,
+                        "status": "healthy" if resp.status_code == 200 else "unhealthy",
+                        "port": port,
+                        "url": base_url,
+                    }
+                except Exception as e:
+                    last_exc = e
+            raise last_exc or Exception("Failed to connect to service")
     except Exception as exc:
         return {
             "service": service_name,
