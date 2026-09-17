@@ -253,6 +253,33 @@ class DegreeBasedCoreServicesTests(unittest.TestCase):
         peripheral_change = [ChangeInfo(file_path="services/inventory_service/main.py", change_type="modified", diff_content="", additions=1, deletions=0, old_content="", new_content="", ast_metadata={})]
         self.assertFalse(engine._has_core_service_impact(peripheral_change))
 
+    def test_core_services_statistical_outlier_for_large_fleets(self):
+        """Verify that when fleet variance is large (std >= 1.0), mean + std isolates true hubs."""
+        engine = ImpactEngine()
+        # Mock a 10-service fleet:
+        # auth-hub has 6 incoming callers
+        # payment-hub has 4 incoming callers
+        # other 8 services have 1 caller each
+        # degrees = [6, 4, 1, 1, 1, 1, 1, 1, 1, 1], mean = 1.8, std = 1.6
+        # threshold = max(2, round(1.8 + 1.6)) = round(3.4) = 3
+        # auth-hub (6) and payment-hub (4) are core; minor services (1) are excluded.
+        large_fleet_registry = {
+            "project": {"repository_key": "enterprise:enterprise"},
+            "services": [{"name": f"svc-{i}"} for i in range(10)] + [{"name": "auth-hub"}, {"name": "payment-hub"}],
+            "dependencies": (
+                [{"from": f"svc-{i}", "to": "auth-hub"} for i in range(6)] +
+                [{"from": f"svc-{i}", "to": "payment-hub"} for i in range(4)] +
+                [{"from": "auth-hub", "to": f"svc-{i}"} for i in range(8)]
+            )
+        }
+        RegistryManager.save(large_fleet_registry)
+        core = engine._get_core_services()
+        self.assertIn("auth-hub", core)
+        self.assertIn("payment-hub", core)
+        for i in range(8):
+            self.assertNotIn(f"svc-{i}", core)
+
+
 
 class DynamicRemediationTargetTests(unittest.TestCase):
     """Verify _find_best_remediation_target returns empty string rather than 'api-gateway' when no candidate exists."""

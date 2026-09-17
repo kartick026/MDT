@@ -275,8 +275,9 @@ class ImpactEngine:
         """
         Dynamically determine core architectural services based on in-degree centrality.
         A service is 'core' when other services genuinely depend on it heavily.
-        Threshold is defined as mean + 1 standard deviation of in-degrees,
-        with a minimum in-degree of 2 for small networks.
+        Threshold is defined as mean + 1 standard deviation of in-degrees when variance
+        is significant (std >= 1.0), falling back to round(mean) for small fleets with
+        sub-integer variance, with a minimum in-degree of 2.
         """
         try:
             from core.registry import RegistryManager
@@ -293,7 +294,11 @@ class ImpactEngine:
             degrees = list(in_degree.values())
             mean = statistics.mean(degrees)
             std = statistics.pstdev(degrees)
-            threshold = max(2, round(mean))
+            # When standard deviation is >= 1.0 (typical in larger enterprise graphs),
+            # strictly isolate top-tier hubs via mean + std. For small fleets with sub-integer
+            # variance (std < 1.0), use round(mean) to avoid over-filtering primary orchestrators.
+            target = mean + std if std >= 1.0 else mean
+            threshold = max(2, round(target))
             core = {svc for svc, deg in in_degree.items() if deg >= threshold}
             if not core:
                 core = {svc for svc, deg in in_degree.items() if deg >= 2}
