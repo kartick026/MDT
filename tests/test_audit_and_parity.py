@@ -56,18 +56,18 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         }
         self.assertEqual(_compute_uncapped_score_from_smells(smells_50), 50.0)
 
-        # Case 1: Before=90 (normalized 71.1), After=50 (normalized 57.7)
+        # Case 1: Before=90 (normalized 71.053), After=50 (normalized 57.692)
         b1, a1, red1, meas1, msg1 = _calculate_simulation_metrics(smells_90, smells_50, edits=[])
-        self.assertEqual(b1, 71.1)
-        self.assertEqual(a1, 57.7)
-        self.assertEqual(red1, 13.4)
+        self.assertEqual(b1, 71.053)
+        self.assertEqual(a1, 57.692)
+        self.assertEqual(red1, 13.361)
         self.assertTrue(meas1)
 
-        # Case 2: Before=130 (normalized 78.0), After=50 (normalized 57.7)
+        # Case 2: Before=130 (normalized 78.0), After=50 (normalized 57.692)
         b2, a2, red2, meas2, msg2 = _calculate_simulation_metrics(smells_130, smells_50, edits=[])
         self.assertEqual(b2, 78.0)
-        self.assertEqual(a2, 57.7)
-        self.assertEqual(red2, 20.3)
+        self.assertEqual(a2, 57.692)
+        self.assertEqual(red2, 20.308)
         self.assertTrue(meas2)
 
     def test_after_score_when_both_before_and_after_exceed_cap(self):
@@ -77,9 +77,9 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         smells_110 = {"circular_dependency": 3, "shared_database": 1}  # 30*3 + 20 = 110
 
         b, a, red, meas, msg = _calculate_simulation_metrics(smells_140, smells_110, edits=[])
-        self.assertEqual(b, 79.2)
+        self.assertEqual(b, 79.245)
         self.assertEqual(a, 75.0)
-        self.assertEqual(red, 4.2)
+        self.assertEqual(red, 4.245)
         self.assertTrue(meas)
         self.assertIn("Risk reduction verified", msg)
 
@@ -104,9 +104,9 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         after_1['circular_dependency'] = 1
         after_1['chatty_communication'] = 1
         b1, a1, r1, m1, _ = _calculate_simulation_metrics(before, after_1, edits=[])
-        self.assertEqual(b1, 86.8)
-        self.assertEqual(a1, 82.2)
-        self.assertEqual(r1, 4.6)
+        self.assertEqual(b1, 86.795)
+        self.assertEqual(a1, 82.172)
+        self.assertEqual(r1, 4.623)
         self.assertTrue(m1)
 
         # Rec 3: resolves 5 smells (raw 241 -> 142)
@@ -116,9 +116,9 @@ class WhatIfScoringRegressionTests(unittest.TestCase):
         after_3['chatty_communication'] = 1
         after_3['missing_circuit_breaker'] = 0
         b3, a3, r3, m3, _ = _calculate_simulation_metrics(before, after_3, edits=[])
-        self.assertEqual(b3, 86.8)
-        self.assertEqual(a3, 79.5)
-        self.assertEqual(r3, 7.3)
+        self.assertEqual(b3, 86.795)
+        self.assertEqual(a3, 79.478)
+        self.assertEqual(r3, 7.317)
         self.assertTrue(m3)
 
 
@@ -375,7 +375,7 @@ class IsolatedServiceExclusionTests(unittest.IsolatedAsyncioTestCase):
             "isolated_service": 1,
         }
         health = compute_architecture_health(baseline)
-        self.assertEqual(health["score"], 52.2)
+        self.assertEqual(health["score"], 52.174)
         self.assertEqual(health["total_smells"], 3)
 
         sim = RemediationSimulator()
@@ -385,8 +385,8 @@ class IsolatedServiceExclusionTests(unittest.IsolatedAsyncioTestCase):
             baseline_smells=baseline,
         )
 
-        # Before MUST strictly equal Architecture Health from analysis (same function, same baseline)
-        self.assertEqual(preview["before"]["score"], health["score"])
+        # Before MUST strictly equal Architecture Health from analysis at display precision (1dp)
+        self.assertEqual(preview["before"]["score"], round(health["score"], 1))
         self.assertEqual(preview["before"]["total_smells"], health["total_smells"])
         # After resolves isolated service but preserves historical snapshot smells
         self.assertEqual(preview["after"]["smells"]["isolated_service"], 0)
@@ -410,11 +410,11 @@ class Phase9CodeAuditTests(unittest.IsolatedAsyncioTestCase):
 
         b, a, red, meas, msg = _calculate_simulation_metrics(before_smells, after_smells, edits=[])
         self.assertEqual(b, 45.0)
-        self.assertEqual(a, 68.6)
+        self.assertEqual(a, 68.571)
         self.assertLess(red, 0.0)
-        self.assertEqual(red, -23.6)
+        self.assertEqual(red, -23.571)
         self.assertTrue(meas)
-        self.assertIn("Warning: Proposed edit increases architectural risk by +23.6 pts", msg)
+        self.assertIn("Warning: Proposed edit increases architectural risk by +23.571 pts", msg)
         self.assertIn("new smell(s) introduced", msg)
 
     def test_parse_github_url_robustness(self):
@@ -506,3 +506,71 @@ class Phase9CodeAuditTests(unittest.IsolatedAsyncioTestCase):
             import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+
+class MonotonicityRegressionTests(unittest.TestCase):
+    """Verify _normalize_score preserves strict monotonicity at high raw debt."""
+
+    def test_distinct_raw_produces_distinct_normalized(self):
+        """S(505) != S(500): proves the round(...,3) fix resolves the collision.
+
+        With round(...,1) both would produce 93.2, yielding score_reduction=0.0
+        even though 5 units of raw debt were genuinely resolved.
+        """
+        from services.remediation_simulator import _normalize_score
+
+        s505 = _normalize_score(505)
+        s500 = _normalize_score(500)
+        self.assertNotEqual(s505, s500, "S(505) and S(500) must not collide")
+        self.assertGreater(s505, s500, "S must be strictly increasing")
+        self.assertEqual(s505, 93.231)
+        self.assertEqual(s500, 93.168)
+
+    def test_no_collisions_in_operating_range(self):
+        """Verify zero collisions across R = 0..999 with round(...,3)."""
+        from services.remediation_simulator import _normalize_score
+
+        scores = [_normalize_score(float(r)) for r in range(1000)]
+        # Remove the 0.0 baseline (R=0) — all others must be unique
+        unique = set(scores[1:])  # exclude R=0 which is trivially 0.0
+        self.assertEqual(len(unique), 999, f"Found {999 - len(unique)} collision(s) in R=1..999")
+
+    def test_never_attains_100(self):
+        """S(R) must stay strictly below 100.0 for any finite R, including extreme values."""
+        from services.remediation_simulator import _normalize_score
+
+        self.assertLess(_normalize_score(100_000), 100.0)
+        self.assertLess(_normalize_score(1_000_000), 100.0)
+
+
+class HubAndSpokeThresholdTests(unittest.TestCase):
+    """Verify the hub-and-spoke threshold scales sensibly and stays below 85% with the tau cap."""
+
+    def test_threshold_at_small_fleet(self):
+        from services.smell_detector import calculate_hub_and_spoke_threshold
+        # N=5: tau=max(0.60, 1-1/sqrt(5))=max(0.60, 0.5528)=0.60 => ceil(0.60*4)=3
+        self.assertEqual(calculate_hub_and_spoke_threshold(5), 3)
+
+    def test_threshold_at_medium_fleet(self):
+        from services.smell_detector import calculate_hub_and_spoke_threshold
+        # N=50: tau=min(0.85, max(0.60, 1-1/sqrt(50)))=min(0.85, 0.8586)=0.85 => ceil(0.85*49)=42
+        th = calculate_hub_and_spoke_threshold(50)
+        self.assertEqual(th, 42)
+        self.assertLessEqual(th / 49, 0.86, "Threshold must not exceed ~85% of fleet at N=50")
+
+    def test_threshold_at_large_fleet(self):
+        from services.smell_detector import calculate_hub_and_spoke_threshold
+        # N=200: tau capped at 0.85 => ceil(0.85*199)=170
+        th = calculate_hub_and_spoke_threshold(200)
+        self.assertEqual(th, 170)
+        self.assertLessEqual(th / 199, 0.86, "Threshold must not exceed ~85% of fleet at N=200")
+
+    def test_threshold_never_exceeds_85_percent(self):
+        """For any fleet size from 10 to 500, threshold/N-1 must stay ≤ 0.87 (0.85 cap + ceiling rounding)."""
+        from services.smell_detector import calculate_hub_and_spoke_threshold
+        for n in range(10, 501):
+            th = calculate_hub_and_spoke_threshold(n)
+            share = th / (n - 1)
+            self.assertLessEqual(
+                share, 0.87,
+                f"N={n}: threshold={th} is {share:.2%} of {n-1}, exceeding 85% cap + ceiling tolerance"
+            )

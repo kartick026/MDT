@@ -156,6 +156,7 @@ _SMELL_QUERIES: Dict[str, Dict[str, str]] = {
                  avg(deg) AS avg_deg,
                  toInteger(ceil(
                    CASE 
+                     WHEN (1.0 - 1.0/sqrt(total_services)) > 0.85 THEN 0.85
                      WHEN (1.0 - 1.0/sqrt(total_services)) > 0.60 THEN (1.0 - 1.0/sqrt(total_services)) 
                      ELSE 0.60 
                    END * (total_services - 1)
@@ -705,12 +706,13 @@ def _normalize_score(raw: float, k: float = SATURATION_CONSTANT_K) -> float:
     """Monotonically map an unbounded non-negative raw smell score to [0.0, 100.0).
 
     Uses a saturating rational function S(R) = 100 * R / (R + k).
-    Ensures that distinct raw smell values strictly produce distinct normalized scores,
-    preventing score ties when raw debt exceeds 100.
+    Rounded to 3 decimal places internally to preserve strict monotonicity.
+    Display-layer code should round to 1dp for human readability; this function
+    must NOT round below 3dp or score ties re-emerge around R ≈ 408.
     """
     if raw <= 0.0:
         return 0.0
-    return round((100.0 * raw) / (raw + k), 1)
+    return round((100.0 * raw) / (raw + k), 3)
 
 
 def compute_architecture_health(smell_counts: Dict[str, int]) -> Dict[str, Any]:
@@ -796,7 +798,7 @@ def _calculate_simulation_metrics(
     api_instability_resolved = max(0, before_smells.get("api_instability", 0) - after_smells.get("api_instability", 0))
 
     after_score = after_health["score"]
-    point_reduction = round(before_score - after_score, 1)
+    point_reduction = round(before_score - after_score, 3)
 
     smells_changed = any(before_smells.get(k, 0) != after_smells.get(k, 0) for k in set(before_smells) | set(after_smells))
     measurable_change = (point_reduction != 0.0) or (smells_resolved > 0) or (after_total != before_total) or smells_changed

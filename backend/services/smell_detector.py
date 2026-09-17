@@ -48,13 +48,19 @@ def calculate_circuit_breaker_threshold(
 def calculate_hub_and_spoke_threshold(total_services: int) -> int:
     """
     Dynamically calculate the hub-and-spoke centralization threshold based on
-    Freeman network degree centrality:
-      tau(N) = max(0.60, 1.0 - 1.0 / sqrt(N))
+    Freeman network degree centrality with an upper cap:
+      tau(N) = min(0.85, max(0.60, 1.0 - 1.0 / sqrt(N)))
       threshold = max(2, ceil(tau(N) * (N - 1)))
+
+    The 0.85 cap prevents the threshold from becoming unreachable at scale.
+    Without it, tau(200) = 0.929 demands 185/199 connectivity (93%) — a service
+    would need to connect to nearly every other service to be flagged. With the
+    cap, the threshold stays at ~85% of the fleet, still strict but reachable
+    by genuine central hubs.
     """
     if total_services < 3:
         return 0  # A hub-and-spoke star requires at least 3 nodes to form
-    ratio = max(0.60, 1.0 - (1.0 / math.sqrt(total_services)))
+    ratio = min(0.85, max(0.60, 1.0 - (1.0 / math.sqrt(total_services))))
     return max(2, math.ceil(ratio * (total_services - 1)))
 
 
@@ -688,6 +694,7 @@ class SmellDetector:
                          avg(deg) AS avg_deg,
                          toInteger(ceil(
                            CASE 
+                             WHEN (1.0 - 1.0/sqrt(total_services)) > 0.85 THEN 0.85
                              WHEN (1.0 - 1.0/sqrt(total_services)) > 0.60 THEN (1.0 - 1.0/sqrt(total_services)) 
                              ELSE 0.60 
                            END * (total_services - 1)
