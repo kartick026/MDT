@@ -1,0 +1,204 @@
+{
+  "date": "2026-10-23",
+  "url": "http://localhost:5173/#/projects?project=8ae27de20f5b4e3c9956c579288ec385&job=45fcef8b9e1e4e78a957db363b13ef26&view=drift",
+  "before": {
+    "width": 897,
+    "serviceCardWidth": 254,
+    "serviceCardScrollWidth": 634,
+    "overflowingServicePills": 10
+  },
+  "checks": [
+    {
+      "mode": "default",
+      "cards": [
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 10,
+          "rawOverflow": false,
+          "scrollWidth": 254,
+          "title": "services",
+          "width": 254
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 55,
+          "rawOverflow": false,
+          "scrollWidth": 254,
+          "title": "dependencies",
+          "width": 254
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 0,
+          "rawOverflow": false,
+          "scrollWidth": 254,
+          "title": "contracts",
+          "width": 254
+        }
+      ],
+      "pageWidth": 887,
+      "width": 897
+    },
+    {
+      "mode": "expanded-evidence",
+      "cards": [
+        {
+          "headerOverflow": false,
+          "openEvidence": 1,
+          "overflowingPills": 0,
+          "pills": 10,
+          "rawOverflow": false,
+          "scrollWidth": 254,
+          "title": "services",
+          "width": 254
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 55,
+          "rawOverflow": false,
+          "scrollWidth": 254,
+          "title": "dependencies",
+          "width": 254
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 0,
+          "rawOverflow": false,
+          "scrollWidth": 254,
+          "title": "contracts",
+          "width": 254
+        }
+      ],
+      "pageWidth": 887,
+      "width": 897
+    },
+    {
+      "mode": "desktop-expanded-evidence",
+      "cards": [
+        {
+          "headerOverflow": false,
+          "openEvidence": 1,
+          "overflowingPills": 0,
+          "pills": 10,
+          "rawOverflow": false,
+          "scrollWidth": 409,
+          "title": "services",
+          "width": 409
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 55,
+          "rawOverflow": false,
+          "scrollWidth": 409,
+          "title": "dependencies",
+          "width": 409
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 0,
+          "rawOverflow": false,
+          "scrollWidth": 409,
+          "title": "contracts",
+          "width": 409
+        }
+      ],
+      "pageWidth": 1430,
+      "width": 1440
+    },
+    {
+      "mode": "mobile-expanded-evidence",
+      "cards": [
+        {
+          "headerOverflow": false,
+          "openEvidence": 1,
+          "overflowingPills": 0,
+          "pills": 10,
+          "rawOverflow": false,
+          "scrollWidth": 309,
+          "title": "services",
+          "width": 309
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 55,
+          "rawOverflow": false,
+          "scrollWidth": 309,
+          "title": "dependencies",
+          "width": 309
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 0,
+          "rawOverflow": false,
+          "scrollWidth": 309,
+          "title": "contracts",
+          "width": 309
+        }
+      ],
+      "pageWidth": 380,
+      "width": 390
+    },
+    {
+      "mode": "small-mobile-expanded-evidence",
+      "cards": [
+        {
+          "headerOverflow": false,
+          "openEvidence": 1,
+          "overflowingPills": 0,
+          "pills": 10,
+          "rawOverflow": false,
+          "scrollWidth": 239,
+          "title": "services",
+          "width": 239
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 55,
+          "rawOverflow": false,
+          "scrollWidth": 239,
+          "title": "dependencies",
+          "width": 239
+        },
+        {
+          "headerOverflow": false,
+          "openEvidence": 0,
+          "overflowingPills": 0,
+          "pills": 0,
+          "rawOverflow": false,
+          "scrollWidth": 239,
+          "title": "contracts",
+          "width": 239
+        }
+      ],
+      "pageWidth": 310,
+      "width": 320
+    }
+  ],
+  "consoleErrors": [],
+  "validation": [
+    "frontend lint passed",
+    "production build passed",
+    "nginx configuration passed"
+  ],
+  "scope": "Layout only; comparison data unchanged; no backend tests rerun"
+}

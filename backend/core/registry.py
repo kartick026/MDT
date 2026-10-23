@@ -5,12 +5,20 @@ import re
 import threading
 import logging
 from pathlib import Path
+from contextvars import ContextVar
+from contextlib import contextmanager
 from typing import Dict, List, Any, Optional
 from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 REGISTRY_FILE = Path(__file__).parent.parent / "data" / "registry.json"
+_scoped_registry = ContextVar("mdt_registry_snapshot", default=None)
+_scoped_project = ContextVar("mdt_project_id", default=None)
+
+
+def current_project_id():
+    return _scoped_project.get()
 
 
 def _normalize_repository_key(repo_url: str) -> str:
@@ -175,7 +183,21 @@ class RegistryManager:
     _lock = threading.Lock()
 
     @classmethod
+    @contextmanager
+    def use_snapshot(cls, data, project_id):
+        """Bind an owned registry to this task, including inherited async threads."""
+        token = _scoped_registry.set(copy.deepcopy(data))
+        project_token = _scoped_project.set(project_id)
+        try:
+            yield
+        finally:
+            _scoped_registry.reset(token)
+            _scoped_project.reset(project_token)
+
+    @classmethod
     def load(cls) -> Dict[str, Any]:
+        if _scoped_registry.get() is not None:
+            return copy.deepcopy(_scoped_registry.get())
         with cls._lock:
             if cls._cache is not None:
                 return copy.deepcopy(cls._cache)
@@ -197,6 +219,9 @@ class RegistryManager:
 
     @classmethod
     def save(cls, data: Dict[str, Any]):
+        if _scoped_registry.get() is not None:
+            _scoped_registry.set(copy.deepcopy(data))
+            return
         with cls._lock:
             if isinstance(data, dict) and "services" in data:
                 for svc in data["services"]:

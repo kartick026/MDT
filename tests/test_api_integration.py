@@ -14,6 +14,8 @@ from app import app
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app) as test_client:
+        from core.auth import create_access_token
+        test_client.headers["Authorization"] = "Bearer " + create_access_token({"sub": "admin"})
         yield test_client
 
 
@@ -69,7 +71,7 @@ def test_registry_file_mappings_endpoint(client):
 
 def test_invalid_service_creation_rejected(client):
     # Unauthenticated returns 401
-    unauth_response = client.post("/registry/services", json={})
+    unauth_response = client.post("/registry/services", json={}, headers={"Authorization": ""})
     assert unauth_response.status_code == 401
 
     # Authenticated but invalid payload (missing required name and port) returns 422

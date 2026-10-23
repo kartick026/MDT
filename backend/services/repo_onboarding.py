@@ -2,6 +2,7 @@ import asyncio
 import difflib
 import logging
 import os
+import posixpath
 import re
 import subprocess
 import tempfile
@@ -10,16 +11,20 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Callable
 
 from core.config import settings
-from core.registry import RegistryManager
+from core.registry import RegistryManager, current_project_id
 from services.dependency_graph import DependencyGraph
 from services.git_analyzer import (
-    GitHubAPIClient,
+    GitHubAPIClient, GitHubRateLimitError, GitAnalyzer, ASTAnalyzer, MAX_SOURCE_BYTES, MAX_TOTAL_SOURCE_BYTES, _safe_source_path,
+    extract_route_signatures, _EXT_TO_LANG,
     _parse_github_url,
     _find_git_dir,
     _is_local_workspace_match,
 )
 from services.connection_validator import ConnectionValidator, ConnectionBug
 from services.github_app import GitHubAppAuth
+from services.deployment_evidence import (compose_ports, compose_references, literal_endpoint, merge_source_calls,
+                                        dotenv_literals, compose_default_config, compose_env_files)
+from services.aspire_discovery import discover_aspire
 
 logger = logging.getLogger(__name__)
 
@@ -145,23 +150,17 @@ def _get_local_tree(git_dir: Path, ref: str) -> List[str]:
 
 
 def _get_local_file_content(git_dir: Path, ref: str, file_path: str) -> str:
-    """Read file content at a given ref using local git in < 5ms."""
-    clean_p = file_path.replace("\\", "/").lstrip("/")
-    for cand_ref in [ref, f"origin/{ref}"]:
-        try:
-            res = subprocess.run(
-                ["git", "--git-dir", str(git_dir), "show", f"{cand_ref}:{clean_p}"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=3,
-            )
-            if res.returncode == 0:
-                return res.stdout
-        except Exception as exc:
-            logger.debug("Local git show failed for %s at %s: %s", clean_p, cand_ref, exc)
-    return ""
+    """Read an exact bounded blob; do not follow symlinks in a checked-out worktree."""
+    from git import Repo
+    path = _safe_source_path(file_path)
+    try:
+        blob = Repo(git_dir).commit(ref).tree[path]
+        if blob.size > MAX_SOURCE_BYTES:
+            raise ValueError("Source exceeds the 256 KiB limit.")
+        return blob.data_stream.read(MAX_SOURCE_BYTES + 1).decode("utf-8")
+    except KeyError:
+        return ""
+
 
 class RepoOnboarder:
     """
@@ -199,125 +198,31 @@ class RepoOnboarder:
             if _is_local_workspace_match(repo_url):
                 git_dir = _find_git_dir()
                 if git_dir and git_dir.exists():
-                    local_branches = await asyncio.to_thread(_get_local_branches, git_dir)
-                    target_branch = None
-                    if clean_branch in local_branches:
-                        target_branch = clean_branch
-                    else:
-                        for b in local_branches:
-                            if b.lower() == clean_branch.lower():
-                                target_branch = b
-                                break
-
-                    if not target_branch:
-                        suggestion = _find_best_branch_match(clean_branch, local_branches)
-                        avail_str = ", ".join(local_branches[:8]) if local_branches else "none"
-                        err_msg = f"Branch '{clean_branch}' not found in repository."
-                        if suggestion:
-                            err_msg += f" Did you mean '{suggestion}'?"
-                        err_msg += f" Available branches: {avail_str}"
-                        raise ValueError(err_msg)
-
-                    logger.info("Using local git fast-path for %s on branch %s", repo_url, target_branch)
+                    from git import Repo
+                    try:
+                        target_branch = Repo(git_dir).commit(clean_branch).hexsha
+                    except Exception as exc:
+                        raise ValueError(f"Requested revision '{clean_branch}' is unavailable.") from exc
                     tree = await asyncio.to_thread(_get_local_tree, git_dir, target_branch)
                     async def _local_get_content(path: str) -> str:
                         return await asyncio.to_thread(_get_local_file_content, git_dir, target_branch, path)
                     get_content_fn = _local_get_content
                     clean_branch = target_branch
 
-            # -------------------------------------------------------------
-            # Strategy 2: Cloned Repository Fast-Path (Single shallow clone, serves all files from disk)
-            # -------------------------------------------------------------
             if get_content_fn is None:
-                clone_url = f"https://github.com/{owner}/{repo}.git"
-                dynamic_token = await GitHubAppAuth.get_installation_token_for_repo(repo_url)
-                if dynamic_token:
-                    self.gh_client._token = dynamic_token
-                    self.gh_client._headers["Authorization"] = f"Bearer {dynamic_token}"
-                    clone_url = f"https://x-access-token:{dynamic_token}@github.com/{owner}/{repo}.git"
-
-                loop = asyncio.get_running_loop()
-                def _attempt_shallow_clone():
-                    td = tempfile.TemporaryDirectory()
-                    try:
-                        res = subprocess.run(
-                            ["git", "clone", "--depth=1", "--single-branch", "--branch", clean_branch, clone_url, td.name],
-                            capture_output=True,
-                            text=True,
-                            encoding="utf-8",
-                            errors="replace",
-                            timeout=25,
-                        )
-                        if res.returncode == 0:
-                            tree_res = subprocess.run(
-                                ["git", "--git-dir", os.path.join(td.name, ".git"), "ls-files"],
-                                capture_output=True,
-                                text=True,
-                                encoding="utf-8",
-                                errors="replace",
-                                timeout=5,
-                            )
-                            flist = [l.strip() for l in tree_res.stdout.splitlines() if l.strip()]
-                            return td, flist
-                        td.cleanup()
-                        err_out = res.stderr or res.stdout
-                        return None, err_out
-                    except Exception as e:
-                        td.cleanup()
-                        return None, str(e)
-
-                td_obj, clone_result = await loop.run_in_executor(None, _attempt_shallow_clone)
-                if td_obj is not None and isinstance(clone_result, list):
-                    temp_dir_obj = td_obj
-                    tree = clone_result
-                    td_path = Path(td_obj.name)
-                    logger.info("Successfully shallow-cloned %s/%s at branch %s (%d files)", owner, repo, clean_branch, len(tree))
-
-                    async def _disk_get_content(path: str) -> str:
-                        clean_p = path.replace("\\", "/").lstrip("/")
-                        full_p = td_path / clean_p
-                        if full_p.is_file():
-                            try:
-                                return full_p.read_text(encoding="utf-8", errors="replace")
-                            except Exception as exc:
-                                logger.debug("Reading cloned file %s failed: %s", full_p, exc)
-                                return ""
-                        return ""
-
-                    get_content_fn = _disk_get_content
-                else:
-                    clone_err_str = str(clone_result)
-                    if "Remote branch" in clone_err_str or "not found in upstream" in clone_err_str:
-                        remote_branches = await asyncio.to_thread(_get_remote_branches_via_ls_remote, clone_url)
-                        if remote_branches and clean_branch not in remote_branches:
-                            suggestion = _find_best_branch_match(clean_branch, remote_branches)
-                            avail_str = ", ".join(remote_branches[:8])
-                            err_msg = f"Branch '{clean_branch}' not found on remote {repo_url}."
-                            if suggestion:
-                                err_msg += f" Did you mean '{suggestion}'?"
-                            err_msg += f" Available branches: {avail_str}"
-                            raise ValueError(err_msg)
-
-            # -------------------------------------------------------------
-            # Strategy 3: Remote GitHub REST API Fallback
-            # -------------------------------------------------------------
-            if get_content_fn is None:
-                tree = await self.gh_client.get_repo_tree(owner, repo, clean_branch)
-                if not tree:
-                    remote_branches = await asyncio.to_thread(
-                        _get_remote_branches_via_ls_remote, f"https://github.com/{owner}/{repo}.git"
-                    )
-                    if remote_branches and clean_branch not in remote_branches:
-                        suggestion = _find_best_branch_match(clean_branch, remote_branches)
-                        avail_str = ", ".join(remote_branches[:8])
-                        err_msg = f"Branch '{clean_branch}' not found on {owner}/{repo}."
-                        if suggestion:
-                            err_msg += f" Did you mean '{suggestion}'?"
-                        err_msg += f" Available branches: {avail_str}"
-                        raise ValueError(err_msg)
-
+                token = await GitHubAppAuth.get_installation_token_for_repo(repo_url)
+                if token:
+                    self.gh_client._token = token
+                    self.gh_client._headers["Authorization"] = f"Bearer {token}"
+                analyzer = GitAnalyzer()
+                analyzer._gh = self.gh_client
+                revision = await analyzer.resolve_commit_sha(repo_url, clean_branch)
+                if not revision:
+                    raise ValueError(f"Requested revision '{clean_branch}' could not be resolved.")
+                clean_branch = revision
+                tree = await self.gh_client.get_repo_tree(owner, repo, revision)
                 async def _gh_get_content(path: str) -> str:
-                    return await self.gh_client.get_file_content(owner, repo, path, clean_branch)
+                    return await self.gh_client.get_file_content(owner, repo, path, revision)
                 get_content_fn = _gh_get_content
 
             tree_set = {p.replace("\\", "/").strip("/") for p in tree} if tree else set()
@@ -348,10 +253,19 @@ class RepoOnboarder:
             dependencies: List[Dict[str, Any]] = []
             file_mappings: Dict[str, str] = {}
             service_files: Dict[str, Dict[str, str]] = {}
+            compose_warnings = []
 
             if compose_content:
                 logger.info("Found %s in %s/%s", compose_filename, owner, repo)
-                services, dependencies, file_mappings = self._parse_compose(compose_content)
+                defaults = {}
+                if ".env" in tree_set:
+                    try:
+                        defaults = dotenv_literals(await get_content_fn(".env"))
+                    except Exception:
+                        pass  # Unavailable defaults remain unresolved, never read from this host.
+                file_environments, compose_warnings = await compose_env_files(
+                    compose_content, compose_filename, tree_set, get_content_fn, defaults)
+                services, dependencies, file_mappings = self._parse_compose(compose_content, compose_filename, defaults, file_environments)
 
             if render_content:
                 logger.info("Found %s in %s/%s", render_filename, owner, repo)
@@ -361,6 +275,27 @@ class RepoOnboarder:
                         services.append(r_s)
                 dependencies.extend(r_dependencies)
                 file_mappings.update(r_file_mappings)
+
+            # Alternative deployment systems are separate configurations, not a
+            # union of simultaneously deployed services.
+            if services:
+                k_services, k_dependencies, k_mappings = [], [], {}
+                discovery = {"sources": [], "warnings": [], "selected_manifest": compose_filename or render_filename}
+            else:
+                k_services, k_dependencies, k_mappings, discovery = await self._discover_kubernetes(tree, get_content_fn)
+            for service in k_services:
+                if not any(existing["name"] == service["name"] for existing in services):
+                    services.append(service)
+            dependencies.extend(k_dependencies)
+            for prefix, name in k_mappings.items():
+                file_mappings.setdefault(prefix, name)
+            discovery["sources"] = (["compose"] if compose_content else []) + (["render"] if render_content else []) + discovery["sources"]
+            if not services:
+                services, dependencies, file_mappings, aspire_metadata = await discover_aspire(tree, get_content_fn)
+                discovery["sources"].extend(aspire_metadata["sources"])
+                discovery["warnings"].extend(aspire_metadata["warnings"])
+                if aspire_metadata["sources"]:
+                    discovery["selected_manifest_files"] = aspire_metadata["selected_manifest_files"]
 
             # 4. Discover additional/polyglot service directories or fallback to directory structure
             services, dependencies, file_mappings = await self._infer_from_file_tree(
@@ -372,100 +307,30 @@ class RepoOnboarder:
                 existing_dependencies=dependencies,
                 existing_mappings=file_mappings,
             )
+            discovery["sources"] = sorted(set(discovery["sources"]) | {
+                service.get("discovery_kind", "unknown") for service in services})
 
             if not services:
                 raise ValueError(
-                    f"No microservices could be discovered in {repo_url} (checked docker-compose, render.yaml, and directory structures)."
+                    "Insufficient architecture evidence: no supported deployment topology or application entrypoints "
+                    f"were discovered in {repo_url}. Framework-specific deployment definitions may be unsupported."
                 )
 
-            # 5. Fetch primary source code files for each service concurrently
-            async def fetch_service_entrypoints(svc: Dict[str, Any]) -> tuple[str, Dict[str, str]]:
-                sname = svc["name"]
-                prefix = ""
-                for pref, mapped_name in file_mappings.items():
-                    if mapped_name == sname:
-                        prefix = pref.rstrip("/")
-                        break
-
-                matched_candidates = []
-                if tree:
-                    norm_prefix = f"{prefix}/" if prefix else ""
-                    for p in tree:
-                        clean_p = p.replace("\\", "/").strip("/")
-                        if norm_prefix:
-                            if clean_p.startswith(norm_prefix):
-                                rel_p = clean_p[len(norm_prefix):]
-                                if rel_p in COMMON_ENTRY_NAMES or Path(clean_p).name.lower() in [
-                                    "main.py", "app.py", "server.py", "api.py", "page.tsx", "page.jsx",
-                                    "index.js", "server.js", "app.jsx", "main.jsx", "app.tsx", "main.tsx"
-                                ]:
-                                    matched_candidates.append(clean_p)
-                        else:
-                            if clean_p in COMMON_ENTRY_NAMES:
-                                matched_candidates.append(clean_p)
-
-                    # If still nothing matched, grab any source code file in that service directory
-                    if not matched_candidates and norm_prefix:
-                        for p in tree:
-                            clean_p = p.replace("\\", "/").strip("/")
-                            if clean_p.startswith(norm_prefix):
-                                ext = Path(clean_p).suffix.lower()
-                                if ext in {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".cs", ".php", ".rb"}:
-                                    matched_candidates.append(clean_p)
-                                    if len(matched_candidates) >= 2:
-                                        break
-
-                fallback_candidates = [
-                    f"{prefix}/main.py",
-                    f"{prefix}/app.py",
-                    f"{prefix}/server.js",
-                    f"{prefix}/index.js",
-                ] if prefix else ["main.py", "app.py", "server.js", "index.js"]
-
-                if tree_set:
-                    candidates = [c for c in matched_candidates if c.lstrip("/") in tree_set]
-                else:
-                    candidates = matched_candidates or fallback_candidates
-
-                found = {}
-                for cand in candidates:
-                    cand_clean = cand.lstrip("/")
-                    code = await get_content_fn(cand_clean)
-                    if code:
-                        found[cand_clean] = code
-                        break  # Stop at first valid entrypoint file
-                return sname, found
-
-            results = await asyncio.gather(*(fetch_service_entrypoints(svc) for svc in services))
-            for sname, found in results:
-                service_files[sname] = found
+            # Read source across each service, retaining coverage and file evidence.
+            service_files, coverage = await self._collect_service_sources(services, file_mappings, tree, get_content_fn)
+            coverage["discovery"] = discovery
+            coverage["transport_evidence"] = getattr(self.gh_client, "source_evidence", {})
+            coverage["warnings"].extend(discovery["warnings"])
+            coverage["warnings"].extend(compose_warnings)
+            if compose_content:
+                coverage["warnings"].append("compose_uses_recorded_defaults_not_runtime_environment")
+            if any(edge.get("evidence_kind") == "compose_startup_order" for edge in dependencies):
+                coverage["warnings"].append("compose_dependencies_are_startup_order_not_verified_calls")
+            coverage["warnings"].append("static_topology_is_not_complete_runtime_communication")
+            coverage["partial"] = True
 
             # 6. Extract cross-service dependencies from static code analysis & validate connections
-            for sname, files in service_files.items():
-                if sname == "unknown":
-                    continue
-                for fpath, code in files.items():
-                    calls = ConnectionValidator.extract_outbound_calls(code, file_path=fpath)
-                    for call in calls:
-                        target_host = call["host"]
-                        target_port = call["port"]
-                        call_path = call["path"] or "/"
-                        target_svc = ConnectionValidator._resolve_host_to_service(
-                            target_host, target_port, {s["name"]: s for s in services}
-                        )
-                        if target_svc and target_svc != sname and any(s["name"] == target_svc for s in services):
-                            clean_endpoint = call_path if call_path != "/" else "/"
-                            existing = next((d for d in dependencies if d["from"] == sname and d["to"] == target_svc), None)
-                            if existing:
-                                if existing.get("endpoint") in ("/", "") and clean_endpoint not in ("/", ""):
-                                    existing["endpoint"] = clean_endpoint
-                            else:
-                                dependencies.append({
-                                    "from": sname,
-                                    "to": target_svc,
-                                    "type": "http",
-                                    "endpoint": clean_endpoint,
-                                })
+            dependencies = merge_source_calls(services, service_files, dependencies, ConnectionValidator)
 
             connection_bugs = ConnectionValidator.validate_topology(services, service_files)
 
@@ -476,42 +341,28 @@ class RepoOnboarder:
 
                 # Extract exposed endpoints from entrypoint code
                 svc_routes = []
+                svc_contracts = []
                 files = service_files.get(sname, {})
                 for fpath, code in files.items():
-                    routes = ConnectionValidator.extract_routes_from_code(code)
+                    language = _EXT_TO_LANG.get(Path(fpath).suffix.lower(), "unknown")
+                    contracts = extract_route_signatures(code, language)
+                    svc_contracts.extend({**contract, "source_file": fpath} for contract in contracts)
+                    routes = [contract["path"] for contract in contracts] if language in {"python", "javascript", "typescript"} else ConnectionValidator.extract_routes_from_code(code)
                     svc_routes.extend(routes)
 
                 svc_routes = list(dict.fromkeys(svc_routes))
+                svc["api_endpoints"] = svc_contracts
                 if svc_routes:
-                    svc["api_count"] = len(svc_routes)
+                    svc["api_count"] = len({(c["method"], c["path"]) for c in svc_contracts}) or len(svc_routes)
                     svc["endpoints"] = svc_routes
                 else:
-                    is_web = any(k in sname.lower() for k in ["frontend", "ui", "web", "client"])
-                    svc["api_count"] = 1 if is_web else (len([d for d in dependencies if d['to'] == sname]) or 1)
-                    svc["endpoints"] = ["/"] if is_web else []
+                    svc["api_count"] = 0
+                    svc["endpoints"] = []
+                svc["contract_coverage"] = ("observed_static" if svc_contracts else "not_observed")
 
-                # Calculate risk based on architectural defects
-                src_bugs = [b for b in connection_bugs if b.source_service == sname]
-                tgt_bugs = [b for b in connection_bugs if b.target_service == sname]
-
-                if any(b.severity == "CRITICAL" for b in src_bugs):
-                    score = 80.0
-                    level = "CRITICAL"
-                elif any(b.severity == "HIGH" for b in src_bugs):
-                    score = 60.0
-                    level = "HIGH"
-                elif any(b.severity == "MEDIUM" for b in src_bugs):
-                    score = 40.0
-                    level = "MEDIUM"
-                elif tgt_bugs:
-                    score = 25.0
-                    level = "LOW"
-                else:
-                    score = 15.0 + min(15.0, len([d for d in dependencies if d['from'] == sname or d['to'] == sname]) * 5.0)
-                    level = "LOW"
-
-                svc["risk_score"] = round(score, 1)
-                svc["risk_level"] = level
+                # Importing a topology is not a commit-risk assessment.
+                svc["risk_score"] = None
+                svc["risk_level"] = "UNKNOWN"
 
             # 8. Save to RegistryManager and Neo4j (Wipe previous project so architectures never mix)
             RegistryManager.clear()
@@ -519,14 +370,17 @@ class RepoOnboarder:
 
             for svc in services:
                 RegistryManager.add_service(svc)
-                await self.dep_graph.add_service(svc["name"], svc)
+                # Neo4j node properties cannot contain maps. The owned raw
+                # snapshot retains structured contracts; the legacy graph gets
+                # scalar metadata and its existing endpoint strings only.
+                await self.dep_graph.add_service(svc["name"], {key: value for key, value in svc.items() if key != "api_endpoints"})
 
             for dep in dependencies:
                 RegistryManager.add_dependency(
                     dep["from"], dep["to"], dep.get("type", "http"), dep.get("endpoint", "")
                 )
                 await self.dep_graph.add_dependency(
-                    dep["from"], dep["to"], dep.get("type", "http"), dep.get("endpoint", "")
+                    dep["from"], dep["to"], dep.get("type", "http"), dep.get("endpoint", ""), evidence=dep
                 )
 
             for prefix, svc_name in file_mappings.items():
@@ -536,30 +390,16 @@ class RepoOnboarder:
             # Manual impact analysis can now reject a different repository instead
             # of applying these service mappings to unrelated source files.
             RegistryManager.set_project_context(repo_url, clean_branch, source="repository")
-
-            # 9. Persist initial architectural risk audit in Neo4j analysis history
-            avg_score = round(sum(s.get("risk_score", 0) for s in services) / max(len(services), 1), 1)
-            overall_severity = (
-                "CRITICAL" if avg_score >= settings.RISK_HIGH
-                else ("HIGH" if avg_score >= settings.RISK_MEDIUM
-                else ("MEDIUM" if avg_score >= settings.RISK_LOW else "LOW"))
-            )
-
-            try:
-                await self.dep_graph.record_analysis(
-                    commit_sha=f"import-{clean_branch[:12]}",
-                    service_names=[s["name"] for s in services],
-                    risk_score=avg_score,
-                    severity=overall_severity,
-                    changed_files=list(file_mappings.keys()) or ["repository_root"],
-                    repo_url=repo_url,
-                    branch_ref=clean_branch,
-                )
-            except Exception as e:
-                logger.warning("Could not record initial architecture analysis: %s", e)
+            snapshot = RegistryManager.load()
+            snapshot["dependencies"] = dependencies  # Preserve route/file provenance and distinct calls.
+            snapshot["coverage"] = coverage
+            snapshot.setdefault("project", {})["revision"] = clean_branch
+            RegistryManager.save(snapshot)
 
             return {
-                "status": "success",
+                "status": "partial" if coverage["partial"] else "success",
+                "coverage": coverage,
+                "revision": clean_branch,
                 "repo_url": repo_url,
                 "branch": clean_branch,
                 "project_context": RegistryManager.get_project_context(),
@@ -578,7 +418,262 @@ class RepoOnboarder:
                 except Exception as exc:
                     logger.debug("Failed cleaning up temporary directory %s: %s", getattr(temp_dir_obj, 'name', 'unknown'), exc)
 
-    def _parse_compose(self, yaml_content: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, str]]:
+    async def _collect_service_sources(self, services, file_mappings, tree, get_content):
+        """Inspect up to 100 files/2 MiB across the project, not only service entrypoints."""
+        extensions = {".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".go", ".rs", ".java", ".cs", ".php", ".rb"}
+        ignored = {"node_modules", ".git", "venv", ".venv", "dist", "build", "vendor", "__pycache__"}
+        results = {service["name"]: {} for service in services}
+        candidates = []
+        for path in sorted(set(tree)):
+            path = _safe_source_path(path)
+            if Path(path).suffix.lower() not in extensions or set(path.split("/")) & ignored:
+                continue
+            prefixes = [(prefix, service) for prefix, service in file_mappings.items()
+                        if not prefix or path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/")]
+            if prefixes:
+                _, service = max(prefixes, key=lambda match: len(match[0]))
+                if service in results:
+                    candidates.append((service, path))
+        # Round robin prevents one large frontend from consuming every file slot.
+        # Each queue retains deterministic entrypoint-first ordering.
+        queues = {service: [] for service in results}
+        for service, path in candidates:
+            queues[service].append(path)
+        for files in queues.values():
+            files.sort(key=lambda path: (Path(path).name.lower() not in COMMON_ENTRY_NAMES, path))
+        candidates = [(service, files[index]) for index in range(max(map(len, queues.values()), default=0))
+                      for service, files in sorted(queues.items()) if index < len(files)]
+        coverage = {"candidate_files": len(candidates), "files_read": 0, "bytes_read": 0,
+                    "files_candidates": len(candidates), "files_attempted": 0,
+                    "warnings": [], "source": "static_source", "per_service": {}, "parsers": {},
+                    "per_service_parsed": {service: 0 for service in results},
+                    "per_service_candidates": {service: len(files) for service, files in queues.items()}}
+        for service, path in candidates[:100]:
+            if coverage["bytes_read"] >= MAX_TOTAL_SOURCE_BYTES:
+                coverage["warnings"].append("total_source_limit_reached")
+                break
+            try:
+                coverage["files_attempted"] += 1
+                source = await get_content(path)
+                size = len(source.encode("utf-8"))
+                if size > MAX_SOURCE_BYTES or coverage["bytes_read"] + size > MAX_TOTAL_SOURCE_BYTES:
+                    coverage["warnings"].append(f"source_size_limit:{path}")
+                    continue
+                # A tree-listed empty module is valid Python/JS source. Transport
+                # failures raise above; emptiness must not consume coverage as a failure.
+                results[service][path] = source
+                coverage["files_read"] += 1
+                coverage["bytes_read"] += size
+                language = _EXT_TO_LANG.get(Path(path).suffix.lower(), "unknown")
+                parser = "heuristic"
+                if language in {"javascript", "typescript"}:
+                    parsed = ASTAnalyzer().analyze(source, language)
+                    parser = parsed.get("parser_coverage", "failed")
+                    coverage["warnings"].extend(f"{warning}:{path}" for warning in parsed.get("parser_warnings", []))
+                elif language == "python":
+                    import ast
+                    try:
+                        ast.parse(source)
+                        parser = "ast"
+                    except (SyntaxError, ValueError, RecursionError):
+                        parser = "failed"
+                        coverage["warnings"].append(f"source_parse_failed:{path}")
+                coverage["parsers"][parser] = coverage["parsers"].get(parser, 0) + 1
+                if parser in {"ast", "tree_sitter"}:
+                    coverage["per_service_parsed"][service] += 1
+            except GitHubRateLimitError as exc:
+                coverage["warnings"].append(f"{exc.evidence}:{path}")
+            except Exception:
+                coverage["warnings"].append(f"source_unavailable:{path}")
+        if len(candidates) > 100:
+            coverage["warnings"].append("source_file_limit_reached")
+        coverage["per_service"] = {service: len(files) for service, files in results.items()}
+        coverage["missing_source_services"] = [service["name"] for service in services
+            if service.get("source_expected", service["name"] in file_mappings.values())
+            and not results[service["name"]]]
+        coverage["unsupported_contract_services"] = [service["name"] for service in services
+            if service.get("source_expected", service["name"] in file_mappings.values())
+            and service.get("language") not in {"python", "javascript", "typescript"}]
+        coverage["external_source_services"] = [service["name"] for service in services
+            if service.get("node_type", "service") == "service" and not results[service["name"]]]
+        if coverage["external_source_services"]:
+            coverage["warnings"].append("application_source_unavailable_for_declared_services")
+        coverage["partial"] = (coverage["files_read"] < len(candidates) or bool(coverage["warnings"])
+            or bool(coverage["missing_source_services"]) or bool(coverage["unsupported_contract_services"]))
+        return results, coverage
+
+    @staticmethod
+    def _source_prefix(path: Any) -> Optional[str]:
+        """Accept repository-relative paths only; never turn ../ into an in-repo mapping."""
+        if not isinstance(path, str) or not path.strip() or "$" in path:
+            return None
+        path = path.replace("\\", "/")
+        if path.startswith("/") or re.match(r"^[a-zA-Z]+:", path):
+            return None
+        normalized = posixpath.normpath(path)
+        if normalized == ".." or normalized.startswith("../"):
+            return None
+        return "" if normalized == "." else normalized.strip("/")
+
+    async def _discover_kubernetes(self, tree, get_content):
+        """Read bounded plain manifests. Never render Helm, run kubectl or infer calls from names."""
+        directories = {"k8s", "kubernetes", "kubernetes-manifests", "manifests", "deployments"}
+        candidates = sorted(path for path in set(tree)
+            if Path(path).suffix.lower() in {".yaml", ".yml"}
+            and (set(path.lower().split("/")[:-1]) & directories or Path(path).name.startswith("kubernetes"))
+            and not set(path.lower().split("/")) & {"examples", "docs", "tests", "test", "node_modules", "vendor"})
+        # Read direct manifests in one nearest deployment directory before optional
+        # monitoring trees, overlays and copies consume the entire read budget.
+        direct = [path for path in candidates if posixpath.basename(posixpath.dirname(path)) in directories]
+        excluded = 0
+        if direct:
+            roots = sorted({posixpath.dirname(path) for path in direct}, key=lambda root: (root.count("/"), root))
+            selected = roots[0]
+            chosen = [path for path in direct if posixpath.dirname(path) == selected]
+            excluded, candidates = len(candidates) - len(chosen), chosen
+        metadata = {"sources": [], "warnings": [], "manifest_files_read": 0,
+                    "dependency_coverage": "static_only", "unsupported_protocols": []}
+        metadata["selected_manifest_files"] = candidates[:32]
+        metadata["alternative_manifest_files_excluded"] = excluded
+        if excluded:
+            metadata["warnings"].append("alternative_kubernetes_configurations_not_combined")
+        if len(candidates) > 32:
+            metadata["warnings"].append("kubernetes_manifest_file_limit_reached")
+        documents, total_bytes = [], 0
+        for path in candidates[:32]:
+            try:
+                content = await get_content(path)
+                total_bytes += len(content.encode("utf-8"))
+                if len(content.encode("utf-8")) > MAX_SOURCE_BYTES or total_bytes > MAX_TOTAL_SOURCE_BYTES:
+                    metadata["warnings"].append("kubernetes_manifest_size_limit_reached")
+                    break
+                if "{{" in content:
+                    metadata["warnings"].append(f"kubernetes_template_unresolved:{path}")
+                    continue
+                # Reject aliases in deployment discovery to bound YAML object expansion.
+                if any(isinstance(token, yaml.tokens.AliasToken) for token in yaml.scan(content)):
+                    metadata["warnings"].append(f"kubernetes_yaml_alias_unsupported:{path}")
+                    continue
+                for document in yaml.safe_load_all(content):
+                    if len(documents) >= 256:
+                        metadata["warnings"].append("kubernetes_document_limit_reached")
+                        break
+                    if isinstance(document, dict):
+                        documents.append((path, document))
+                metadata["manifest_files_read"] += 1
+            except Exception:
+                metadata["warnings"].append(f"kubernetes_manifest_unavailable:{path}")
+        workloads, service_docs = {}, []
+        for path, document in documents:
+            kind = document.get("kind")
+            meta = document.get("metadata") or {}
+            name = meta.get("name") if isinstance(meta, dict) else None
+            namespace = str(meta.get("namespace") or "default") if isinstance(meta, dict) else "default"
+            if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", name):
+                continue
+            if kind == "Service":
+                service_docs.append((namespace, name, document))
+            elif kind in {"Deployment", "StatefulSet", "DaemonSet", "Job"}:
+                spec = document.get("spec") or {}
+                template = spec.get("template") or {} if isinstance(spec, dict) else {}
+                template_spec = template.get("spec") or {} if isinstance(template, dict) else {}
+                containers = template_spec.get("containers") or [] if isinstance(template_spec, dict) else []
+                if not isinstance(containers, list) or not containers:
+                    continue
+                key = (namespace, name)
+                if key in workloads:
+                    metadata["warnings"].append(f"kubernetes_duplicate_workload:{namespace}/{name}")
+                    continue
+                template_meta = template.get("metadata") or {}
+                labels = template_meta.get("labels") or {} if isinstance(template_meta, dict) else {}
+                if not isinstance(labels, dict):
+                    labels = {}
+                workloads[key] = (path, containers, labels)
+        names = [name for _, name in workloads]
+        services, mappings, aliases, dependencies = [], {}, {}, []
+        for (namespace, name), (path, containers, labels) in sorted(workloads.items()):
+            # Preserve namespace identity when the same workload name occurs twice.
+            node_name = name if names.count(name) == 1 else f"{namespace}/{name}"
+            aliases[(namespace, name)] = node_name
+            port = None
+            for container in containers:
+                if not isinstance(container, dict):
+                    continue
+                ports = container.get("ports") or []
+                for item in ports if isinstance(ports, list) else []:
+                    if isinstance(item, dict) and isinstance(item.get("containerPort"), int):
+                        port = item["containerPort"]
+                        break
+                if port is not None:
+                    break
+            roots = [prefix for prefix in (f"src/{name}", f"services/{name}", f"apps/{name}", name)
+                     if any(file.startswith(prefix + "/") for file in tree)]
+            if len(roots) == 1:
+                mappings[roots[0]] = node_name
+            elif len(roots) > 1:
+                metadata["warnings"].append(f"ambiguous_workload_source:{node_name}")
+            node_type = next((kind for container in containers if isinstance(container, dict)
+                              if (kind := self._image_node_type(container.get("image", ""))) != "service"), "service")
+            services.append({"name": node_name, "display_name": name, "port": port, "node_type": node_type,
+                "description": f"Kubernetes {namespace}/{name}", "language": "unknown",
+                "discovery_kind": "kubernetes", "source_expected": bool(roots), "source_file": path})
+        for namespace, name, document in service_docs:
+            spec = document.get("spec") or {}
+            selector = spec.get("selector") or {} if isinstance(spec, dict) else {}
+            if not isinstance(selector, dict) or not selector:
+                continue
+            matches = [aliases[key] for key, (_, _, labels) in workloads.items()
+                       if key[0] == namespace and all(labels.get(k) == v for k, v in selector.items())]
+            if len(matches) == 1:
+                aliases[(namespace, name)] = matches[0]
+            elif len(matches) > 1:
+                metadata["warnings"].append(f"kubernetes_selector_ambiguous:{namespace}/{name}")
+        for (namespace, name), (path, containers, _) in sorted(workloads.items()):
+            source = aliases[(namespace, name)]
+            for container in containers:
+                if not isinstance(container, dict):
+                    continue
+                environment = container.get("env") or []
+                for item in environment if isinstance(environment, list) else []:
+                    if not isinstance(item, dict):
+                        continue
+                    value = item.get("value")
+                    # A literal endpoint declaration proves configuration reference,
+                    # not a runtime call, HTTP protocol or a verified gRPC contract.
+                    if not isinstance(value, str):
+                        if item.get("valueFrom"):
+                            metadata["warnings"].append(f"kubernetes_environment_unresolved:{source}:{item.get('name', '')}")
+                        continue
+                    resolved = literal_endpoint(value, str(item.get("name", "")))
+                    if not resolved:
+                        continue
+                    hostname, scheme, endpoint = resolved
+                    hostparts = hostname.split(".")
+                    target = aliases.get((hostparts[1] if len(hostparts) > 1 else namespace, hostparts[0]))
+                    if target and target != source:
+                        edge = {"from": source, "to": target, "type": scheme or "declared",
+                                "endpoint": endpoint or "", "evidence_kind": "kubernetes_env_reference",
+                                "source_file": path, "environment_variable": str(item.get("name", ""))}
+                        if edge not in dependencies:
+                            dependencies.append(edge)
+        if workloads:
+            metadata["sources"].append("kubernetes")
+            metadata["warnings"].append("kubernetes_environment_references_are_not_runtime_calls")
+        if any(path.endswith(".proto") for path in tree):
+            metadata["unsupported_protocols"].append("grpc_contracts")
+            metadata["warnings"].append("grpc_contracts_unresolved")
+        return services, dependencies, mappings, metadata
+
+    @staticmethod
+    def _image_node_type(image):
+        image = str(image).lower().split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0]
+        if image in {"postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb", "redis", "valkey", "neo4j", "chromadb", "chroma"}:
+            return "database"
+        if image in {"rabbitmq", "kafka", "nats", "zookeeper"}:
+            return "broker"
+        return "service"
+
+    def _parse_compose(self, yaml_content: str, source_file: str = "docker-compose.yml", defaults=None, file_environments=None) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, str]]:
         """Parse docker-compose.yml into services, dependencies, and file mappings."""
         services = []
         dependencies = []
@@ -590,38 +685,24 @@ class RepoOnboarder:
             logger.warning("Failed to parse docker-compose YAML: %s", e)
             return [], [], {}
 
+        if not isinstance(data, dict):
+            return [], [], {}
+
         compose_services = data.get("services", {})
         if not isinstance(compose_services, dict):
             return [], [], {}
+        compose_services = {name: compose_default_config(config, defaults or {}, (file_environments or {}).get(name))
+                            for name, config in compose_services.items() if isinstance(config, dict)}
 
         for sname, sconfig in compose_services.items():
             if not isinstance(sconfig, dict):
                 continue
 
-            # Ignore infrastructure services like databases/brokers in the microservices overview
-            image = str(sconfig.get("image", "")).lower()
-            if any(infra in sname.lower() or infra in image for infra in ["neo4j", "chroma", "redis", "postgres", "mysql", "rabbitmq", "kafka", "mongo"]):
-                continue
+            # Infrastructure belongs in the graph. Classify by declared image,
+            # never discard a service because its name contains a product word.
+            node_type = self._image_node_type(sconfig.get("image", ""))
 
-            # Parse port
-            port = 8000
-            host_port = 8000
-            ports = sconfig.get("ports", [])
-            if ports and isinstance(ports, list):
-                raw_port = str(ports[0])
-                if ":" in raw_port:
-                    parts = raw_port.split(":")
-                    try:
-                        host_port = int(parts[0].strip("'\""))
-                        port = int(parts[-1].strip("'\""))  # Container internal port
-                    except ValueError as val_exc:
-                        logger.debug("Failed parsing host/container port from %s: %s", raw_port, val_exc)
-                else:
-                    try:
-                        port = int(raw_port)
-                        host_port = port
-                    except ValueError as val_exc:
-                        logger.debug("Failed parsing raw port %s: %s", raw_port, val_exc)
+            port, host_port = compose_ports(sconfig)
 
             # Parse file context
             build_info = sconfig.get("build")
@@ -632,9 +713,16 @@ class RepoOnboarder:
                 context_path = build_info.get("context", "")
 
             # Normalize context path
-            clean_prefix = context_path.lstrip("./").strip("/")
+            clean_prefix = self._source_prefix(context_path)
+            # A shared root build context is not ownership of the entire repo.
+            # A nested Dockerfile is useful evidence of the service's source root.
+            if clean_prefix == "" and isinstance(build_info, dict):
+                dockerfile = self._source_prefix(build_info.get("dockerfile", "Dockerfile"))
+                clean_prefix = posixpath.dirname(dockerfile) if dockerfile else ""
             if clean_prefix:
                 file_mappings[clean_prefix] = sname
+            elif clean_prefix == "" and len(compose_services) == 1:
+                file_mappings[""] = sname
 
             display_name = sname.replace("-service", "").replace("_service", "").replace("-", " ").title() + " Service"
 
@@ -645,32 +733,40 @@ class RepoOnboarder:
                 "internal_port": port,
                 "host_port": host_port,
                 "published_port": host_port,
-                "url": f"http://{sname}:{port}",
+                "url": f"http://{sname}:{port}" if port is not None else None,
                 "description": f"Microservice defined in docker-compose ({sname})",
-                "language": self._infer_service_language(sconfig)
+                "language": self._infer_service_language(sconfig),
+                "node_type": node_type,
+                "discovery_kind": "compose",
+                "source_expected": build_info is not None,
             })
 
             # Parse dependencies (depends_on)
             deps = sconfig.get("depends_on", [])
             if isinstance(deps, list):
                 for dep in deps:
-                    if dep in compose_services and not any(infra in dep.lower() for infra in ["neo4j", "chroma", "redis", "postgres", "mongo"]):
+                    if dep in compose_services:
                         dependencies.append({
                             "from": sname,
                             "to": dep,
-                            "type": "http",
-                            "endpoint": "/"
+                            "type": "startup",
+                            "endpoint": "",
+                            "evidence_kind": "compose_startup_order"
                         })
             elif isinstance(deps, dict):
                 for dep in deps.keys():
-                    if dep in compose_services and not any(infra in dep.lower() for infra in ["neo4j", "chroma", "redis", "postgres", "mongo"]):
+                    if dep in compose_services:
                         dependencies.append({
                             "from": sname,
                             "to": dep,
-                            "type": "http",
-                            "endpoint": "/"
+                            "type": "startup",
+                            "endpoint": "",
+                            "evidence_kind": "compose_startup_order"
                         })
 
+        dependencies.extend(compose_references(compose_services, source_file))
+        names = {service["name"] for service in services}
+        dependencies = [edge for edge in dependencies if edge["from"] in names and edge["to"] in names]
         return services, dependencies, file_mappings
     def _parse_render(self, yaml_content: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, str]]:
         """Parse render.yaml into services, dependencies, and file mappings."""
@@ -688,7 +784,6 @@ class RepoOnboarder:
         if not isinstance(render_services, list):
             return [], [], {}
 
-        base_port = 8000
         for idx, svc in enumerate(render_services):
             if not isinstance(svc, dict):
                 continue
@@ -712,16 +807,18 @@ class RepoOnboarder:
             else:
                 lang = "python" if "uvicorn" in str(svc.get("startCommand", "")).lower() else "unknown"
 
-            port = base_port + idx
+            port = None
             display_name = sname.replace("-service", "").replace("_service", "").replace("-", " ").replace("_", " ").title() + " Service"
 
             services.append({
                 "name": sname,
                 "display_name": display_name,
                 "port": port,
-                "url": f"http://{sname}:{port}",
+                "url": f"http://{sname}:{port}" if port is not None else None,
                 "description": f"Service defined in render.yaml ({sname})",
-                "language": lang
+                "language": lang,
+                "discovery_kind": "render",
+                "source_expected": True,
             })
 
             if root_dir:
@@ -787,19 +884,14 @@ class RepoOnboarder:
             "docs", "doc", "test", "tests", ".github", ".vscode", ".idea",
             "scripts", "build", "deploy", "datasets", "results", ".streamlit",
             "assets", "static", "public", "dist", "node_modules", "venv",
-            ".git", "coverage", "common", "shared", "utils", "lib", "src"
+            ".git", "coverage", "common", "shared", "utils", "lib",
+            "examples", "example", "samples", "sample", "docs_src", "tutorial", "tutorials", "demos"
         }
         known_service_names = {
             "backend", "frontend", "server", "client", "api", "web", "ui",
             "gateway", "worker", "auth", "admin", "portal", "dashboard",
             "engine", "microservice", "service"
         }
-        code_entry_indicators = {
-            "main.py", "app.py", "server.js", "index.js", "package.json",
-            "requirements.txt", "dockerfile", "go.mod", "cargo.toml",
-            "pom.xml", "build.gradle", "tsconfig.json"
-        }
-
         # Map files by top-level or sub-package directory
         dir_files: Dict[str, List[str]] = {}
         root_files: List[str] = []
@@ -815,8 +907,10 @@ class RepoOnboarder:
             if top in ignored_roots:
                 continue
 
-            if top in ("services", "apps", "packages", "microservices") and len(parts) >= 2:
+            if top in ("services", "apps", "packages", "microservices", "src") and len(parts) >= 3:
                 skey = f"{top}/{parts[1]}"
+            elif top == "src":
+                continue
             else:
                 skey = top
 
@@ -824,23 +918,40 @@ class RepoOnboarder:
 
         already_mapped_dirs = set(file_mappings.keys())
         already_registered_names = {s["name"].lower() for s in services}
+        deployment_defined = any(service.get("discovery_kind") in {"kubernetes", "compose", "render", "aspire"} for service in services)
 
         # Determine which directories are actual services
         for sdir, files in dir_files.items():
             base_dir_name = sdir.split("/")[-1].lower()
 
-            if sdir in already_mapped_dirs or base_dir_name in already_registered_names:
+            if sdir in already_mapped_dirs:
+                continue
+
+            # A Compose declaration and its matching directory complement each
+            # other. Previously the existing name prevented the missing mapping.
+            existing = next((service for service in services if service["name"].lower() == base_dir_name), None)
+            if existing:
+                if existing.get("node_type", "service") == "service" and existing["name"] not in file_mappings.values():
+                    file_mappings[sdir] = existing["name"]
+                    existing["source_expected"] = True
+                continue
+            if deployment_defined:
+                # Shared Docker build templates, alternate profiles and source
+                # directory aliases are not additional deployed components.
                 continue
 
             is_service_dir = False
-            if base_dir_name in known_service_names:
+            direct_names = {file[len(sdir) + 1:].lower() for file in files}
+            explicit_entry = bool(direct_names & {"dockerfile", "procfile", "main.py", "app.py", "server.py",
+                                  "server.js", "server.ts", "main.go", "src/main.rs", "src/main.jsx",
+                                  "src/main.tsx", "app/page.tsx", "app/page.jsx"})
+            named_app = base_dir_name in known_service_names or "service" in base_dir_name
+            if "dockerfile" in direct_names or "procfile" in direct_names:
                 is_service_dir = True
-            elif "service" in base_dir_name or "app" in base_dir_name:
+            elif named_app and explicit_entry:
                 is_service_dir = True
-            else:
-                file_names = {Path(f).name.lower() for f in files}
-                if file_names & code_entry_indicators:
-                    is_service_dir = True
+            elif sdir.split("/")[0] in {"services", "apps", "microservices"} and explicit_entry:
+                is_service_dir = True
 
             if is_service_dir:
                 sname = base_dir_name
@@ -851,7 +962,6 @@ class RepoOnboarder:
                     "files": files,
                 }
 
-        base_port = 8000 + len(services)
         for idx, (sname, data) in enumerate(service_dirs.items()):
             files = data["files"]
             files_str = " ".join(files).lower()
@@ -875,11 +985,7 @@ class RepoOnboarder:
             else:
                 lang = "unknown"
 
-            # 3000 for frontend/ui/web/client, 8000+ for backend/services
-            if any(k in sname for k in ["frontend", "ui", "web", "client"]) and lang == "javascript":
-                port = 3000
-            else:
-                port = base_port + idx + 1
+            port = None  # A directory name does not establish a listening port.
 
             display_name = sname.replace("-service", "").replace("_service", "").replace("-", " ").replace("_", " ").title() + " Service"
 
@@ -887,9 +993,11 @@ class RepoOnboarder:
                 "name": sname,
                 "display_name": display_name,
                 "port": port,
-                "url": f"http://{sname}:{port}",
+                "url": f"http://{sname}:{port}" if port is not None else None,
                 "description": f"Inferred microservice from {data['dir']}",
-                "language": lang
+                "language": lang,
+                "discovery_kind": "directory_entrypoint",
+                "source_expected": True,
             })
 
             file_mappings[data["dir"]] = sname
@@ -897,7 +1005,11 @@ class RepoOnboarder:
         # Single-service repository detection (root application)
         if not services and (root_files or tree):
             all_files_str = " ".join(tree).lower()
-            has_entry = any(Path(f).name.lower() in code_entry_indicators for f in (root_files or tree))
+            # package.json, index.js, pyproject.toml and docs examples also occur
+            # in libraries. Require an application/deployment entrypoint.
+            root_app_entries = {"dockerfile", "procfile", "main.py", "app.py", "server.py", "server.js", "server.ts",
+                                "src/server.js", "src/server.ts", "src/main.jsx", "src/main.tsx", "app/page.tsx"}
+            has_entry = bool({file.lower() for file in tree} & root_app_entries)
             if has_entry:
                 sname = repo.lower().replace("_", "-")
                 if "go.mod" in all_files_str:
@@ -916,28 +1028,31 @@ class RepoOnboarder:
                 services.append({
                     "name": sname,
                     "display_name": sname.replace("-", " ").title() + " Service",
-                    "port": 8000,
-                    "url": f"http://{sname}:8000",
+                    "port": None,
+                    "url": None,
                     "description": f"Single-service application from {owner}/{repo}",
-                    "language": lang
+                    "language": lang,
+                    "discovery_kind": "application_entrypoint",
+                    "source_expected": True,
                 })
                 file_mappings[""] = sname
 
-        # Infer dependencies between discovered services (e.g. frontend -> backend)
-        for s1 in services:
-            n1 = s1["name"].lower()
-            is_client = any(k in n1 for k in ["frontend", "client", "ui", "web"])
-            if is_client:
-                for s2 in services:
-                    n2 = s2["name"].lower()
-                    if s1["name"] != s2["name"] and any(k in n2 for k in ["backend", "api", "server"]):
-                        if not any(d["from"] == s1["name"] and d["to"] == s2["name"] for d in dependencies):
-                            dependencies.append({
-                                "from": s1["name"],
-                                "to": s2["name"],
-                                "type": "http",
-                                "endpoint": "/api/analyze"
-                            })
+        # Update manifest-only unknown languages from mapped source files, without
+        # creating relationships solely because names resemble frontend/backend.
+        suffix_languages = {".py": "python", ".ts": "typescript", ".tsx": "typescript", ".js": "javascript",
+                           ".jsx": "javascript", ".go": "go", ".java": "java", ".cs": "csharp", ".rs": "rust"}
+        for service in services:
+            if service.get("language", "unknown") != "unknown":
+                continue
+            prefixes = [prefix for prefix, name in file_mappings.items() if name == service["name"]]
+            counts = {}
+            for path in tree:
+                if any(not prefix or path.startswith(prefix + "/") for prefix in prefixes):
+                    language = suffix_languages.get(Path(path).suffix.lower())
+                    if language:
+                        counts[language] = counts.get(language, 0) + 1
+            if counts:
+                service["language"] = max(sorted(counts), key=counts.get)
 
         return services, dependencies, file_mappings
 

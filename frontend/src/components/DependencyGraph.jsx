@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback, memo } from 'react';
 import { getGraph } from '../api';
 
 const RISK_COLOR = {
@@ -9,310 +9,13 @@ const RISK_COLOR = {
   UNKNOWN:  '#3a3f5c',
 };
 
-const NODE_W = 175, NODE_H = 60;
+import { NODE_W, NODE_H, edgeLabel, fitGraph } from '../utils/graphLayout';
+import { startLayout } from '../utils/graphLayoutClient';
+import { groupRelations, relationDescription } from '../utils/graphRelations';
 
-/* Architectural preset positions optimized for balanced, collision-free geometry */
-const PRESET_POS = {
-  'user-service':         { x: 60,  y: 160 },
-  'order-service':        { x: 450, y: 160 },
-  'inventory-service':    { x: 840, y: 70  }, // Broken link / dead host (top-right)
-  'notification-service': { x: 840, y: 310 }, // Downstream notification dispatch (bottom-right)
-  'payment-service':      { x: 450, y: 410 }, // Payment isolated downstream (bottom-center)
-  'frontend':             { x: 60,  y: 40  },
-  'backend':              { x: 450, y: 40  },
-  'local-demo-postgres':  { x: 60,  y: 410 },
-};
-
-/**
- * Calculate dynamic node width based on label text length to guarantee text fits with ample padding.
- */
-function getNodeWidth(label) {
-  const len = (label || '').length;
-  if (len <= 14) return 175;
-  if (len <= 18) return 195;
-  if (len <= 24) return 225;
-  if (len <= 30) return 255;
-  return Math.min(295, 255 + (len - 30) * 7);
-}
-
-/**
- * Intelligent layout for demo fleet and arbitrary dynamic repositories.
- */
-function buildPositions(nodes, edges) {
-  const positions = {};
-  const unplaced = [];
-
-  const nodeMap = {};
-  for (const n of nodes) {
-    nodeMap[n.id] = n;
-  }
-
-  const allNodesHavePresets = nodes.length > 0 && nodes.every(n => Boolean(PRESET_POS[n.id]));
-
-  if (allNodesHavePresets) {
-    for (const node of nodes) {
-      const label = node.label || node.id.replace(/-service$/i, '');
-      const w = getNodeWidth(label);
-      const h = NODE_H;
-      positions[node.id] = { ...PRESET_POS[node.id], w, h };
-    }
-    return positions;
-  }
-
-  // When any node is not in presets (e.g. imported repo), layout all nodes topologically
-  unplaced.push(...nodes);
-
-  // Layered topological sorting for imported repositories
-  const inDegree = {}, outDegree = {};
-  nodes.forEach(n => { inDegree[n.id] = 0; outDegree[n.id] = 0; });
-  edges.forEach(e => {
-    if (inDegree[e.to] !== undefined) inDegree[e.to]++;
-    if (outDegree[e.from] !== undefined) outDegree[e.from]++;
-  });
-
-  const roots = [], intermediates = [], sinks = [];
-  unplaced.forEach(n => {
-    if (inDegree[n.id] === 0) roots.push(n.id);
-    else if (outDegree[n.id] === 0) sinks.push(n.id);
-    else intermediates.push(n.id);
-  });
-
-  const layers = [roots, intermediates, sinks].filter(l => l.length > 0);
-  const startY = Object.keys(positions).length > 0 ? 460 : 70;
-  const layerHeight = 160;
-
-  layers.forEach((layer, layerIdx) => {
-    const y = startY + layerIdx * layerHeight;
-    // Calculate required column spacing based on actual node widths in this layer
-    const layerWidths = layer.map(id => {
-      const label = nodeMap[id]?.label || id.replace(/-service$/i, '');
-      return getNodeWidth(label);
-    });
-    const maxLayerNodeW = Math.max(...layerWidths, 175);
-    const colSpacing = Math.max(280, maxLayerNodeW + 70);
-    const totalW = layer.length * colSpacing;
-    const startX = Math.max(70, (960 - totalW) / 2);
-
-    layer.forEach((id, colIdx) => {
-      const label = nodeMap[id]?.label || id.replace(/-service$/i, '');
-      const w = getNodeWidth(label);
-      positions[id] = {
-        x: startX + colIdx * colSpacing,
-        y: y,
-        w: w,
-        h: NODE_H,
-      };
-    });
-  });
-
-  return positions;
-}
-
-/**
- * High-precision edge geometry calculator.
- * Guarantees:
- * - Unmistakable caller (tail socket) and callee (chevron arrowhead) separation.
- * - Non-overlapping bi-directional lanes with dedicated curvature offsets.
- * - Specialized collision-free arcs for loops and underpass cross-connections.
- */
-function computeSmartEdge(fromNode, toNode, isBiDirectional, isReverse) {
-  const fw = fromNode.w || NODE_W, fh = fromNode.h || NODE_H;
-  const tw = toNode.w || NODE_W, th = toNode.h || NODE_H;
-
-  // 1. SELF-LOOP CASES
-  if (fromNode.id === toNode.id || (fromNode.x === toNode.x && fromNode.y === toNode.y)) {
-    if (fromNode.id === 'order-service') {
-      // Curve UP into the spacious area above order-service
-      const fcx = fromNode.x + fw / 2;
-      const sx = fcx - 36, sy = fromNode.y;
-      const ex = fcx + 36, ey = fromNode.y;
-      const c1x = fcx - 46, c1y = fromNode.y - 48;
-      const c2x = fcx + 46, c2y = fromNode.y - 48;
-      const d = `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`;
-      return {
-        path: d,
-        start: { x: sx, y: sy },
-        end: { x: ex, y: ey },
-        mid: { x: fcx, y: fromNode.y - 36 },
-        badgePoint: { x: fcx, y: fromNode.y - 52 },
-        tangentAngle: Math.PI / 2, // Straight down into top border
-      };
-    } else {
-      // Loop out to the right margin with generous curvature and clear badge positioning above curve
-      const fcy = fromNode.y + fh / 2;
-      const sx = fromNode.x + fw, sy = fcy - 16;
-      const ex = fromNode.x + fw, ey = fcy + 16;
-      const c1x = fromNode.x + fw + 55, c1y = fcy - 45;
-      const c2x = fromNode.x + fw + 55, c2y = fcy + 45;
-      const d = `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`;
-      return {
-        path: d,
-        start: { x: sx, y: sy },
-        end: { x: ex, y: ey },
-        mid: { x: fromNode.x + fw + 42, y: fcy },
-        badgePoint: { x: fromNode.x + fw + 75, y: fcy - 34 },
-        tangentAngle: Math.PI, // Straight left into right border
-      };
-    }
-  }
-
-  // 2. SPECIAL UNDERPASS: notification-service -> user-service
-  // Sweeps gracefully beneath order-service to avoid crossing through it
-  if (fromNode.id === 'notification-service' && toNode.id === 'user-service') {
-    const sx = fromNode.x, sy = fromNode.y + fh - 10;
-    const ex = toNode.x + fw - 20, ey = toNode.y + fh;
-    const mx = 450, my = 350; // Underpass control point
-    const d = `M ${sx} ${sy} Q ${mx} ${my} ${ex} ${ey}`;
-    const tangentAngle = Math.atan2(ey - my, ex - mx);
-    const bx = (sx + 2 * mx + ex) / 4;
-    const by = (sy + 2 * my + ey) / 4 + 14;
-    return {
-      path: d,
-      start: { x: sx, y: sy },
-      end: { x: ex, y: ey },
-      mid: { x: bx, y: by - 14 },
-      badgePoint: { x: bx, y: by },
-      tangentAngle,
-    };
-  }
-
-  const fcx = fromNode.x + fw / 2, fcy = fromNode.y + fh / 2;
-  const tcx = toNode.x + tw / 2,   tcy = toNode.y + th / 2;
-  const dx = tcx - fcx;
-  const dy = tcy - fcy;
-
-  let sx, sy, ex, ey, mx, my, badgeX, badgeY;
-
-  // 3. HORIZONTAL CONNECTIONS (e.g. user-service <-> order-service)
-  // Dual-lane separation: Rightward traffic on upper lane, Leftward traffic on lower lane
-  if (Math.abs(dx) >= Math.abs(dy) * 1.3) {
-    if (dx > 0) {
-      // Flowing RIGHT (user -> order): UPPER LANE arches UP
-      sx = fromNode.x + fw;
-      ex = toNode.x;
-      const portOffset  = isBiDirectional ? -18 : 0;
-      const curveOffset = isBiDirectional ? -55 : 0;
-      sy = fcy + portOffset;
-      ey = tcy + portOffset;
-      mx = (sx + ex) / 2;
-      my = (sy + ey) / 2 + curveOffset;
-      badgeX = (sx + ex) / 2;
-      badgeY = (sy + 2 * my + ey) / 4 - 8;
-    } else {
-      // Flowing LEFT (order -> user): LOWER LANE arches DOWN
-      sx = fromNode.x;
-      ex = toNode.x + tw;
-      const portOffset  = isBiDirectional ? 18 : 0;
-      const curveOffset = isBiDirectional ? 55 : 0;
-      sy = fcy + portOffset;
-      ey = tcy + portOffset;
-      mx = (sx + ex) / 2;
-      my = (sy + ey) / 2 + curveOffset;
-      badgeX = (sx + ex) / 2;
-      badgeY = (sy + 2 * my + ey) / 4 + 8;
-    }
-  }
-  // 4. VERTICAL CONNECTIONS
-  else if (Math.abs(dy) >= Math.abs(dx) * 1.3) {
-    if (dy > 0) {
-      // Flowing DOWN
-      sx = fcx + (isBiDirectional ? (isReverse ? 22 : -22) : 0);
-      sy = fromNode.y + fh;
-      ex = tcx + (isBiDirectional ? (isReverse ? 22 : -22) : 0);
-      ey = toNode.y;
-      const biOffset = isBiDirectional ? (isReverse ? 45 : -45) : 0;
-      mx = (sx + ex) / 2 + biOffset;
-      my = (sy + ey) / 2;
-      badgeX = mx + (isBiDirectional ? (isReverse ? 14 : -14) : 0);
-      badgeY = my;
-    } else {
-      // Flowing UP
-      sx = fcx + (isBiDirectional ? (isReverse ? -22 : 22) : 0);
-      sy = fromNode.y;
-      ex = tcx + (isBiDirectional ? (isReverse ? -22 : 22) : 0);
-      ey = toNode.y + th;
-      const biOffset = isBiDirectional ? (isReverse ? -45 : 45) : 0;
-      mx = (sx + ex) / 2 + biOffset;
-      my = (sy + ey) / 2;
-      badgeX = mx + (isBiDirectional ? (isReverse ? -14 : 14) : 0);
-      badgeY = my;
-    }
-  }
-  // 5. DIAGONAL CONNECTIONS (e.g. order-service -> inventory-service, order <-> notification)
-  else {
-    const dist = Math.hypot(dx, dy) || 1;
-    const ux = dx / dist, uy = dy / dist;
-    // Perpendicular unit normal vector
-    const px = -uy, py = ux;
-
-    if (dx > 0 && dy < 0) {
-      // Up-Right (order-service -> inventory-service [Broken link])
-      sx = fromNode.x + fw;
-      sy = fcy - 12;
-      ex = toNode.x;
-      ey = tcy + 10;
-      mx = (sx + ex) / 2;
-      my = (sy + ey) / 2 - 24;
-      badgeX = mx;
-      badgeY = my - 8;
-    } else if (isBiDirectional) {
-      // Dual-lane diagonal separation:
-      // Lane 1 (order -> notification): curves outward to the upper-right
-      // Lane 2 (notification -> order): curves outward to the lower-left
-      const laneShift = dx > 0 ? -42 : -42;
-      sx = dx > 0 ? (fromNode.x + fw) : (fromNode.x);
-      sy = fcy + (dx > 0 ? -14 : 14);
-      ex = dx > 0 ? (toNode.x) : (toNode.x + tw);
-      ey = tcy + (dx > 0 ? -14 : 14);
-      mx = (sx + ex) / 2 + px * laneShift;
-      my = (sy + ey) / 2 + py * laneShift;
-      badgeX = (sx + 2 * mx + ex) / 4 + px * 12;
-      badgeY = (sy + 2 * my + ey) / 4 + py * 12;
-    } else {
-      // General diagonal fallback with normal curve
-      sx = fcx + ux * (fw / 2);
-      sy = fcy + uy * (fh / 2);
-      ex = tcx - ux * (tw / 2);
-      ey = tcy - uy * (th / 2);
-      mx = (sx + ex) / 2;
-      my = (sy + ey) / 2;
-      badgeX = mx;
-      badgeY = my;
-    }
-  }
-
-  const d = `M ${sx} ${sy} Q ${mx} ${my} ${ex} ${ey}`;
-  const tangentAngle = Math.atan2(ey - my, ex - mx);
-
-  // Placed at the curve apex / midpoint for guaranteed clearance from node borders
-  const bx = badgeX !== undefined ? badgeX : (sx + 2 * mx + ex) / 4;
-  const by = badgeY !== undefined ? badgeY : (sy + 2 * my + ey) / 4;
-
-  return {
-    path: d,
-    start: { x: sx, y: sy },
-    end: { x: ex, y: ey },
-    mid: { x: (sx + 2 * mx + ex) / 4, y: (sy + 2 * my + ey) / 4 },
-    badgePoint: { x: bx, y: by },
-    tangentAngle,
-  };
-}
-
-/* Visual relation curve with unmistakable tail socket and directional chevron */
-function EdgeCurve({
-  fromPos, toPos, fromId, toId, idx, hasBug,
-  isDimmed, isHighlighted, isBiDirectional, isReverse,
-  isHovered, onHover, onLeave
+const EdgeCurve = memo(function EdgeCurve({
+  edge, edgeIndex, edgeGeo, hasBug, isDimmed, isHighlighted, isHovered, onHover, onLeave, onInspect
 }) {
-  const edgeGeo = useMemo(() => {
-    return computeSmartEdge(
-      { ...fromPos, id: fromId },
-      { ...toPos, id: toId },
-      isBiDirectional,
-      isReverse
-    );
-  }, [fromPos, toPos, fromId, toId, isBiDirectional, isReverse]);
-
   const { path, start, end, tangentAngle } = edgeGeo;
 
   let strokeColor = hasBug ? '#ff2d55' : 'rgba(0, 212, 255, 0.45)';
@@ -351,8 +54,16 @@ function EdgeCurve({
   return (
     <g
       className="graph-edge-group"
-      onMouseEnter={onHover}
-      onMouseLeave={onLeave}
+      data-edge-index={edgeIndex}
+      tabIndex={0}
+      role="button"
+      aria-label={`Inspect ${edge.from} to ${edge.to}, ${relationDescription(edge)}`}
+      onClick={() => onInspect(edge)}
+      onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onInspect(edge); } }}
+      onPointerEnter={() => onHover(edge)}
+      onPointerLeave={onLeave}
+      onFocus={() => onHover(edge)}
+      onBlur={onLeave}
       style={{
         opacity: isDimmed ? 0.15 : 1,
         transition: 'opacity 0.25s ease',
@@ -364,9 +75,14 @@ function EdgeCurve({
         d={path}
         fill="none"
         stroke="transparent"
-        strokeWidth="16"
+        strokeWidth="12"
+        pointerEvents="stroke"
+        vectorEffect="non-scaling-stroke"
+        className="graph-edge-hit"
       />
 
+      {/* Clearance makes crossings distinct from actual junctions. */}
+      <path d={path} fill="none" stroke="#080c19" strokeWidth="7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
       {/* Visual Relation Path with directional animated dashes strictly toward Head */}
       <path
         d={path}
@@ -374,14 +90,15 @@ function EdgeCurve({
         stroke={strokeColor}
         strokeWidth={strokeWidth}
         strokeDasharray={hasBug ? "5 4" : "7 5"}
+        pointerEvents="none"
         style={{
-          animation: `flowDash${idx} ${hasBug ? '1.2s' : '2.4s'} linear infinite`,
+          animation: isHighlighted || isHovered ? 'graphFlow 2.4s linear infinite' : 'none',
           filter: (isHighlighted || isHovered) ? `drop-shadow(0 0 6px ${strokeColor})` : 'none',
         }}
       />
 
       {/* TAIL: Unmistakable Concentric Caller Socket Port */}
-      <g className="edge-tail" transform={`translate(${start.x}, ${start.y})`}>
+      <g className="edge-tail" pointerEvents="none" transform={`translate(${start.x}, ${start.y})`}>
         <circle r="5.5" fill="#080b18" stroke={strokeColor} strokeWidth="1.8" />
         <circle r="2.2" fill={arrowColor} />
       </g>
@@ -392,30 +109,21 @@ function EdgeCurve({
         fill={arrowColor}
         stroke={arrowColor}
         strokeWidth="0.8"
+        pointerEvents="none"
         style={{
           filter: (hasBug || isHighlighted || isHovered) ? `drop-shadow(0 0 5px ${arrowColor})` : 'none',
         }}
       />
     </g>
   );
-}
+});
 
 /* Endpoint and Broken Link badges — Rendered in Top Layer to ALWAYS sit on top of nodes */
-function EdgeBadge({
-  fromPos, toPos, fromId, toId, hasBug, endpoint,
-  isDimmed, isHighlighted, isBiDirectional, isReverse,
-  isHovered, onHover, onLeave, showEndpoints
+const EdgeBadge = memo(function EdgeBadge({
+  edgeGeo, hasBug, endpoint, isDimmed, isHighlighted,
+  isHovered, showEndpoints
 }) {
-  const edgeGeo = useMemo(() => {
-    return computeSmartEdge(
-      { ...fromPos, id: fromId },
-      { ...toPos, id: toId },
-      isBiDirectional,
-      isReverse
-    );
-  }, [fromPos, toPos, fromId, toId, isBiDirectional, isReverse]);
-
-  const { mid, badgePoint } = edgeGeo;
+  const { badgePoint } = edgeGeo;
 
   // Determine badge visibility:
   // - Broken link ALWAYS visible
@@ -427,17 +135,15 @@ function EdgeBadge({
   return (
     <g
       className="graph-badge-group"
-      onMouseEnter={onHover}
-      onMouseLeave={onLeave}
+      pointerEvents="none"
       style={{
         opacity: isDimmed ? 0.15 : 1,
         transition: 'opacity 0.25s ease',
-        cursor: 'pointer',
       }}
     >
       {hasBug ? (
         // Broken Link Badge (centered on the red edge)
-        <g transform={`translate(${mid.x}, ${mid.y})`}>
+        <g transform={`translate(${badgePoint.x}, ${badgePoint.y})`}>
           <rect
             x="-50" y="-11" width="100" height="21" rx="10"
             fill="#ff2d55"
@@ -480,36 +186,95 @@ function EdgeBadge({
       )}
     </g>
   );
-}
+});
 
-export default function DependencyGraph() {
+export default function DependencyGraph({ snapshot = null, findingsHref = null, illustrative = false }) {
   const [data, setData]               = useState(null);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState(null);
-  const [zoom, setZoom]               = useState(1);
+  const [zoom, setZoom]               = useState(null);
+  const [layout, setLayout]           = useState(null);
+  const [layoutError, setLayoutError] = useState(null);
+  const [direction, setDirection]     = useState('DOWN');
+  const [expanded, setExpanded]       = useState(false);
+  const [viewport, setViewport]       = useState({width:0,height:0});
+  const viewportRef = useRef(null);
+  const dialogRef = useRef(null);
   const [selectedNode, setSelected]   = useState(null);
   const [hoveredEdge, setHoveredEdge] = useState(null);
+  const [inspectedEdge, setInspectedEdge] = useState(null);
+  const [relationView, setRelationView] = useState('connections');
   const [searchQuery, setSearch]      = useState('');
   const [showEndpoints, setShowEnd]   = useState(false); // Clean view by default with toggle
+  const hoverEdge = useCallback(edge => setHoveredEdge(edge), []);
+  const clearEdgeHover = useCallback(() => setHoveredEdge(null), []);
+  const inspectEdge = useCallback(edge => setInspectedEdge(edge), []);
 
   useEffect(() => {
+    if (snapshot) {
+      setData({ nodes: (snapshot.services || []).map(service => ({ ...service, id: service.name, label: service.name, risk_level: 'UNKNOWN', type: service.node_type || 'service' })), edges: snapshot.dependencies || [] });
+      setLoading(false);
+      setError(null);
+      setSelected(null);
+      return;
+    }
     getGraph()
       .then(d => { setData(d); setError(null); })
       .catch(() => setError('Could not load dependency graph from backend'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [snapshot]);
 
   const nodes = useMemo(() => data?.nodes || [], [data]);
-  const edges = useMemo(() => data?.edges || [], [data]);
+  const rawEdges = useMemo(() => data?.edges || [], [data]);
+  const connections = useMemo(() => groupRelations(rawEdges), [rawEdges]);
+  const edges = relationView === 'connections' ? connections : rawEdges;
+  const hasParallelRelations = connections.length < rawEdges.length;
 
-  // Index reverse edges for bi-directional lane separation
-  const edgePairMap = useMemo(() => {
-    const map = new Set();
-    edges.forEach(e => map.add(`${e.to}->${e.from}`));
-    return map;
-  }, [edges]);
+  useEffect(() => {
+    if (!nodes.length) return;
+    let task;
+    let timer;
+    let active = true;
+    setLayout(null);
+    setLayoutError(null);
+    setZoom(null);
+    setHoveredEdge(null);
+    setInspectedEdge(null);
+    try {
+      task = startLayout(nodes,edges,direction);
+      const fail = (error) => { if (!active) return; console.error('MDT graph worker failed',error?.message || 'Layout deadline exceeded'); setLayoutError('Could not arrange this graph. Refresh the view to retry.'); task.terminate(); clearTimeout(timer); };
+      task.result.then(result => {
+        if (!active) return;
+        clearTimeout(timer);
+        setLayout(result);
+        task.terminate();
+      }).catch(fail);
+      timer = setTimeout(fail,30000);
+    } catch { setLayoutError('Graph layout could not start. Refresh the view to retry.'); }
+    return () => { active=false; clearTimeout(timer); task?.terminate(); };
+  }, [nodes, edges, direction]);
 
-  const POS = useMemo(() => buildPositions(nodes, edges), [nodes, edges]);
+  useEffect(() => {
+    if(!layout || !viewportRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const {width, height} = entry.contentRect;
+      setViewport(previous => previous.width === width && previous.height === height ? previous : {width, height});
+    });
+    observer.observe(viewportRef.current);
+    return () => observer.disconnect();
+  }, [layout, expanded]);
+
+  useEffect(() => {
+    if(expanded) dialogRef.current?.showModal();
+  }, [expanded, layout]);
+
+  const POS = layout?.positions || {};
+  const fittedScale = layout ? fitGraph(layout.width,layout.height,viewport.width,viewport.height) : 1;
+  const scale = zoom ?? fittedScale;
+  const resetView = () => {
+    setZoom(null); setSelected(null); setSearch(''); setHoveredEdge(null);
+    viewportRef.current?.scrollTo({left:0,top:0});
+  };
 
   // Compute connected neighbors for blast radius
   const connectedIds = useMemo(() => {
@@ -522,12 +287,12 @@ export default function DependencyGraph() {
     return ids;
   }, [selectedNode, edges]);
 
-  const maxY = Object.values(POS).reduce((m, p) => Math.max(m, p.y + (p.h || NODE_H) + 60), 520);
-  const maxX = Object.values(POS).reduce((m, p) => Math.max(m, p.x + (p.w || NODE_W) + 200), 1260);
+  const maxY = layout?.height || 600;
+  const maxX = layout?.width || 1000;
   const viewBox = `0 0 ${maxX} ${maxY}`;
 
   if (loading) return <div className="state-loading"><div className="spinner" /><span>Loading topology graph…</span></div>;
-  if (error)   return <div className="state-error"><span>⚠</span><span>{error}</span></div>;
+  if (error || layoutError) return <div className="state-error" role="alert"><span>⚠</span><span>{error || layoutError}</span></div>;
 
   if (!nodes.length) {
     return (
@@ -537,32 +302,38 @@ export default function DependencyGraph() {
     );
   }
 
+  if (!layout) return <div className="state-loading" role="status"><div className="spinner" /><span>Arranging nodes and routing dependencies…</span></div>;
+
   const activeSelected = nodes.find(n => n.id === selectedNode);
 
-  return (
+  const content = (
     <div className="graph-card">
       {/* Top Header & Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <h2 className="panel-title" style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>
               Service Dependency Topology
             </h2>
             <span style={{ fontSize: '11px', color: 'var(--cyan)', background: 'rgba(0,212,255,0.12)', border: '1px solid rgba(0,212,255,0.3)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
-              {nodes.length} Nodes · {edges.length} Dependencies
+              {nodes.length} Nodes · {connections.length} Connections · {rawEdges.length} Relations
             </span>
           </div>
           <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-dim)' }}>
             Circular socket = Caller (Tail) → Directional chevron = Callee (Head).
           </p>
+          {illustrative && <p className="text-dim" style={{fontSize:12,margin:'6px 0 0'}}>Recorded demo · illustrative topology, not observed runtime traffic.</p>}
+          {hasParallelRelations && <p className="text-dim" style={{fontSize:12,margin:'6px 0 0'}}>A connection groups all recorded relations in one direction. Select it to inspect each endpoint and its evidence, or switch to individual relations.</p>}
         </div>
 
         {/* Toolbar controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={()=>setExpanded(value=>!value)}>{expanded ? 'Close expanded graph' : 'Expand graph'}</button>
           {/* Search */}
           <input
             type="text"
             placeholder="Filter service…"
+            aria-label="Filter graph services"
             value={searchQuery}
             onChange={e => setSearch(e.target.value)}
             style={{
@@ -578,6 +349,9 @@ export default function DependencyGraph() {
           />
 
           {/* Toggle Endpoints */}
+          <select className="form-select" aria-label="Graph detail" value={relationView} onChange={event => setRelationView(event.target.value)} style={{width:'auto',padding:'5px 8px',fontSize:12}}>
+            <option value="connections">Service connections</option><option value="relations">Individual relations</option>
+          </select>
           <button
             onClick={() => setShowEnd(prev => !prev)}
             title="Toggle endpoint route labels on all relation curves"
@@ -596,32 +370,36 @@ export default function DependencyGraph() {
             {showEndpoints ? '🏷 Endpoints: ON' : '🏷 Endpoints: OFF'}
           </button>
 
+          <select className="form-select" aria-label="Graph direction" value={direction} onChange={e=>setDirection(e.target.value)} style={{width:'auto',padding:'5px 8px',fontSize:12}}>
+            <option value="DOWN">Top to bottom</option><option value="RIGHT">Left to right</option>
+          </select>
           {/* Zoom controls */}
           <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)' }}>
             <button
-              onClick={() => setZoom(z => Math.max(0.6, z - 0.15))}
+              onClick={() => setZoom(z => Math.max(0.1, (z ?? fittedScale) - 0.15))}
               title="Zoom out"
               style={{ background: 'none', border: 'none', color: '#fff', padding: '5px 9px', cursor: 'pointer', fontSize: '13px' }}
             >
               −
             </button>
             <span style={{ fontSize: '11px', color: '#a0a5b8', padding: '5px 2px', minWidth: '38px', textAlign: 'center', userSelect: 'none' }}>
-              {Math.round(zoom * 100)}%
+              {Math.round(scale * 100)}%
             </span>
             <button
-              onClick={() => setZoom(z => Math.min(2.0, z + 0.15))}
+              onClick={() => setZoom(z => Math.min(2, (z ?? fittedScale) + 0.15))}
               title="Zoom in"
               style={{ background: 'none', border: 'none', color: '#fff', padding: '5px 9px', cursor: 'pointer', fontSize: '13px' }}
             >
               +
             </button>
             <button
-              onClick={() => { setZoom(1); setSelected(null); setSearch(''); }}
-              title="Reset view"
+              onClick={resetView}
+              title="Fit graph to view" aria-label="Fit graph to view"
               style={{ background: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)', color: '#00d4ff', padding: '5px 9px', cursor: 'pointer', fontSize: '11px' }}
             >
-              ↺
+              Fit
             </button>
+            <button className="btn btn-ghost" title="Show at actual size" onClick={() => setZoom(1)}>1:1</button>
           </div>
         </div>
       </div>
@@ -650,24 +428,32 @@ export default function DependencyGraph() {
               </span>
             ) : (
               <span style={{ color: 'var(--cyan)', marginLeft: '8px' }}>
-                · Direct blast radius: {connectedIds ? connectedIds.size - 1 : 0} services
+                · Directly connected: {connectedIds ? connectedIds.size - 1 : 0} nodes
               </span>
             )}
           </div>
-          <button
-            onClick={() => setSelected(null)}
-            className="btn btn-ghost"
-            style={{ padding: '2px 8px', fontSize: '11px', color: '#00d4ff' }}
-          >
-            Clear Highlight ✕
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {findingsHref && <a
+              href={findingsHref}
+              className="btn-primary-ghost"
+              style={{ padding: '4px 10px', fontSize: '11px', textDecoration: 'none', borderRadius: '4px' }}
+              title="Open findings for this captured analysis"
+            >
+              🔍 View Findings
+            </a>}
+            <button
+              onClick={() => setSelected(null)}
+              className="btn btn-ghost"
+              style={{ padding: '2px 8px', fontSize: '11px', color: '#00d4ff' }}
+            >
+              Clear Highlight ✕
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Interactive Hovered Edge Details Bar — Fixed Height prevents layout shift & hover flickering */}
-      <div style={{
-        minHeight: '34px',
-        height: '34px',
+      {/* Relation details can wrap instead of overflowing narrow viewports. */}
+      <div className="graph-context" style={{
         background: hoveredEdge
           ? (hoveredEdge.has_bug ? 'rgba(255,45,85,0.15)' : 'rgba(0, 212, 255, 0.1)')
           : 'rgba(255, 255, 255, 0.02)',
@@ -675,13 +461,14 @@ export default function DependencyGraph() {
           ? (hoveredEdge.has_bug ? '#ff2d55' : 'rgba(0, 212, 255, 0.3)')
           : 'rgba(255, 255, 255, 0.06)'}`,
         borderRadius: '6px',
-        padding: '0 14px',
+        padding: '8px 14px',
         marginBottom: '10px',
         fontSize: '11.5px',
         fontFamily: "'JetBrains Mono', monospace",
         color: '#ffffff',
         display: 'flex',
         alignItems: 'center',
+        flexWrap: 'wrap',
         gap: '8px',
         boxSizing: 'border-box',
         transition: 'background 0.2s ease, border-color 0.2s ease',
@@ -691,7 +478,7 @@ export default function DependencyGraph() {
             <span style={{ color: 'var(--text-dim)' }}>RELATION:</span>
             <strong>{hoveredEdge.from}</strong>
             <span style={{ color: hoveredEdge.has_bug ? '#ff2d55' : 'var(--cyan)' }}>
-              ──({hoveredEdge.type || 'http'}: {hoveredEdge.endpoint || '/'})──►
+              ──({relationDescription(hoveredEdge)})──►
             </span>
             <strong>{hoveredEdge.to}</strong>
             {hoveredEdge.has_bug && (
@@ -702,38 +489,28 @@ export default function DependencyGraph() {
           </>
         ) : (
           <span style={{ color: 'var(--text-faint)', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>💡</span> Hover over any relation edge or service node to inspect protocol endpoints and blast radius
+            <span>💡</span> Hover a connection to identify it. Select it to inspect its recorded relations, or select a service to highlight its neighbors.
           </span>
         )}
       </div>
 
+      <p className="text-dim" style={{fontSize:12,margin:'0 0 10px'}}>Fit shows the full topology. Use 1:1 to read labels, scroll to explore, or select a node to highlight its connections.</p>
       {/* Main Graph SVG Viewport */}
-      <div style={{
+      <div className="graph-viewport" ref={viewportRef} style={{
         overflow: 'auto',
-        maxHeight: '560px',
         borderRadius: '10px',
         border: '1px solid rgba(255,255,255,0.08)',
         background: 'radial-gradient(ellipse at 50% 30%, #0c1022 0%, #050711 100%)',
         position: 'relative'
       }}>
-        <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', transition: 'transform 0.15s ease' }}>
+        <div className="graph-stage" style={{width:maxX*scale,height:maxY*scale,visibility:viewport.width&&viewport.height?'visible':'hidden'}}>
           <svg
             className="graph-svg"
             viewBox={viewBox}
             preserveAspectRatio="xMidYMid meet"
-            style={{ width: maxX, height: maxY, display: 'block' }}
+            style={{ width: maxX*scale, height: maxY*scale, display: 'block' }}
           >
             <defs>
-              {/* Flow dash keyframes */}
-              {edges.map((_, i) => (
-                <style key={i}>{`
-                  @keyframes flowDash${i} {
-                    from { stroke-dashoffset: 24; }
-                    to { stroke-dashoffset: 0; }
-                  }
-                `}</style>
-              ))}
-
               {/* Node drop shadows */}
               <filter id="nodeGlow" x="-20%" y="-20%" width="140%" height="140%">
                 <feDropShadow dx="0" dy="4" stdDeviation="6" floodOpacity="0.35" />
@@ -754,30 +531,25 @@ export default function DependencyGraph() {
               {edges.map((e, i) => {
                 const fromPos = POS[e.from];
                 const toPos   = POS[e.to];
-                if (!fromPos || !toPos) return null;
+                if (!fromPos || !toPos || !layout.routes[i]) return null;
 
-                const isRelevant = !connectedIds || (connectedIds.has(e.from) && connectedIds.has(e.to));
-                const isHigh = selectedNode && (e.from === selectedNode || e.to === selectedNode);
-                const isBi = edgePairMap.has(`${e.to}->${e.from}`);
-                const isRev = e.from > e.to;
-                const isEdgeHovered = hoveredEdge && hoveredEdge.from === e.from && hoveredEdge.to === e.to;
+                const isRelevant = !selectedNode || e.from === selectedNode || e.to === selectedNode;
+                const isHigh = inspectedEdge === e || selectedNode && (e.from === selectedNode || e.to === selectedNode);
+                const isEdgeHovered = hoveredEdge === e;
 
                 return (
                   <EdgeCurve
                     key={`curve-${e.from}->${e.to}-${i}`}
-                    fromPos={fromPos}
-                    toPos={toPos}
-                    fromId={e.from}
-                    toId={e.to}
-                    idx={i}
+                    edge={e}
+                    edgeIndex={i}
+                    edgeGeo={layout.routes[i]}
                     hasBug={Boolean(e.has_bug)}
                     isDimmed={Boolean(connectedIds && !isRelevant)}
                     isHighlighted={Boolean(isHigh)}
-                    isBiDirectional={isBi}
-                    isReverse={isRev}
                     isHovered={Boolean(isEdgeHovered)}
-                    onHover={() => setHoveredEdge(e)}
-                    onLeave={() => setHoveredEdge(null)}
+                    onHover={hoverEdge}
+                    onLeave={clearEdgeHover}
+                    onInspect={inspectEdge}
                   />
                 );
               })}
@@ -791,6 +563,7 @@ export default function DependencyGraph() {
                 const isBroken  = Boolean(node.is_broken || node.status === 'offline');
                 const color     = isBroken ? '#ff2d55' : (RISK_COLOR[riskLevel] || RISK_COLOR.UNKNOWN);
                 const analyzed  = riskLevel !== 'UNKNOWN';
+                const statusColor = isBroken ? '#ff2d55' : node.status === 'healthy' ? RISK_COLOR.LOW : RISK_COLOR.UNKNOWN;
                 if (!pos) return null;
 
                 const isMatchesSearch = !searchQuery || node.id.toLowerCase().includes(searchQuery.toLowerCase());
@@ -809,6 +582,11 @@ export default function DependencyGraph() {
                 return (
                   <g
                     key={node.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Inspect ${node.label || node.id}`}
+                    aria-pressed={selectedNode === node.id}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(prev => prev === node.id ? null : node.id); } }}
                     transform={`translate(${pos.x},${pos.y})`}
                     onClick={() => setSelected(prev => prev === node.id ? null : node.id)}
                     style={{
@@ -863,7 +641,7 @@ export default function DependencyGraph() {
                         fill="#ff2d55" fontSize="10" fontWeight="700"
                         fontFamily="'JetBrains Mono',monospace"
                       >
-                        ⚠ BROKEN LINK · :9999
+                        {snapshot ? 'EXTERNAL / UNRESOLVED' : '⚠ BROKEN LINK'}
                       </text>
                     ) : (
                       <text
@@ -871,18 +649,18 @@ export default function DependencyGraph() {
                         fill={color} fontSize="10.5" fontWeight="500"
                         fontFamily="'JetBrains Mono',monospace"
                       >
-                        {analyzed
+                        {snapshot ? `MODELED · ${node.node_type || 'service'}` : analyzed
                           ? `${riskLevel} · ${node.risk_score}/100`
-                          : `ONLINE · :${node.port || 8000}`}
+                          : `${(node.status || 'unobserved').toUpperCase()}${node.port == null ? '' : ` · :${node.port}`}`}
                       </text>
                     )}
 
-                    {/* Live Status indicator dot (top right) */}
+                    {/* Unknown modeled nodes must not imply observed live health. */}
                     <circle
                       cx={nodeW - 12} cy="14" r="3.5"
-                      fill={isBroken ? '#ff2d55' : '#00ff88'}
+                      fill={statusColor}
                       style={{
-                        filter: isBroken ? 'drop-shadow(0 0 4px #ff2d55)' : 'drop-shadow(0 0 3px #00ff88)',
+                        filter: `drop-shadow(0 0 3px ${statusColor})`,
                       }}
                     />
                   </g>
@@ -895,31 +673,22 @@ export default function DependencyGraph() {
               {edges.map((e, i) => {
                 const fromPos = POS[e.from];
                 const toPos   = POS[e.to];
-                if (!fromPos || !toPos) return null;
+                if (!fromPos || !toPos || !layout.routes[i]) return null;
 
-                const isRelevant = !connectedIds || (connectedIds.has(e.from) && connectedIds.has(e.to));
-                const isHigh = selectedNode && (e.from === selectedNode || e.to === selectedNode);
-                const isBi = edgePairMap.has(`${e.to}->${e.from}`);
-                const isRev = e.from > e.to;
-                const isEdgeHovered = hoveredEdge && hoveredEdge.from === e.from && hoveredEdge.to === e.to;
+                const isRelevant = !selectedNode || e.from === selectedNode || e.to === selectedNode;
+                const isHigh = inspectedEdge === e || selectedNode && (e.from === selectedNode || e.to === selectedNode);
+                const isEdgeHovered = hoveredEdge === e;
 
                 return (
                   <EdgeBadge
                     key={`badge-${e.from}->${e.to}-${i}`}
-                    fromPos={fromPos}
-                    toPos={toPos}
-                    fromId={e.from}
-                    toId={e.to}
+                    edgeGeo={layout.routes[i]}
                     hasBug={Boolean(e.has_bug)}
-                    endpoint={e.endpoint}
+                    endpoint={edgeLabel(e)}
                     isDimmed={Boolean(connectedIds && !isRelevant)}
                     isHighlighted={Boolean(isHigh)}
-                    isBiDirectional={isBi}
-                    isReverse={isRev}
                     isHovered={Boolean(isEdgeHovered)}
-                    onHover={() => setHoveredEdge(e)}
-                    onLeave={() => setHoveredEdge(null)}
-                    showEndpoints={showEndpoints}
+                    showEndpoints={showEndpoints || Boolean(e.relations)}
                   />
                 );
               })}
@@ -927,6 +696,15 @@ export default function DependencyGraph() {
           </svg>
         </div>
       </div>
+
+      {inspectedEdge && <section className="graph-relation-inspector" aria-label="Recorded connection evidence">
+        <div className="workspace-actions"><strong>{inspectedEdge.from} → {inspectedEdge.to}</strong><button className="btn btn-ghost" onClick={() => setInspectedEdge(null)}>Close connection details</button></div>
+        <p>{illustrative ? 'Illustrative demo records; these are not verified runtime calls.' : 'Captured static evidence; declarations do not establish runtime traffic.'}</p>
+        <ol>{(inspectedEdge.relations || [inspectedEdge]).map((edge, index) => <li key={index}>
+          <code>{relationDescription(edge)}</code>
+          <small>{edge.evidence_kind ? edge.evidence_kind.replaceAll('_', ' ') : illustrative ? 'Illustrative modeled relation' : 'Evidence kind not recorded'}{edge.source_file && ` · ${edge.source_file}${edge.source_line ? `:${edge.source_line}` : ''}`}{edge.environment_variable && ` · ${edge.environment_variable}`}</small>
+        </li>)}</ol>
+      </section>}
 
       {/* Enhanced Legend and Direction Guide */}
       <div className="graph-legend" style={{ marginTop: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
@@ -965,4 +743,5 @@ export default function DependencyGraph() {
       </div>
     </div>
   );
+  return expanded ? <dialog ref={dialogRef} className="graph-dialog" aria-label="Expanded dependency graph" onClose={()=>setExpanded(false)}>{content}</dialog> : content;
 }

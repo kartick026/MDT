@@ -7,15 +7,15 @@ class ServiceItem(BaseModel):
     """Detailed microservice metadata and health status"""
     name: str
     display_name: Optional[str] = None
-    port: int = 0
-    url: str = ""
-    language: Optional[str] = "python"
+    port: Optional[int] = None
+    url: Optional[str] = None
+    language: Optional[str] = None
     description: Optional[str] = ""
     dependencies: List[str] = []
     api_count: int = 0
     risk_level: str = "UNKNOWN"
-    risk_score: float = 0.0
-    status: str = "offline"
+    risk_score: Optional[float] = None
+    status: str = "unknown"
     is_broken: bool = False
 
 
@@ -29,11 +29,11 @@ class GraphNode(BaseModel):
     """Service node for frontend dependency graph UI"""
     id: str
     label: str
-    port: int = 0
+    port: Optional[int] = None
     risk_level: str = "UNKNOWN"
-    risk_score: float = 0.0
+    risk_score: Optional[float] = None
     is_broken: bool = False
-    status: str = "healthy"
+    status: str = "unknown"
 
 
 class GraphEdge(BaseModel):

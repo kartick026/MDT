@@ -1,3 +1,5 @@
+> Historical research-stack documentation: some routes, claims and setup details below predate the owned-project alpha. Use [PUBLIC_ALPHA.md](PUBLIC_ALPHA.md), [VALIDATION.md](VALIDATION.md) and the running OpenAPI schema for current behavior.
+
 # Microservice Drift Tracker (MDT) — Architecture Documentation
 
 ## System Overview
@@ -326,4 +328,3 @@ sequenceDiagram
 - **Pre-Push Hook:** Installed via `python mdt-hook/mdt_check.py --install-hook pre-push`, evaluates `HEAD~1..HEAD` to prevent high-risk commits from reaching upstream branches.
 - **CI/CD Pull Request Gating:** Executed within GitHub Actions / GitLab CI using `python mdt-hook/mdt_check.py --working` or direct REST API calls, failing pipeline jobs if risk exceeds project thresholds.
 - **Session History & Audit Trail:** All post-commit analyses are recorded in `GET /analysis/history` with timestamped diff breakdowns, affected services, and risk delta tracking.
-

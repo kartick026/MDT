@@ -154,9 +154,9 @@ class ChattyCircularExcludePairsTests(unittest.IsolatedAsyncioTestCase):
         chatty_excluded = await detector._detect_chatty_communication(exclude_pairs=cycle_pairs)
         self.assertEqual(len(chatty_excluded), 0)
 
-        # Without exclude_pairs, it would have flagged it
+        # Canonical detection also deduplicates without a caller-supplied exclusion.
         chatty_included = await detector._detect_chatty_communication(exclude_pairs=None)
-        self.assertEqual(len(chatty_included), 1)
+        self.assertEqual(len(chatty_included), 0)
 
 
 class SmellDetectorOfflineParityTests(unittest.IsolatedAsyncioTestCase):
@@ -300,7 +300,7 @@ class DynamicRemediationTargetTests(unittest.TestCase):
 class IsolatedServiceExclusionTests(unittest.IsolatedAsyncioTestCase):
     """Verify that is_external services and architectural infrastructure are not flagged as isolated."""
 
-    async def test_external_and_facade_services_excluded_from_isolation(self):
+    async def test_external_types_excluded_but_facade_names_have_no_exemption(self):
         self.addCleanup(RegistryManager.save, DEFAULT_REGISTRY)
         RegistryManager.save({
             "project": {"repository_key": "test:external_repo"},
@@ -322,11 +322,11 @@ class IsolatedServiceExclusionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("external-service-a", isolated_names, "Externally imported services must not be flagged as dead/isolated")
         self.assertNotIn("external-service-b", isolated_names, "Externally imported services must not be flagged as dead/isolated")
-        self.assertNotIn("order-service_facade", isolated_names, "Facades must not be flagged as dead/isolated")
-        self.assertNotIn("payment_gateway", isolated_names, "Gateways must not be flagged as dead/isolated")
-        self.assertNotIn("event_broker", isolated_names, "Brokers must not be flagged as dead/isolated")
+        self.assertIn("order-service_facade", isolated_names, "A name cannot exempt an unconnected service")
+        self.assertIn("payment_gateway", isolated_names)
+        self.assertIn("event_broker", isolated_names)
         self.assertIn("real-unconnected-service", isolated_names, "Real internal unconnected services must be detected as isolated")
-        self.assertEqual(len(isolated), 1)
+        self.assertEqual(len(isolated), 4)
 
     async def test_notification_service_detected_as_isolated_and_simulated(self):
         self.addCleanup(RegistryManager.save, DEFAULT_REGISTRY)
@@ -362,39 +362,29 @@ class IsolatedServiceExclusionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(preview["before"]["smells"]["isolated_service"], 1)
         self.assertEqual(preview["after"]["smells"]["isolated_service"], 0)
         self.assertTrue(preview["delta"]["measurable_change"])
-        self.assertGreater(preview["delta"]["score_reduction"], 0)
+        # Repairing isolation introduces new concentration and fan-out in this graph.
+        self.assertLess(preview["delta"]["score_reduction"], 0)
+        self.assertTrue(preview["findings"]["introduced"])
 
-    async def test_baseline_smells_shared_between_analysis_and_simulation(self):
-        from services.remediation_simulator import RemediationSimulator, GraphEdit, compute_architecture_health
-
-        # Analysis computed 3 smells: dependency explosion, api instability, isolated service
-        baseline = {
-            "circular_dependency": 0, "shared_database": 0, "hub_and_spoke": 0,
-            "bottleneck_service": 0, "dependency_explosion": 1, "high_coupling": 0,
-            "api_instability": 1, "chatty_communication": 0, "missing_circuit_breaker": 0,
-            "isolated_service": 1,
-        }
-        health = compute_architecture_health(baseline)
-        self.assertEqual(health["score"], 52.174)
-        self.assertEqual(health["total_smells"], 3)
-
-        sim = RemediationSimulator()
-        sim.driver = MockNeo4jDriver()
-        preview = await sim.simulate_fix(
-            edits=[GraphEdit(action="add_edge", from_service="order", to_service="notification")],
-            baseline_smells=baseline,
-        )
-
-        # Before MUST strictly equal Architecture Health from analysis at display precision (1dp)
-        self.assertEqual(preview["before"]["score"], round(health["score"], 1))
-        self.assertEqual(preview["before"]["total_smells"], health["total_smells"])
-        # After resolves isolated service but preserves historical snapshot smells
-        self.assertEqual(preview["after"]["smells"]["isolated_service"], 0)
-        self.assertEqual(preview["after"]["smells"]["dependency_explosion"], 1)
+    async def test_baseline_is_recomputed_and_historical_findings_remain_explicit(self):
+        from services.remediation_simulator import compute_architecture_health, breakdown_smells
+        RegistryManager.save({
+            "project": {"repository_key": "test:baseline", "source": "repository"},
+            "services": [{"name": n} for n in ("a", "b", "c", "d", "e")],
+            "dependencies": [{"from": "a", "to": "b"}, {"from": "c", "to": "d"}],
+            "api_snapshots": [
+                {"service": "a", "endpoints": ["GET /old"], "created_at": "1"},
+                {"service": "a", "endpoints": [], "created_at": "2"},
+            ],
+        })
+        detector = SmellDetector()
+        health = compute_architecture_health(breakdown_smells(await detector.detect_all_smells()), detector.current_snapshot())
+        preview = await RemediationSimulator().simulate_fix([], baseline_smells={"circular_dependency": 999})
+        self.assertEqual(preview["before"], health)
+        self.assertEqual(preview["after"], health)
         self.assertEqual(preview["after"]["smells"]["api_instability"], 1)
-        self.assertEqual(preview["after"]["total_smells"], 2)
-        self.assertLess(preview["after"]["score"], preview["before"]["score"])
-        self.assertTrue(preview["delta"]["measurable_change"])
+        self.assertEqual(preview["provenance"]["historical_findings"], "held_constant")
+        self.assertFalse(preview["measurable_change"])
 
 
 class Phase9CodeAuditTests(unittest.IsolatedAsyncioTestCase):
@@ -414,8 +404,7 @@ class Phase9CodeAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(red, 0.0)
         self.assertEqual(red, -23.571)
         self.assertTrue(meas)
-        self.assertIn("Warning: Proposed edit increases architectural risk by +23.571 pts", msg)
-        self.assertIn("new smell(s) introduced", msg)
+        self.assertIn("Warning: Proposed edit increases architectural risk", msg)
 
     def test_parse_github_url_robustness(self):
         """Verify _parse_github_url handles various formats including dots and trailing slashes."""

@@ -18,9 +18,17 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
+    RUNTIME_PROFILE: str = "local"  # local full stack or hosted deterministic alpha
+    DATABASE_URL: str = ""  # PostgreSQL in hosted mode; SQLite under data/ locally
+    MAX_REQUEST_BYTES: int = 5 * 1024 * 1024
+    MAX_PROJECTS_PER_USER: int = 5
+    MAX_ACTIVE_JOBS_PER_USER: int = 2
+    MAX_JOBS_PER_DAY: int = 30
+    JOB_TIMEOUT_SECONDS: int = 180
+    JOB_RETENTION_DAYS: int = 30
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "text"  # "text" or "json"
-    ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://localhost:3000"]
+    ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"]
 
     # Authentication & JWT
     AUTH_REQUIRED: bool = True
@@ -29,7 +37,7 @@ class Settings(BaseSettings):
         description="JWT symmetric signing key (minimum 32 characters in production)"
     )
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=5, le=1440)
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
     ALLOW_SELF_SIGNUP: bool = True
@@ -125,6 +133,18 @@ class Settings(BaseSettings):
         and generate high-entropy ephemeral secrets in development when unset."""
         env_clean = self.ENVIRONMENT.lower().strip()
         is_prod = env_clean in {"production", "prod", "staging", "stg", "uat"}
+        if self.RUNTIME_PROFILE not in {"local", "hosted"}:
+            raise ValueError("RUNTIME_PROFILE must be local or hosted")
+        if self.RUNTIME_PROFILE == "hosted":
+            if not self.AUTH_REQUIRED:
+                raise ValueError("Hosted mode requires authentication")
+            if self.ALLOW_SELF_SIGNUP or self.ENABLE_DEFAULT_VIEWER:
+                raise ValueError("Hosted alpha requires invite-only accounts and no default viewer")
+            if not self.DATABASE_URL.startswith(("postgresql://", "postgres://")):
+                raise ValueError("Hosted mode requires durable PostgreSQL DATABASE_URL")
+            if "*" in self.ALLOWED_ORIGINS:
+                raise ValueError("Hosted mode requires explicit ALLOWED_ORIGINS")
+            is_prod = True
 
         known_insecure_jwt = {
             "mdt-production-super-secret-jwt-key-minimum-32-chars!",
@@ -173,10 +193,13 @@ class Settings(BaseSettings):
 
         # 3. Prevent development passwords in production
         if is_prod:
+            if len(self.ADMIN_PASSWORD.encode("utf-8")) < 12:
+                raise ValueError("Production administrator password must contain at least 12 bytes")
             insecure = {
                 "ADMIN_PASSWORD": "admin123",
-                "NEO4J_PASSWORD": "password",
             }
+            if self.RUNTIME_PROFILE == "local":
+                insecure["NEO4J_PASSWORD"] = "password"
             if self.ENABLE_DEFAULT_VIEWER:
                 insecure["AUDITOR_PASSWORD"] = "auditor123"
 

@@ -12,6 +12,9 @@ from core.auth import (
     create_access_token,
     get_current_user,
     register_user,
+    decode_access_token,
+    oauth2_scheme,
+    require_admin,
 )
 from core.config import settings
 from core.utils import check_rate_limit
@@ -36,7 +39,7 @@ def _issue_token(user: UserOut) -> Token:
 
 
 @router.post("/login", response_model=Token, summary="User login with JSON credentials")
-async def login_json(credentials: UserLogin, request: Request):
+def login_json(credentials: UserLogin, request: Request):
     """Authenticate user with username and password, returning a JWT bearer token."""
     client_ip = request.client.host if request.client else "unknown"
     if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="login"):
@@ -60,10 +63,13 @@ async def login_json(credentials: UserLogin, request: Request):
 
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED, summary="Create a viewer account")
-async def register(credentials: UserRegistration):
+def register(credentials: UserRegistration, request: Request):
     """Create a self-service read-only account and start a session."""
     if not settings.ALLOW_SELF_SIGNUP:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Self-service signup is disabled.")
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="signup"):
+        raise HTTPException(status_code=429, detail="Too many signup attempts")
     try:
         user = register_user(credentials.username, credentials.password)
     except ValueError as exc:
@@ -74,7 +80,7 @@ async def register(credentials: UserRegistration):
 
 
 @router.post("/token", response_model=Token, summary="OAuth2 standard form login (Swagger UI compatible)")
-async def login_form(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+def login_form(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """OAuth2 compatible token login for documentation and OpenAPI client generators."""
     client_ip = request.client.host if request.client else "unknown"
     if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="login"):
@@ -103,6 +109,29 @@ async def read_current_user(current_user: UserOut = Depends(get_current_user)):
 
 
 @router.post("/refresh", response_model=Token, summary="Refresh existing JWT access token")
-async def refresh_token(current_user: UserOut = Depends(get_current_user)):
+def refresh_token(current_user: UserOut = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
     """Issue a fresh JWT token for an already authenticated active user session."""
-    return _issue_token(current_user)
+    result = _issue_token(current_user)
+    _revoke(token)
+    return result
+
+
+def _revoke(token):
+    if token:
+        from core.store import get_store
+        payload = decode_access_token(token)
+        get_store().put("revoked", payload["jti"], "auth", {"expires": payload["exp"]})
+
+
+@router.post("/logout", status_code=204)
+def logout(current_user: UserOut = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
+    _revoke(token)
+
+
+@router.post("/invite", response_model=UserOut, status_code=201)
+def invite(credentials: UserRegistration, current_user: UserOut = Depends(require_admin)):
+    """Provision a private-beta analyst; hand credentials to the user separately."""
+    try:
+        return register_user(credentials.username, credentials.password, role="analyst")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

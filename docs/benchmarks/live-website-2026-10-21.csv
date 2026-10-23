@@ -1,0 +1,11 @@
+repo,sha,base_sha,outcome,nodes,edges,commit_risk,architectural_debt,assessment_status,evidence_completeness
+DietrichGebert/ponytail,09c434ab73ca43761c5d8b0c5d341926c2fba710,,unsupported_or_insufficient_architecture,,,,,unavailable,
+GoogleCloudPlatform/microservices-demo,38e7348eb289eb5b87c0c6e8cb19ced0449dc389,0c41e6d3dcd68c07853efda65b6b48a76681f6a0,partial,12,16,40.0,80.769,insufficient_evidence,0.0
+fastapi/full-stack-fastapi-template,b1125d8839482cb7bbae603ddc6d0081bf87532e,99e9ec1ec1f758dc7991ff012c9be7b5fca0f276,partial,5,2,5.0,45.0,insufficient_evidence,0.0
+dockersamples/example-voting-app,63e9150ca17af4ed05880d4245e486481f73fcb4,1df1971b6b289f9686d14df900d28b141b495ba6,partial,6,5,40.0,52.174,insufficient_evidence,0.0
+microservices-demo/microservices-demo,9dff06fae4981921caec6a62393a6ebfce4b3e3f,9bffa02d273568b8bddaeaa9e5a3ef6a045b4151,partial,17,1,5.0,60.0,insufficient_evidence,0.0
+spring-petclinic/spring-petclinic-microservices,1d76b00d683e86b62867a6bf59530f8ab301244f,a3f9d06d36d7183b8e7a957d4d93d2dfc884f5ae,partial,11,13,5.0,72.152,insufficient_evidence,0.0
+open-telemetry/opentelemetry-demo,ba1757b3f197916640fff4f7c549b99e54835ab8,bbe2eda219af4fd32e57b3b7265f6b36d1b6d4e0,partial,20,47,40.0,88.004,insufficient_evidence,0.0
+dotnet/eShop,913acea66708a59595351174cee9b29f37179d29,,unsupported_or_insufficient_architecture,,,,,unavailable,
+saleor/saleor-platform,ab6315bd59c58b4815175df4c679107ff9695be4,fe0a737b5ad74cc3722594f7f17e1135c1287398,partial,7,5,15.0,54.545,insufficient_evidence,0.0
+expressjs/express,0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8,,unsupported_or_insufficient_architecture,,,,,unavailable,

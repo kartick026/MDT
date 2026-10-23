@@ -1,3 +1,5 @@
+> Historical research-stack documentation: some routes, claims and setup details below predate the owned-project alpha. Use [PUBLIC_ALPHA.md](PUBLIC_ALPHA.md), [VALIDATION.md](VALIDATION.md) and the running OpenAPI schema for current behavior.
+
 # Microservice Drift Tracker (MDT) — GitHub App & Webhook Guide
 
 This guide details how to integrate MDT with GitHub organizations using a **GitHub App** and **Webhook Automation** to enable automated pre-merge drift gating and pull request risk reporting.

@@ -1,0 +1,10 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const output = path.join(__dirname, 'dist');
+fs.mkdirSync(output, { recursive: true });
+const files = ['manifest.json', 'popup.html', 'popup.css', 'popup.js', 'background.js', 'PRIVACY.md'];
+for (const file of files) fs.copyFileSync(path.join(__dirname, file), path.join(output, file));
+fs.copyFileSync(path.join(__dirname, '../../packages/client/index.js'), path.join(output, 'client.js'));
+const manifest = JSON.parse(fs.readFileSync(path.join(output, 'manifest.json'), 'utf8'));
+if (manifest.manifest_version !== 3 || manifest.content_scripts || manifest.host_permissions) throw new Error('Unexpected browser permission surface');
+console.log(`Built Manifest V3 extension at ${output}`);

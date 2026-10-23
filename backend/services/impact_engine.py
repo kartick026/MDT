@@ -7,8 +7,7 @@ Deterministic + AI-assisted risk scoring engine
 """
 
 import logging
-import statistics
-from collections import defaultdict
+import math
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 import asyncio
@@ -24,6 +23,7 @@ from services.retrieval import RetrievalEngine
 from services.llm_explainer import LLMExplainer
 
 from core.config import settings
+from core.registry import current_project_id
 
 
 
@@ -129,13 +129,14 @@ class ImpactEngine:
 
         # Step 1: Calculate deterministic risk (partial — depth filled in step 2)
 
-        risk_factors = self._calculate_deterministic_risk(changes)
+        effective_changes = [c for c in changes if getattr(c, "ast_metadata", {}).get("semantic_change") is not False]
+        risk_factors = self._calculate_deterministic_risk(effective_changes)
 
 
 
         # Step 2: Get impacted services + real dependency depth from graph
 
-        impacted_services, max_depth = await self._get_impacted_services_with_depth(changes)
+        impacted_services, max_depth = await self._get_impacted_services_with_depth(effective_changes)
 
         risk_factors.dependency_depth = max_depth
 
@@ -143,7 +144,7 @@ class ImpactEngine:
 
         # Step 3: Retrieve relevant context from ChromaDB
 
-        retrieved_context = await self._retrieve_context(changes)
+        retrieved_context = await self._retrieve_context(effective_changes) if effective_changes else {}
 
 
 
@@ -185,7 +186,12 @@ class ImpactEngine:
 
         # Step 9: Confidence based on how much data we had
 
-        confidence = self._compute_confidence(impacted_services, max_depth)
+        from core.registry import RegistryManager
+        from services.analysis_evidence import assess_evidence
+        confidence, assessment_status, confidence_evidence = assess_evidence(changes, RegistryManager.load())
+        if assessment_status in {"insufficient_evidence", "partial"}:
+            explanation = (explanation or "") + " Evidence coverage is incomplete; the risk score is provisional."
+
 
 
 
@@ -207,7 +213,7 @@ class ImpactEngine:
 
         # Step 11: Index changed files into ChromaDB for future retrieval
 
-        await self._index_changes(changes, final_risk)
+        await self._index_changes(effective_changes, final_risk)
 
 
 
@@ -220,6 +226,8 @@ class ImpactEngine:
             impacted_services=impacted_services,
 
             confidence=confidence,
+            assessment_status=assessment_status,
+            confidence_evidence=confidence_evidence,
 
             explanation=explanation,
 
@@ -251,13 +259,14 @@ class ImpactEngine:
 
         """Calculate risk based on deterministic factors"""
 
+        changes = [c for c in changes if getattr(c, "ast_metadata", {}).get("semantic_change") is not False]
         return RiskFactors(
 
             file_count=len(changes),
 
             core_service_impact=self._has_core_service_impact(changes),
 
-            api_changes=self._has_api_changes(changes),
+            api_changes=self._has_breaking_api_changes(changes),
 
             dependency_depth=2,  # updated later by _get_real_depth()
 
@@ -275,33 +284,26 @@ class ImpactEngine:
         """
         Dynamically determine core architectural services based on in-degree centrality.
         A service is 'core' when other services genuinely depend on it heavily.
-        Threshold is defined as mean + 1 standard deviation of in-degrees when variance
-        is significant (std >= 1.0), falling back to round(mean) for small fleets with
-        sub-integer variance, with a minimum in-degree of 2.
+        Count distinct inbound peer services, including zero-degree services in the
+        fleet mean. Core threshold is max(2, ceil(mean distinct in-degree)).
         """
         try:
             from core.registry import RegistryManager
             deps = RegistryManager.get_dependencies()
-            in_degree = defaultdict(int)
-            for d in deps:
-                to_svc = d.get("to", "")
-                from_svc = d.get("from", "")
-                if to_svc and from_svc and to_svc != from_svc:
-                    in_degree[to_svc] += 1
-            if not in_degree:
+            services = {svc["name"] for svc in RegistryManager.get_services()}
+            inbound = {name: set() for name in services}
+            for dependency in deps:
+                from domain.relations import is_startup
+                if is_startup(dependency):
+                    continue
+                source, target = dependency.get("from"), dependency.get("to")
+                if source in services and target in services and source != target:
+                    inbound[target].add(source)
+            if not inbound:
                 return set()
-
-            degrees = list(in_degree.values())
-            mean = statistics.mean(degrees)
-            std = statistics.pstdev(degrees)
-            # When standard deviation is >= 1.0 (typical in larger enterprise graphs),
-            # strictly isolate top-tier hubs via mean + std. For small fleets with sub-integer
-            # variance (std < 1.0), use round(mean) to avoid over-filtering primary orchestrators.
-            target = mean + std if std >= 1.0 else mean
-            threshold = max(2, round(target))
-            core = {svc for svc, deg in in_degree.items() if deg >= threshold}
-            if not core:
-                core = {svc for svc, deg in in_degree.items() if deg >= 2}
+            in_degree = {name: len(peers) for name, peers in inbound.items()}
+            threshold = max(2, math.ceil(sum(in_degree.values()) / len(in_degree)))
+            core = {name for name, degree in in_degree.items() if degree >= threshold}
             return core
         except Exception as exc:
             logger.debug("Failed to calculate core services from graph: %s", exc)
@@ -313,38 +315,40 @@ class ImpactEngine:
         if not core_services:
             return False
 
-        core_patterns = set()
-        for svc in core_services:
-            clean = svc.lower().strip()
-            core_patterns.add(clean)
-            core_patterns.add(clean.replace("-", "_"))
-            core_patterns.add(clean.replace("_", "-"))
+        from services.dependency_graph import _infer_service_from_path
+        return any(_infer_service_from_path(getattr(change, "file_path", str(change))) in core_services
+                   or _infer_service_from_path(getattr(change, "previous_path", "") or "") in core_services
+                   for change in changes)
 
-        for change in changes:
-            fp = getattr(change, 'file_path', str(change)).lower().replace("\\", "/")
-            if any(p in fp for p in core_patterns):
-                return True
-        return False
 
 
 
     def _has_api_changes(self, changes: List) -> bool:
-
-        """Check if any changes are API-related files"""
-
-        api_patterns = ['api', 'route', 'endpoint', 'controller', 'handler']
-
+        """Require extracted contract evidence; file names alone prove nothing."""
         for change in changes:
-
-            file_path = getattr(change, 'file_path', str(change)).lower()
-
-            if any(pattern in file_path for pattern in api_patterns):
-
+            metadata = getattr(change, "ast_metadata", {})
+            if metadata.get("semantic_change") is False:
+                continue
+            delta = metadata.get("contract_changes", {})
+            if any(delta.get(key) for key in ("added", "removed", "modified")):
                 return True
-
+            schema = metadata.get("schema_changes", {})
+            if schema.get("compatibility") == "breaking" or schema.get("affected_routes"):
+                return True
         return False
 
-
+    def _has_breaking_api_changes(self, changes: List) -> bool:
+        for change in changes:
+            metadata = getattr(change, "ast_metadata", {})
+            if metadata.get("semantic_change") is False:
+                continue
+            delta = metadata.get("contract_changes", {})
+            schema = metadata.get("schema_changes", {})
+            if schema.get("compatibility") == "breaking":
+                return True
+            if (delta.get("removed") or delta.get("modified")) and delta.get("compatibility") != "additive":
+                return True
+        return False
 
     def _has_schema_changes(self, changes: List) -> bool:
 
@@ -354,8 +358,14 @@ class ImpactEngine:
 
         for change in changes:
 
+            metadata = getattr(change, "ast_metadata", {})
+            if metadata.get("semantic_change") is False:
+                continue
             file_path = getattr(change, 'file_path', str(change)).lower().replace("\\", "/")
 
+            schema = metadata.get("schema_changes", {})
+            if any(schema.get(key) for key in ("added", "removed", "modified")):
+                return True
             if any(pattern in file_path for pattern in schema_patterns):
 
                 return True
@@ -370,7 +380,7 @@ class ImpactEngine:
 
         config_patterns = [
 
-            'docker-compose', '.env', 'helm', 'k8s', 'kubernetes', 'terraform',
+            'docker-compose', 'compose.yml', 'compose.yaml', '.env', 'helm', 'k8s', 'kubernetes', 'terraform',
 
             'settings.py', 'config.py', 'application.yml', 'application.yaml', 'values.yaml'
 
@@ -378,6 +388,9 @@ class ImpactEngine:
 
         for change in changes:
 
+            metadata = getattr(change, "ast_metadata", {})
+            if metadata.get("semantic_change") is False:
+                continue
             file_path = getattr(change, 'file_path', str(change)).lower().replace("\\", "/")
 
             if any(pattern in file_path for pattern in config_patterns):
@@ -409,6 +422,7 @@ class ImpactEngine:
         services: set = set()
 
         max_depth = 0
+        checked_services = set()
 
 
 
@@ -424,11 +438,12 @@ class ImpactEngine:
 
             # Get depth for each impacted service
 
-            for svc in impacted:
+            for svc in set(impacted) - checked_services:
 
                 depth = await self.dep_graph.get_dependency_depth(svc)
 
                 max_depth = max(max_depth, depth)
+                checked_services.add(svc)
 
 
 
@@ -446,33 +461,11 @@ class ImpactEngine:
 
 
 
-    def _compute_confidence(
-
-        self, impacted_services: List[str], depth: int
-
-    ) -> float:
-
-        """
-
-        Confidence score based on:
-
-        - Whether we found real services (vs empty list = low confidence)
-
-        - Whether depth came from Neo4j (real) or static map (medium)
-
-        """
-
-        if not impacted_services:
-
-            return 0.5
-
-        if depth > 0:
-
-            return min(0.95, 0.75 + depth * 0.05)
-
-        return 0.70
-
-
+    def _compute_confidence(self, impacted_services, depth, *, changes=None) -> float:
+        """Compatibility wrapper: graph depth does not establish confidence."""
+        from core.registry import RegistryManager
+        from services.analysis_evidence import assess_evidence
+        return assess_evidence(changes or [], RegistryManager.load())[0]
 
     async def _record_to_graph(
 
@@ -534,7 +527,12 @@ class ImpactEngine:
         """Retrieve relevant context from vector database"""
         from core.registry import RegistryManager
         repository_key = RegistryManager.get_project_context().get("repository_key", "")
-        return await self.retrieval.retrieve_similar(changes, repository_key=repository_key)
+        revisions = {getattr(change, "commit_sha", "") for change in changes}
+        timestamps = [getattr(change, "commit_timestamp", None) for change in changes]
+        timestamp = min(timestamps) if timestamps and all(t is not None for t in timestamps) else None
+        return await self.retrieval.retrieve_similar(changes, repository_key=repository_key,
+            project_id=current_project_id() or "", target_commit_sha=next(iter(revisions)) if len(revisions) == 1 else "",
+            before_timestamp=timestamp)
 
 
     def _compute_base_risk(self, factors: RiskFactors) -> float:
@@ -611,6 +609,12 @@ class ImpactEngine:
 
         """Generate human-readable explanation using LLM"""
 
+        if current_project_id() or getattr(settings, "RUNTIME_PROFILE", "local") == "hosted":
+            partial = any(getattr(c, "extraction_status", "complete") != "complete" for c in changes)
+            return (f"Deterministic analysis of {len(changes)} changed files identifies "
+                    f"{len(impacted_services)} affected services and a heuristic risk score of {risk_score}/100. "
+                    + ("Source extraction is partial; review the coverage warnings before relying on this result. " if partial else "")
+                    + "This score is not a measured failure probability. Source content was not sent to an LLM.")
         return await self.explainer.explain(
 
             changes=changes,
@@ -665,6 +669,9 @@ class ImpactEngine:
                     classes=ast_meta.get('classes', []),
                     risk_score=risk_score,
                     repository_key=repository_key,
+                    project_id=current_project_id() or "",
+                    commit_sha=getattr(change, "commit_sha", ""),
+                    commit_timestamp=getattr(change, "commit_timestamp", None),
                 )
 
         except Exception as exc:

@@ -17,6 +17,8 @@ from core.middleware import JSONLogFormatter
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app) as test_client:
+        from core.auth import create_access_token
+        test_client.headers["Authorization"] = "Bearer " + create_access_token({"sub": "admin"})
         yield test_client
 
 

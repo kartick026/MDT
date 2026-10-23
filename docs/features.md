@@ -1,3 +1,5 @@
+> Historical research-stack documentation: some routes, claims and setup details below predate the owned-project alpha. Use [PUBLIC_ALPHA.md](PUBLIC_ALPHA.md), [VALIDATION.md](VALIDATION.md) and the running OpenAPI schema for current behavior.
+
 # Microservice Drift Tracker (MDT) — Features Guide
 
 Welcome to the comprehensive features guide for **Microservice Drift Tracker (MDT)**. MDT is an AI-assisted cross-service impact analysis and drift governance platform engineered to detect architectural degradation, connection integrity issues, and breaking downstream blast radius **before code is deployed**.
@@ -501,4 +503,3 @@ Engineering a robust distributed architectural tracking platform requires clear 
 ### 3. Multi-Strategy Fallback Exception Observability
 - **Traceability Guarantee**:
   MDT relies on multi-stage fallback chains across operations like Git branch resolution (trying branch candidates, commit SHAs, remote refs, and symbolic heads) and container port extraction. All fallback branches are instrumented with explicit `logger.debug(...)` output. If every strategy in a fallback chain fails, the complete debug trail is captured in system logs rather than silently discarded.
-

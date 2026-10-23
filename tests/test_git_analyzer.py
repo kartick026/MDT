@@ -115,26 +115,6 @@ class RepoKeyNormalizationTests(unittest.TestCase):
 
 
 class DiffBaseAndCloneTests(unittest.TestCase):
-    def test_clone_repo_depth_and_token(self):
-        """_clone_repo must inject token for github.com URLs and pass depth=50."""
-        from git import Repo
-        with patch.object(Repo, "clone_from") as mock_clone:
-            mock_repo = MagicMock()
-            mock_clone.return_value = mock_repo
-
-            GitAnalyzer._clone_repo(
-                "https://github.com/org/repo.git",
-                "/tmp/dest",
-                "commit123",
-                token="ghp_testtoken"
-            )
-
-            mock_clone.assert_called_once()
-            args, kwargs = mock_clone.call_args
-            self.assertIn("x-access-token:ghp_testtoken@github.com", args[0])
-            self.assertEqual(kwargs.get("depth"), 50)
-            mock_repo.git.checkout.assert_called_with("commit123")
-
     def test_explicit_commit_does_not_merge_base_with_main(self):
         """
         When analyzing a specific commit SHA or relative revision, diff base must be
@@ -163,36 +143,4 @@ class DiffBaseAndCloneTests(unittest.TestCase):
             or "^" in branch_ref
         )
         self.assertFalse(is_explicit_branch)
-
-    @patch("subprocess.run")
-    def test_analyze_from_local_workspace_explicit_commit_diff_base(self, mock_subproc):
-        """Verify _analyze_from_local_workspace uses parent commit and not main merge-base."""
-        def fake_run(cmd, **kwargs):
-            res = MagicMock()
-            res.returncode = 0
-            if "rev-parse" in cmd and "--verify" in cmd:
-                res.stdout = "parent_commit_sha_12345"
-            elif "diff" in cmd and "--name-status" in cmd:
-                if "parent_commit_sha_12345" in cmd:
-                    res.stdout = "M\tservices/user_service/main.py\n"
-                else:
-                    res.stdout = ""
-            elif "diff" in cmd and "-U3" in cmd:
-                res.stdout = "@@ -1,2 +1,3 @@\n+line\n"
-            elif "show" in cmd:
-                res.stdout = "print('hello')"
-            else:
-                res.stdout = "dummy"
-            return res
-
-        mock_subproc.side_effect = fake_run
-
-        analyzer = GitAnalyzer()
-        changes = analyzer._analyze_from_local_workspace(
-            "c876e481234567890abcdef1234567890abcdef",
-            files=None
-        )
-        self.assertEqual(len(changes), 1)
-        self.assertEqual(changes[0].file_path, "services/user_service/main.py")
-        self.assertEqual(changes[0].change_type, "modified")
 

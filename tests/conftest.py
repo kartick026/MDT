@@ -1,4 +1,6 @@
 import sys
+import os
+os.environ.setdefault("TESTING", "true")
 from pathlib import Path
 import pytest
 
@@ -9,6 +11,16 @@ if backend_dir not in sys.path:
 
 from core.utils import reset_rate_limit_records
 from core.registry import RegistryManager, REGISTRY_FILE
+
+
+@pytest.fixture(autouse=True)
+def isolate_durable_store(tmp_path, monkeypatch):
+    import core.store as store_module
+    import api.projects as projects_module
+    store = store_module.Store(str(tmp_path / "test.sqlite3"))
+    monkeypatch.setattr(store_module, "get_store", lambda: store)
+    monkeypatch.setattr(projects_module, "get_store", lambda: store)
+    return store
 
 
 @pytest.fixture(autouse=True)

@@ -6,6 +6,7 @@ import logging
 import json
 import re
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -33,6 +34,8 @@ USERS_FILE = Path(__file__).parent.parent / "data" / "users.json"
 
 def hash_password(plain_password: str) -> str:
     """Hash a plaintext password with bcrypt salt."""
+    if len(plain_password.encode("utf-8")) > 72:
+        raise ValueError("Password must be at most 72 UTF-8 bytes")
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(plain_password.encode("utf-8"), salt).decode("utf-8")
 
@@ -105,7 +108,7 @@ def _persist_registered_users() -> None:
     temporary_file.replace(USERS_FILE)
 
 
-def register_user(username: str, plain_password: str) -> UserOut:
+def register_user(username: str, plain_password: str, role: str = "viewer") -> UserOut:
     """Create a durable viewer account without allowing privilege escalation."""
     _init_default_users()
     cleaned_username = username.strip()
@@ -113,19 +116,33 @@ def register_user(username: str, plain_password: str) -> UserOut:
         raise ValueError("Username must be 3–100 characters using letters, numbers, '.', '_' or '-'.")
     if len(plain_password) < 8:
         raise ValueError("Password must contain at least 8 characters.")
+    if role not in {"viewer", "analyst"}:
+        raise ValueError("Unsupported account role")
 
     with _USERS_LOCK:
-        if cleaned_username in _USERS_DB:
+        if _account(cleaned_username):
             raise ValueError("That username is already in use.")
-        _USERS_DB[cleaned_username] = {
+        account = {
             "password_hash": hash_password(plain_password),
-            "role": "viewer",
+            "role": role,
             "is_active": True,
         }
+        from core.store import get_store
+        get_store().create_account(cleaned_username, {"username": cleaned_username, **account})
+        _USERS_DB[cleaned_username] = account
         _REGISTERED_USERS.add(cleaned_username)
-        _persist_registered_users()
+        if settings.RUNTIME_PROFILE == "local":
+            _persist_registered_users()
 
-    return UserOut(username=cleaned_username, role="viewer", is_active=True)
+    return UserOut(username=cleaned_username, role=role, is_active=True)
+
+
+def _account(username):
+    # Environment administrators remain managed by deployment configuration.
+    if username == settings.ADMIN_USERNAME or (settings.ENABLE_DEFAULT_VIEWER and username == settings.AUDITOR_USERNAME):
+        return _USERS_DB.get(username)
+    from core.store import get_store
+    return get_store().get("account", username, "auth") or _USERS_DB.get(username)
 
 
 # Initialize default user
@@ -135,7 +152,7 @@ _init_default_users()
 def authenticate_user(username: str, plain_password: str) -> Optional[UserOut]:
     """Verify credentials and return user model or None."""
     _init_default_users()
-    user_record = _USERS_DB.get(username)
+    user_record = _account(username)
     if not user_record:
         return None
 
@@ -166,7 +183,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
     to_encode.update({
         "exp": int(expire.timestamp()),
-        "iat": int(now.timestamp())
+        "iat": int(now.timestamp()),
+        "jti": uuid.uuid4().hex,
     })
 
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
@@ -179,7 +197,10 @@ def decode_access_token(token: str) -> dict:
     Raises HTTPException on expiry or signature failure.
     """
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"require": ["exp", "iat", "sub", "jti"]})
+        from core.store import get_store
+        if get_store().get("revoked", payload["jti"], "auth"):
+            raise jwt.InvalidTokenError("Session has been revoked")
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -195,7 +216,7 @@ def decode_access_token(token: str) -> dict:
         )
 
 
-async def get_current_user_optional(
+def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme),
 ) -> Optional[UserOut]:
     """
@@ -210,8 +231,10 @@ async def get_current_user_optional(
         username: str = payload.get("sub")
         if not username:
             return None
-        role: str = payload.get("role", "viewer")
-        return UserOut(username=username, role=role, is_active=True)
+        record = _account(username)
+        if not record or not record.get("is_active", True):
+            raise HTTPException(status_code=401, detail="Account is unavailable")
+        return UserOut(username=username, role=record.get("role", "viewer"), is_active=True)
     except HTTPException:
         raise
     except Exception as exc:

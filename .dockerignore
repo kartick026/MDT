@@ -1,0 +1,13 @@
+.git
+.env
+**/.env
+**/.env.*
+**/node_modules
+**/data
+**/chroma_db
+**/__pycache__
+**/.venv
+**/dist
+*.docx
+*.pdf
+scratch

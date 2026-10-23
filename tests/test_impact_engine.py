@@ -22,7 +22,8 @@ class ImpactEngineTests(unittest.IsolatedAsyncioTestCase):
 
     def test_has_api_changes(self):
         changes = [ChangeInfo(file_path="services/payment_service/api.py", change_type="modified", diff_content="", additions=10, deletions=0, old_content="", new_content="", ast_metadata={})]
-        self.assertTrue(self.engine._has_api_changes(changes))
+        # A suggestive filename is not evidence of a changed API contract.
+        self.assertFalse(self.engine._has_api_changes(changes))
         
         changes_non_api = [ChangeInfo(file_path="services/payment_service/utils.py", change_type="modified", diff_content="", additions=10, deletions=0, old_content="", new_content="", ast_metadata={})]
         self.assertFalse(self.engine._has_api_changes(changes_non_api))
@@ -77,9 +78,7 @@ class ImpactEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(SeverityLevel.CRITICAL, self.engine._get_severity(80))
 
     def test_compute_confidence(self):
-        # No services
-        self.assertEqual(0.5, self.engine._compute_confidence([], 0))
-        # Static depth (0)
-        self.assertEqual(0.70, self.engine._compute_confidence(["service-a"], 0))
-        # Real Neo4j depth (2) -> 0.75 + 0.1 = 0.85
-        self.assertEqual(0.85, self.engine._compute_confidence(["service-a"], 2))
+        # Neither service membership nor graph depth proves extraction coverage.
+        self.assertEqual(0, self.engine._compute_confidence([], 0))
+        self.assertEqual(0, self.engine._compute_confidence(["service-a"], 0))
+        self.assertEqual(0, self.engine._compute_confidence(["service-a"], 2))

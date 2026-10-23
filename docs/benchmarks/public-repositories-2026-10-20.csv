@@ -1,0 +1,14 @@
+repo,case,risk,severity,debt,source_bytes,expected_api_change,api_change_flag,api_flag_correct,repeatable,partial,error
+fastapi/full-stack-fastapi-template,identical_snapshot,0.0,low,21.429,6892,False,False,True,True,True,
+fastapi/full-stack-fastapi-template,python_comment_only,30.0,medium,21.429,6921,False,True,False,True,True,
+fastapi/full-stack-fastapi-template,python_route_renamed,30.0,medium,21.429,6909,True,True,True,True,True,
+fastapi/full-stack-fastapi-template,python_route_file_deleted,30.0,medium,21.429,3446,True,True,True,True,True,
+fastapi/full-stack-fastapi-template,cross_file_model_type_changed,5.0,low,21.429,6954,True,False,False,True,True,
+expressjs/express,javascript_comment_only,5.0,low,12.0,568,False,False,True,True,True,
+expressjs/express,javascript_route_renamed,30.0,medium,12.0,555,True,True,True,True,True,
+expressjs/express,javascript_route_file_deleted,30.0,medium,12.0,269,True,True,True,True,True,
+expressjs/express,real_upstream_4_21_2_to_pinned_HEAD,,,,1302658,,,,,,At most 100 changed files may be submitted.
+expressjs/express,real_upstream_core_subset,55.0,high,12.0,159588,,True,,True,True,
+fastapi/fastapi,large_python_comment_only,30.0,medium,12.0,520815,False,True,False,True,True,
+fastapi/fastapi,hundred_real_files_comment_only,65.0,high,12.0,37972,False,True,False,True,True,
+fastapi/fastapi,hundred_larger_files_comment_only,70.0,high,12.0,1426664,False,True,False,True,True,

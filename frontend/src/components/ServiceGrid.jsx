@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { getServices, importRepo, getConnectionBugs, resetDefaultRegistry, getProjectContext } from '../api';
-import { useAuth } from '../context/AuthContext';
-import { useToast } from './Toast';
+import { useAuth } from '../context/useAuth';
+import { useToast } from '../context/useToast';
 
 const RISK_COLOR = {
   LOW:      'var(--green)',
@@ -20,19 +20,14 @@ function RiskBar({ score, level }) {
   );
 }
 
-// In-memory cache for instant tab transitions without spinner flashes (stale-while-revalidate)
-let cachedServices = null;
-let cachedBugs = null;
-let cachedLastUpdated = null;
-
 export default function ServiceGrid({ onImportSuccess, onNavigateTab }) {
   const { isAuthenticated, openLoginModal } = useAuth();
   const { addToast } = useToast();
 
-  const [services, setServices] = useState(() => cachedServices || []);
-  const [loading, setLoading]   = useState(() => !cachedServices);
+  const [services, setServices] = useState([]);
+  const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(() => cachedLastUpdated || null);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [refreshing, setRefreshing]   = useState(false);
   const [resetting, setResetting]     = useState(false);
 
@@ -44,7 +39,7 @@ export default function ServiceGrid({ onImportSuccess, onNavigateTab }) {
   const [importResult, setImportResult] = useState(null);
 
   // Connection bugs state
-  const [bugs, setBugs] = useState(() => cachedBugs || []);
+  const [bugs, setBugs] = useState([]);
 
   const fetchServices = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -53,17 +48,12 @@ export default function ServiceGrid({ onImportSuccess, onNavigateTab }) {
         getServices(),
         getConnectionBugs().catch(() => [])
       ]);
-      cachedServices = svcData;
-      cachedBugs = bugData;
-      cachedLastUpdated = new Date();
       setServices(svcData);
       setBugs(bugData);
-      setLastUpdated(cachedLastUpdated);
+      setLastUpdated(new Date());
       setError(null);
     } catch {
-      if (!cachedServices) {
-        setError("Cannot reach MDT backend. Make sure Docker is running on :8000");
-      }
+      setError('Service status is unavailable. Check the server connection and retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);

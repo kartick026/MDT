@@ -1,0 +1,120 @@
+{
+  "name": "mdt-architecture-review",
+  "displayName": "MDT Architecture Review (Local Alpha)",
+  "description": "Review desktop Git changes or repository revisions from a browser-hosted editor using MDT.",
+  "version": "0.1.0",
+  "publisher": "mdt-local-alpha",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Connecting and viewing results works in Restricted Mode. Reading Git source requires a trusted workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": true,
+      "description": "Repository revision analysis and saved evidence are available. Local Git commands require a trusted filesystem workspace."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "mdt.connect",
+        "title": "MDT: Connect to Server"
+      },
+      {
+        "command": "mdt.disconnect",
+        "title": "MDT: Disconnect"
+      },
+      {
+        "command": "mdt.analyzeStaged",
+        "title": "MDT: Analyze Staged Changes",
+        "enablement": "isWorkspaceTrusted && !virtualWorkspace && !mdt.webHost"
+      },
+      {
+        "command": "mdt.analyzeWorking",
+        "title": "MDT: Analyze Saved Working Changes",
+        "enablement": "isWorkspaceTrusted && !virtualWorkspace && !mdt.webHost"
+      },
+      {
+        "command": "mdt.openLastAnalysis",
+        "title": "MDT: Open Last Analysis"
+      },
+      {
+        "command": "mdt.refreshLastAnalysis",
+        "title": "MDT: Refresh Last Analysis",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mdt.showFindings",
+        "title": "MDT: Show Findings"
+      },
+      {
+        "command": "mdt.analyzeRepository",
+        "title": "MDT: Analyze Repository Revision (Browser)",
+        "enablement": "mdt.webHost"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "mdt.findings",
+          "name": "MDT Findings",
+          "visibility": "collapsed"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "mdt.refreshLastAnalysis",
+          "when": "view == mdt.findings",
+          "group": "navigation"
+        },
+        {
+          "command": "mdt.openLastAnalysis",
+          "when": "view == mdt.findings",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MDT",
+      "properties": {
+        "mdt.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "scope": "application",
+          "description": "MDT API base URL. HTTPS is required except on localhost."
+        },
+        "mdt.webUrl": {
+          "type": "string",
+          "default": "http://localhost:5173",
+          "scope": "application",
+          "description": "MDT web dashboard URL."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.js",
+    "vscode:prepublish": "npm run build",
+    "test": "node --test tests/*.test.js",
+    "test:host": "npm run build && node tests/host/run.js",
+    "package": "vsce package --allow-missing-repository --skip-license"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2"
+  },
+  "browser": "./dist/web-extension.js"
+}

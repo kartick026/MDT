@@ -1,1098 +1,348 @@
-"""What-If Remediation Simulator — sandbox graph edits with rollback.
+"""Measured previews using one immutable-snapshot detector.
 
-Executes structured graph edits (add_node, add_edge, remove_edge) inside a
-Neo4j transaction, re-scores smells and risk, then unconditionally rolls back.
-The live graph is **never** modified.
-
-For local/test environments running MockNeo4jDriver the simulator falls back
-to a deterministic in-memory estimation so the feature is always available.
+Default previews never write a database. The optional Neo4j research adapter
+executes the same explicit mutations and always rolls its transaction back.
+Graph-level improvements do not establish preserved application behavior.
 """
+from __future__ import annotations
 import asyncio
-from collections import defaultdict
-import logging
+import math
 from typing import Any, Dict, List, Literal, Optional, Tuple
-
-from pydantic import BaseModel
-
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from core.config import settings
 from core.database import get_neo4j_driver, MockNeo4jDriver
+from domain.architecture import (
+    DETECTOR_VERSION, GraphSnapshot, configured_thresholds, detect_smells,
+    registry_snapshot, snapshot_from_transaction,
+)
 
-logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-class GraphEdit(BaseModel):
-    """A single graph mutation primitive."""
-    action: Literal["remove_edge", "add_edge", "add_node"]
-    from_service: Optional[str] = None
-    to_service: Optional[str] = None
-    relationship_type: str = "DEPENDS_ON"
-
-
-# ---------------------------------------------------------------------------
-# Inline smell-counting Cypher (runs on a tx, not through _run_query)
-# ---------------------------------------------------------------------------
-
-_SMELL_QUERIES: Dict[str, Dict[str, str]] = {
-    "circular_dependency": {
-        "query": """
-            MATCH path = (s:Service)-[:DEPENDS_ON*2..8]->(s)
-            WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
-              AND NONE(n IN nodes(path) WHERE n.name ENDS WITH '_facade' OR n.name ENDS WITH '_gateway' OR n.name = 'event_broker')
-            WITH [node IN nodes(path) | node.name] AS cycle
-            WITH cycle, apoc.coll.sort(apoc.coll.toSet(cycle)) AS key
-            RETURN DISTINCT key, cycle
-        """,
-        # Fallback for environments without APOC
-        "query_no_apoc": """
-            MATCH path = (s:Service)-[:DEPENDS_ON*2..8]->(s)
-            WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
-              AND NONE(n IN nodes(path) WHERE n.name ENDS WITH '_facade' OR n.name ENDS WITH '_gateway' OR n.name = 'event_broker')
-            WITH [node IN nodes(path) | node.name] AS cycle
-            RETURN DISTINCT cycle
-        """,
-    },
-    "bottleneck_service": {
-        "query": """
-            MATCH (s:Service)
-            WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
-              AND NOT toLower(s.name) CONTAINS 'postgres' AND NOT toLower(s.name) CONTAINS 'database' AND NOT toLower(s.name) CONTAINS 'db'
-            OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
-            WHERE incoming <> s AND NOT incoming.name ENDS WITH '_facade' AND NOT incoming.name ENDS WITH '_gateway' AND NOT incoming.name = 'event_broker'
-            OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
-            WHERE outgoing <> s AND NOT outgoing.name ENDS WITH '_facade' AND NOT outgoing.name ENDS WITH '_gateway' AND NOT outgoing.name = 'event_broker'
-            WITH s, count(DISTINCT incoming) AS inc, count(DISTINCT outgoing) AS out
-            WHERE inc >= $inbound OR inc + out >= $total
-            RETURN s.name AS name, inc, out
-        """,
-    },
-    "high_coupling": {
-        "query": """
-            MATCH (s:Service)-[:DEPENDS_ON]->(dep:Service)
-            WHERE dep <> s
-              AND NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
-            WITH s, count(DISTINCT dep) AS dep_count
-            WHERE dep_count >= $threshold
-            RETURN s.name AS name, dep_count
-        """,
-    },
-    "isolated_service": {
-        "query": """
-            MATCH (s:Service)
-            WHERE NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
-              AND NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
-              AND (s.is_external IS NULL OR s.is_external = false OR NOT s.name STARTS WITH 'external-')
-            RETURN s.name AS name
-        """,
-    },
-    "shared_database": {
-        "query": """
-            MATCH (caller:Service)-[r:DEPENDS_ON]->(target)
-            WHERE toLower(target.name) CONTAINS 'db'
-               OR toLower(target.name) CONTAINS 'database'
-               OR toLower(target.name) CONTAINS 'postgres'
-               OR toLower(target.name) CONTAINS 'mysql'
-               OR toLower(target.name) CONTAINS 'mongo'
-               OR toLower(target.name) CONTAINS 'redis'
-               OR toLower(coalesce(r.type, '')) IN ['database', 'db', 'sql', 'postgres', 'postgresql', 'mysql', 'mongodb']
-               OR coalesce(r.endpoint, '') CONTAINS ':5432' OR coalesce(r.endpoint, '') CONTAINS ':3306'
-               OR coalesce(r.endpoint, '') CONTAINS ':27017' OR coalesce(r.endpoint, '') CONTAINS ':6379'
-            WITH toLower(target.name) AS db_target, count(DISTINCT caller) AS caller_count
-            WHERE caller_count > 1
-            RETURN db_target, caller_count
-        """,
-    },
-    "chatty_communication": {
-        "query": """
-            MATCH (a:Service)-[:DEPENDS_ON]->(b:Service)
-            WHERE a <> b AND (b)-[:DEPENDS_ON]->(a) AND a.name < b.name
-              AND NOT a.name ENDS WITH '_facade' AND NOT a.name ENDS WITH '_gateway' AND NOT a.name = 'event_broker'
-              AND NOT b.name ENDS WITH '_facade' AND NOT b.name ENDS WITH '_gateway' AND NOT b.name = 'event_broker'
-            MATCH (x:Service)-[r:DEPENDS_ON]-(y:Service)
-            WHERE (x = a AND y = b) OR (x = b AND y = a)
-            WITH a.name AS a_name, b.name AS b_name, count(DISTINCT r) AS edge_count
-            RETURN a_name, b_name, edge_count
-        """,
-    },
-    "missing_circuit_breaker": {
-        "query": """
-            MATCH (all_s:Service)
-            WHERE NOT all_s.name ENDS WITH '_facade' AND NOT all_s.name ENDS WITH '_gateway' AND NOT all_s.name = 'event_broker'
-              AND NOT toLower(all_s.name) CONTAINS 'postgres' AND NOT toLower(all_s.name) CONTAINS 'database' AND NOT toLower(all_s.name) CONTAINS 'db'
-            WITH count(DISTINCT all_s) AS total_services
-            WITH total_services,
-                 CASE 
-                   WHEN total_services <= 2 THEN 2
-                   ELSE toInteger(ceil(sqrt(total_services)))
-                 END AS cb_threshold
-            MATCH (s:Service)-[:DEPENDS_ON]->(dep:Service)
-            WHERE dep <> s
-              AND NOT s.name ENDS WITH '_facade' AND NOT s.name ENDS WITH '_gateway' AND NOT s.name = 'event_broker'
-              AND NOT toLower(s.name) CONTAINS 'postgres' AND NOT toLower(s.name) CONTAINS 'database' AND NOT toLower(s.name) CONTAINS 'db'
-              AND NOT dep.name ENDS WITH '_facade' AND NOT dep.name ENDS WITH '_gateway' AND NOT dep.name = 'event_broker'
-              AND NOT toLower(dep.name) CONTAINS 'postgres' AND NOT toLower(dep.name) CONTAINS 'database' AND NOT toLower(dep.name) CONTAINS 'db'
-              AND coalesce(s.has_circuit_breaker, false) = false AND coalesce(s.resilient, false) = false
-            WITH s, cb_threshold, count(DISTINCT dep) AS fan_out
-            WHERE fan_out >= cb_threshold
-            RETURN s.name AS name, fan_out
-        """,
-    },
-    "hub_and_spoke": {
-        "query": """
-            MATCH (all_s:Service)
-            WHERE NOT all_s.name ENDS WITH '_facade' AND NOT all_s.name ENDS WITH '_gateway' AND NOT all_s.name = 'event_broker'
-              AND NOT toLower(all_s.name) CONTAINS 'postgres' AND NOT toLower(all_s.name) CONTAINS 'database' AND NOT toLower(all_s.name) CONTAINS 'db'
-            WITH collect(DISTINCT all_s) AS fleet, count(DISTINCT all_s) AS total_services
-            WHERE total_services >= 3
-            UNWIND fleet AS s
-            OPTIONAL MATCH (s)-[:DEPENDS_ON]-(neighbor:Service)
-            WHERE neighbor IN fleet AND neighbor <> s
-            WITH fleet, total_services, s, count(DISTINCT neighbor) AS deg
-            WITH total_services,
-                 collect({service: s, deg: deg}) AS svc_degrees,
-                 avg(deg) AS avg_deg,
-                 toInteger(ceil(
-                   CASE 
-                     WHEN (1.0 - 1.0/sqrt(total_services)) > 0.85 THEN 0.85
-                     WHEN (1.0 - 1.0/sqrt(total_services)) > 0.60 THEN (1.0 - 1.0/sqrt(total_services)) 
-                     ELSE 0.60 
-                   END * (total_services - 1)
-                 )) AS min_hub_deg
-            UNWIND svc_degrees AS item
-            WITH item.service AS s, item.deg AS deg, total_services, avg_deg, min_hub_deg
-            WHERE deg >= min_hub_deg AND deg > avg_deg
-            RETURN s.name AS name, deg
-        """,
-    },
+MAX_PREVIEW_EDITS = 100
+SATURATION_CONSTANT_K = 110.0 / 3.0
+SCORE_TOLERANCE = 1e-9
+SMELL_WEIGHTS = {
+    "circular_dependency": 30, "shared_database": 20, "hub_and_spoke": 20,
+    "bottleneck_service": 20, "dependency_explosion": 20, "high_coupling": 15,
+    "api_instability": 15, "chatty_communication": 12,
+    "missing_circuit_breaker": 12, "isolated_service": 5,
+}
+SMELL_KEYS = {
+    "Circular Dependency": "circular_dependency", "Shared Database": "shared_database",
+    "Hub-and-Spoke Centralization": "hub_and_spoke", "God / Bottleneck Service": "bottleneck_service",
+    "Dependency Explosion": "dependency_explosion", "High Coupling": "high_coupling",
+    "API Instability": "api_instability", "Chatty Communication": "chatty_communication",
+    "Missing Circuit Breaker": "missing_circuit_breaker", "Dead / Isolated Service": "isolated_service",
 }
 
 
-def _count_smells_on_tx(tx) -> Dict[str, int]:
-    """Run lightweight smell-counting queries on an open transaction.
+class GraphEdit(BaseModel):
+    """One explicit mutation; names carry no execution semantics."""
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["remove_edge", "add_edge", "add_node", "update_node"]
+    from_service: str = Field(min_length=1, max_length=200)
+    to_service: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    relationship_type: Literal["DEPENDS_ON"] = "DEPENDS_ON"
+    dependency_type: Optional[str] = Field(default=None, max_length=80)
+    endpoint: Optional[str] = Field(default=None, max_length=2000)
+    node_type: Literal["service", "database", "broker", "external"] = "service"
+    has_circuit_breaker: Optional[bool] = None
+    resilient: Optional[bool] = None
 
-    Returns a dict like ``{"circular_dependency": 1, "bottleneck_service": 0, ...}``.
-    """
-    counts: Dict[str, int] = {}
-    two_node_cycles: set = set()
+    @model_validator(mode="after")
+    def validate_operation(self):
+        if not self.from_service.strip() or (self.to_service is not None and not self.to_service.strip()):
+            raise ValueError("Service names must not be whitespace")
+        if self.action in {"remove_edge", "add_edge"} and self.to_service is None:
+            raise ValueError("An edge edit requires from_service and to_service")
+        if self.action in {"add_node", "update_node"} and self.to_service is not None:
+            raise ValueError("Node edits must not specify to_service")
+        if self.action == "update_node" and self.has_circuit_breaker is None and self.resilient is None:
+            raise ValueError("update_node requires an explicit resilience property")
+        if self.action in {"remove_edge", "add_edge"} and (self.has_circuit_breaker is not None or self.resilient is not None):
+            raise ValueError("Use update_node for resilience properties")
+        return self
 
-    # --- Circular dependencies ---
-    try:
-        result = tx.run(_SMELL_QUERIES["circular_dependency"]["query_no_apoc"])
-        records = [dict(r) for r in result]
-        seen: set = set()
-        unique = 0
-        for rec in records:
-            cycle = rec.get("cycle", [])
-            if not cycle or len(cycle) < 3:
-                continue
-            cycle_nodes = cycle[:-1]
-            if len(cycle_nodes) != len(set(cycle_nodes)) or len(cycle_nodes) < 2:
-                continue
-            if any(n.endswith("_facade") or n.endswith("_gateway") or n == "event_broker" for n in cycle_nodes):
-                continue
-            min_idx = cycle_nodes.index(min(cycle_nodes))
-            canonical = cycle_nodes[min_idx:] + cycle_nodes[:min_idx]
-            key = tuple(canonical)
-            if len(cycle_nodes) == 2:
-                two_node_cycles.add(tuple(sorted([cycle_nodes[0], cycle_nodes[1]])))
-            if key not in seen:
-                seen.add(key)
-                unique += 1
-        counts["circular_dependency"] = unique
-    except Exception as exc:
-        logger.debug("Cycle query failed: %s", exc)
-        counts["circular_dependency"] = 0
 
-    # --- Bottleneck services ---
-    try:
-        result = tx.run(
-            _SMELL_QUERIES["bottleneck_service"]["query"],
-            inbound=settings.SMELL_BOTTLENECK_INBOUND_THRESHOLD,
-            total=settings.SMELL_BOTTLENECK_TOTAL_DEGREE_THRESHOLD,
-        )
-        counts["bottleneck_service"] = len([dict(r) for r in result])
-    except Exception as exc:
-        logger.debug("Bottleneck query failed: %s", exc)
-        counts["bottleneck_service"] = 0
-
-    # --- High coupling ---
-    try:
-        result = tx.run(
-            _SMELL_QUERIES["high_coupling"]["query"],
-            threshold=settings.SMELL_HIGH_COUPLING_THRESHOLD,
-        )
-        counts["high_coupling"] = len([dict(r) for r in result])
-    except Exception as exc:
-        logger.debug("Coupling query failed: %s", exc)
-        counts["high_coupling"] = 0
-
-    # --- Isolated services ---
-    try:
-        result = tx.run(_SMELL_QUERIES["isolated_service"]["query"])
-        counts["isolated_service"] = len([dict(r) for r in result])
-    except Exception as exc:
-        logger.debug("Isolation query failed: %s", exc)
-        counts["isolated_service"] = 0
-
-    if counts["isolated_service"] == 0:
-        # Fallback to in-memory registry check if isolated nodes were not in Neo4j
-        try:
-            from core.registry import RegistryManager
-            services = RegistryManager.get_services()
-            deps = RegistryManager.get_dependencies()
-            connected = set()
-            for d in deps:
-                src, tgt = d.get("from"), d.get("to")
-                if src:
-                    connected.add(src)
-                if tgt:
-                    connected.add(tgt)
-            isolated_cnt = 0
-            for svc in services:
-                name = svc.get("name")
-                if not name or name in connected:
-                    continue
-                if svc.get("is_external") and name.startswith("external-"):
-                    continue
-                if name.endswith("_facade") or name.endswith("_gateway") or name == "event_broker":
-                    continue
-                isolated_cnt += 1
-            if isolated_cnt > 0:
-                counts["isolated_service"] = isolated_cnt
-        except Exception as exc:
-            logger.debug("In-memory isolated service fallback failed: %s", exc)
-
-    # --- Shared database ---
-    try:
-        result = tx.run(_SMELL_QUERIES["shared_database"]["query"])
-        counts["shared_database"] = len([dict(r) for r in result])
-    except Exception as exc:
-        logger.debug("Shared DB query failed: %s", exc)
-        counts["shared_database"] = 0
-
-    if counts["shared_database"] == 0:
-        # Fallback to in-memory registry check if database nodes were not in Neo4j
-        try:
-            from core.registry import RegistryManager
-            deps = RegistryManager.get_dependencies()
-            db_targets = defaultdict(list)
-            for d in deps:
-                target = d.get("to", "").lower()
-                dtype = d.get("type", "").lower()
-                endpoint = d.get("endpoint", "").lower()
-                if (
-                    dtype in ("database", "db", "sql", "postgres", "postgresql", "mysql", "mongodb")
-                    or any(db_kw in target for db_kw in ("db", "database", "postgres", "mysql", "mongo", "redis"))
-                    or any(db_port in endpoint for db_port in (":5432", ":3306", ":27017", ":6379"))
-                ):
-                    db_targets[target].append(d["from"])
-            shared_cnt = sum(1 for callers in db_targets.values() if len(set(callers)) > 1)
-            if shared_cnt > 0:
-                counts["shared_database"] = shared_cnt
-        except Exception as exc:
-            logger.debug("In-memory shared database fallback failed: %s", exc)
-
-    # --- Chatty communication ---
-    try:
-        result = tx.run(_SMELL_QUERIES["chatty_communication"]["query"])
-        records = [dict(r) for r in result]
-        chatty_count = 0
-        for rec in records:
-            pair = tuple(sorted([rec.get("a_name", ""), rec.get("b_name", "")]))
-            edge_count = rec.get("edge_count", 2)
-            # Match smell_detector: if this pair is a 2-node cycle, require >= 3 edges to count as chatty
-            if pair in two_node_cycles and edge_count < 3:
-                continue
-            chatty_count += 1
-        counts["chatty_communication"] = chatty_count
-    except Exception as exc:
-        logger.debug("Chatty query failed: %s", exc)
-        counts["chatty_communication"] = 0
-
-    # --- Missing circuit breaker ---
-    try:
-        result = tx.run(_SMELL_QUERIES["missing_circuit_breaker"]["query"])
-        counts["missing_circuit_breaker"] = len([dict(r) for r in result])
-    except Exception as exc:
-        logger.debug("Circuit breaker query failed: %s", exc)
-        counts["missing_circuit_breaker"] = 0
-
-    # --- Hub and spoke ---
-    try:
-        result = tx.run(_SMELL_QUERIES["hub_and_spoke"]["query"])
-        counts["hub_and_spoke"] = len([dict(r) for r in result])
-    except Exception as exc:
-        logger.debug("Hub and spoke query failed: %s", exc)
-        counts["hub_and_spoke"] = 0
-
-    # --- Snapshot-based trend smells on transaction ---
-    from core.registry import RegistryManager, LOCAL_DEMO_SMELL_HISTORY
-    context = RegistryManager.get_project_context()
-    is_demo = context.get("source") == "local_demo"
-    active_services = {s["name"] for s in RegistryManager.get_services()}
-
-    try:
-        snap_res = tx.run("""
-            MATCH (snapshot:DependencySnapshot)
-            RETURN snapshot.edges AS edges, snapshot.created_at AS created_at
-            ORDER BY created_at DESC
-        """)
-        snap_records = [dict(r) for r in snap_res]
-        if len(snap_records) < 2:
-            try:
-                data = RegistryManager.load()
-                if is_demo:
-                    raw_snapshots = (
-                        data.get("dependency_snapshots")
-                        or data.get("snapshots")
-                        or LOCAL_DEMO_SMELL_HISTORY.get("dependency_snapshots", [])
-                    )
-                else:
-                    raw_snapshots = data.get("dependency_snapshots") or data.get("snapshots") or []
-
-                if raw_snapshots:
-                    snap_records = sorted(raw_snapshots, key=lambda s: s.get("created_at", ""), reverse=True)
-            except Exception as exc:
-                logger.debug("In-memory dependency snapshot fallback failed: %s", exc)
-
-        if len(snap_records) >= 2:
-            filtered_snaps = []
-            for rec in snap_records:
-                edges = [
-                    e for e in rec.get("edges", [])
-                    if "->" in e and e.split("->", 1)[0] in active_services
-                ]
-                if edges or is_demo:
-                    filtered_snaps.append(edges if active_services else rec.get("edges", []))
-            if len(filtered_snaps) >= 2:
-                current = set(filtered_snaps[0])
-                prev_edges = None
-                for pe in filtered_snaps[1:]:
-                    pe_set = set(pe)
-                    if pe_set != current:
-                        prev_edges = pe_set
-                        break
-                if prev_edges is not None:
-                    added = current - prev_edges
-                    counts["dependency_explosion"] = 1 if len(added) >= settings.SMELL_DEPENDENCY_GROWTH_THRESHOLD else 0
-                else:
-                    counts["dependency_explosion"] = 0
-            else:
-                counts["dependency_explosion"] = 0
+def apply_snapshot_edits(snapshot: GraphSnapshot, edits: List[GraphEdit]) -> tuple[GraphSnapshot, list[dict]]:
+    if len(edits) > MAX_PREVIEW_EDITS:
+        raise ValueError(f"At most {MAX_PREVIEW_EDITS} edits may be previewed")
+    data = snapshot.to_data()
+    nodes = {s["name"]: s for s in data["services"]}
+    edges, removed = data["dependencies"], []
+    for edit in edits:
+        src, dst = edit.from_service, edit.to_service
+        if edit.action == "add_node":
+            if src in nodes:
+                raise ValueError(f"Service '{src}' already exists")
+            nodes[src] = {"name": src, "node_type": edit.node_type,
+                          "has_circuit_breaker": edit.has_circuit_breaker or False, "resilient": edit.resilient or False}
+            continue
+        if src not in nodes or (dst is not None and dst not in nodes):
+            raise ValueError("Graph edit references an unknown service")
+        if edit.action == "update_node":
+            for key in ("has_circuit_breaker", "resilient"):
+                if getattr(edit, key) is not None:
+                    nodes[src][key] = getattr(edit, key)
+            continue
+        if edit.action == "add_edge":
+            edge = {"from": src, "to": dst, "type": (edit.dependency_type or "http").lower(), "endpoint": edit.endpoint or ""}
+            if any(all(existing.get(key) == value for key, value in edge.items()) for existing in edges):
+                raise ValueError("Dependency edge already exists")
+            edges.append(edge)
         else:
-            counts["dependency_explosion"] = 0
-    except Exception as exc:
-        logger.debug("Snapshot growth query failed: %s", exc)
-        counts["dependency_explosion"] = 0
-
-    try:
-        api_res = tx.run("""
-            MATCH (snapshot:ApiSnapshot)
-            RETURN snapshot.service AS service, snapshot.endpoints AS endpoints,
-                   snapshot.created_at AS created_at
-            ORDER BY service, created_at DESC
-        """)
-        api_records = [dict(r) for r in api_res]
-        if not api_records:
-            try:
-                data = RegistryManager.load()
-                if is_demo:
-                    raw_snaps = (
-                        data.get("api_snapshots")
-                        or LOCAL_DEMO_SMELL_HISTORY.get("api_snapshots", [])
-                    )
-                else:
-                    raw_snaps = data.get("api_snapshots") or []
-
-                if raw_snaps:
-                    api_records = sorted(raw_snaps, key=lambda s: s.get("created_at", ""), reverse=True)
-            except Exception as exc:
-                logger.debug("In-memory API snapshot fallback failed: %s", exc)
-
-        if active_services:
-            api_records = [r for r in api_records if r.get("service") in active_services]
-
-        api_snapshots: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        for r in api_records:
-            svc = r.get("service")
-            if svc and len(api_snapshots[svc]) < 2:
-                api_snapshots[svc].append(r)
-        instability_count = 0
-        for svc, vals in api_snapshots.items():
-            if len(vals) >= 2:
-                curr, prev = set(vals[0].get("endpoints") or []), set(vals[1].get("endpoints") or [])
-                removed = prev - curr
-                churn = len(removed) + len(curr - prev)
-                if removed or churn >= settings.SMELL_API_CHURN_THRESHOLD:
-                    instability_count += 1
-        counts["api_instability"] = instability_count
-    except Exception as exc:
-        logger.debug("Api snapshot query failed: %s", exc)
-        counts["api_instability"] = 0
-
-    return counts
+            matches = [e for e in edges if e["from"] == src and e["to"] == dst
+                       and (edit.dependency_type is None or e["type"] == edit.dependency_type.lower())
+                       and (edit.endpoint is None or e["endpoint"] == edit.endpoint)]
+            if not matches:
+                raise ValueError("Dependency edge does not exist")
+            if len(matches) > 1:
+                raise ValueError("Ambiguous dependency removal; specify dependency_type and endpoint")
+            edges.remove(matches[0])
+            removed.append(matches[0])
+    data["services"] = list(nodes.values())
+    return GraphSnapshot.from_data(data, source="preview_copy"), removed
 
 
 def _apply_edits_on_tx(tx, edits: List[GraphEdit]) -> None:
-    """Execute GraphEdit primitives as Cypher mutations on ``tx``."""
+    """Apply exactly the validated changes, without hidden rewiring."""
     for edit in edits:
-        if edit.action == "add_node" and edit.from_service:
-            tx.run(
-                "MERGE (s:Service {name: $name}) "
-                "SET s.has_circuit_breaker = true, s.resilient = true",
-                name=edit.from_service,
-            )
+        if edit.action == "add_node":
+            tx.run("CREATE (s:Service {name: $name, node_type: $kind, has_circuit_breaker: $cb, resilient: $resilient})",
+                   name=edit.from_service, kind=edit.node_type, cb=edit.has_circuit_breaker or False, resilient=edit.resilient or False).consume()
+        elif edit.action == "update_node":
+            props = {k: getattr(edit, k) for k in ("has_circuit_breaker", "resilient") if getattr(edit, k) is not None}
+            tx.run("MATCH (s:Service {name: $name}) SET s += $props", name=edit.from_service, props=props).consume()
+        elif edit.action == "add_edge":
+            tx.run("MATCH (a:Service {name: $src}), (b:Service {name: $dst}) "
+                   "CREATE (a)-[:DEPENDS_ON {type: $kind, endpoint: $endpoint}]->(b)",
+                   src=edit.from_service, dst=edit.to_service, kind=(edit.dependency_type or "http").lower(), endpoint=edit.endpoint or "").consume()
+        else:
+            tx.run("MATCH (a:Service {name: $src})-[r:DEPENDS_ON]->(b:Service {name: $dst}) "
+                   "WHERE ($kind IS NULL OR toLower(coalesce(r.type, 'http')) = $kind) "
+                   "AND ($endpoint IS NULL OR coalesce(r.endpoint, '') = $endpoint) DELETE r",
+                   src=edit.from_service, dst=edit.to_service,
+                   kind=edit.dependency_type.lower() if edit.dependency_type else None, endpoint=edit.endpoint).consume()
 
-        elif edit.action == "add_edge" and edit.from_service and edit.to_service:
-            tx.run(
-                "MERGE (a:Service {name: $from_}) "
-                "MERGE (b:Service {name: $to_}) "
-                "MERGE (a)-[r:DEPENDS_ON {type: $rel}]->(b)",
-                from_=edit.from_service,
-                to_=edit.to_service,
-                rel=edit.relationship_type,
-            )
-            # Remove any internal self-loop on the target service to eliminate cyclic loops
-            tx.run(
-                "MATCH (target:Service {name: $to_})-[self_r:DEPENDS_ON]->(target) "
-                "DELETE self_r",
-                to_=edit.to_service,
-            )
-            # Ingress facade / bottleneck: reroute external incoming callers through the facade
-            if "_facade" in edit.from_service:
-                tx.run(
-                    "MATCH (facade:Service {name: $from_}) "
-                    "MATCH (caller:Service)-[r:DEPENDS_ON]->(target:Service {name: $to_}) "
-                    "WHERE caller.name <> $from_ AND caller.name <> $to_ "
-                    "MERGE (caller)-[:DEPENDS_ON {type: 'FACADE_ROUTED'}]->(facade) "
-                    "DELETE r",
-                    from_=edit.from_service,
-                    to_=edit.to_service,
-                )
-                tx.run(
-                    "MATCH (s:Service {name: $to_}) "
-                    "SET s.has_circuit_breaker = true, s.resilient = true",
-                    to_=edit.to_service,
-                )
-            # Egress gateway / coupling: rewire downstream calls through the gateway to decouple
-            if "_gateway" in edit.from_service:
-                tx.run(
-                    "MATCH (gateway:Service {name: $from_}) "
-                    "MATCH (target:Service {name: $to_})-[r:DEPENDS_ON]->(downstream:Service) "
-                    "WHERE downstream.name <> $from_ AND downstream.name <> $to_ "
-                    "MERGE (gateway)-[:DEPENDS_ON {type: 'GATEWAY_DECOUPLED'}]->(downstream) "
-                    "DELETE r",
-                    from_=edit.from_service,
-                    to_=edit.to_service,
-                )
-                tx.run(
-                    "MATCH (s:Service {name: $to_}) "
-                    "SET s.has_circuit_breaker = true, s.resilient = true",
-                    to_=edit.to_service,
-                )
-            if "_gateway" in edit.to_service or "_facade" in edit.to_service:
-                tx.run(
-                    "MATCH (target:Service {name: $from_}) "
-                    "MATCH (gateway:Service {name: $to_}) "
-                    "MATCH (target)-[r:DEPENDS_ON]->(downstream:Service) "
-                    "WHERE downstream.name <> $to_ AND downstream.name <> $from_ "
-                    "MERGE (gateway)-[:DEPENDS_ON {type: 'GATEWAY_ROUTED'}]->(downstream) "
-                    "DELETE r",
-                    from_=edit.from_service,
-                    to_=edit.to_service,
-                )
-                tx.run(
-                    "MATCH (s:Service {name: $from_}) "
-                    "SET s.has_circuit_breaker = true, s.resilient = true",
-                    from_=edit.from_service,
-                )
 
-        elif edit.action == "remove_edge" and edit.from_service and edit.to_service:
-            tx.run(
-                "MATCH (a:Service {name: $from_})-[r:DEPENDS_ON]->"
-                "(b:Service {name: $to_}) DELETE r",
-                from_=edit.from_service,
-                to_=edit.to_service,
-            )
+def _count_smells_on_tx(tx) -> Dict[str, int]:
+    return breakdown_smells(detect_smells(snapshot_from_transaction(tx), configured_thresholds()))
+
+
+def _compute_uncapped_score_from_smells(smell_counts: Dict[str, int]) -> float:
+    for count in smell_counts.values():
+        if not isinstance(count, (int, float)) or not math.isfinite(count) or count < 0:
+            raise ValueError("Smell counts must be finite and non-negative")
+    return float(sum(smell_counts.get(key, 0) * weight for key, weight in SMELL_WEIGHTS.items()))
+
+
+def _normalize_score(raw: float, k: float = SATURATION_CONSTANT_K) -> float:
+    if not math.isfinite(raw) or raw < 0 or not math.isfinite(k) or k <= 0:
+        raise ValueError("Debt must be finite and non-negative; normalization constant must be positive")
+    return round(100.0 * raw / (raw + k), 3)
 
 
 def _compute_score_from_smells(smell_counts: Dict[str, int]) -> float:
-    """Derive a normalized architectural risk score from smell counts [0.0, 100.0).
-
-    Synchronized with _compute_uncapped_score_from_smells and _normalize_score.
-    """
     return _normalize_score(_compute_uncapped_score_from_smells(smell_counts))
 
 
 def _get_severity(score: float) -> str:
     if score >= settings.RISK_HIGH:
         return "CRITICAL"
-    elif score >= settings.RISK_MEDIUM:
+    if score >= settings.RISK_MEDIUM:
         return "HIGH"
-    elif score >= settings.RISK_LOW:
+    if score >= settings.RISK_LOW:
         return "MEDIUM"
     return "LOW"
 
 
-# ---------------------------------------------------------------------------
-# Dynamic remediation target finder
-# ---------------------------------------------------------------------------
-
-def _find_best_remediation_target(exclude_service: str) -> str:
-    """Dynamically select a hub or active non-isolated service to re-link an isolated service."""
-    try:
-        from core.registry import RegistryManager
-        registered = [
-            s["name"] for s in RegistryManager.get_services()
-            if s.get("name") and s.get("name") != exclude_service
-        ]
-        if not registered:
-            return ""
-
-        # Check degree in existing dependencies
-        deps = RegistryManager.get_dependencies()
-        degree: Dict[str, int] = {s: 0 for s in registered}
-        for d in deps:
-            src = d.get("from")
-            dst = d.get("to")
-            if src in degree:
-                degree[src] += 1
-            if dst in degree:
-                degree[dst] += 1
-
-        sorted_by_degree = sorted(degree.items(), key=lambda x: x[1], reverse=True)
-        return sorted_by_degree[0][0]
-    except Exception as exc:
-        logger.debug("Failed to find dynamic remediation target from registry: %s", exc)
-        return ""
-
-
-def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
-    """
-    Deterministic rule-based mapping from detected smells to graph edits.
-
-    - Circular: remove the back-edge that closes the cycle.
-    - God/Bottleneck: insert a facade node and rewire callers.
-    - High Coupling: insert a gateway facade.
-    - Dead/Isolated: reconnect the isolated node to an active hub service.
-    """
-    edits: List[GraphEdit] = []
-
-    for smell in smells:
-        stype = smell.get("type", "")
-        services = smell.get("services", [])
-
-        if "Circular" in stype:
-            cycle = smell.get("evidence", {}).get("cycle", [])
-            if len(cycle) >= 2:
-                edits.append(GraphEdit(
-                    action="remove_edge",
-                    from_service=cycle[-2],
-                    to_service=cycle[-1] if cycle[-1] != cycle[-2] else cycle[0],
-                ))
-            elif len(services) >= 2:
-                edits.append(GraphEdit(
-                    action="remove_edge",
-                    from_service=services[1],
-                    to_service=services[0],
-                ))
-
-        elif "Bottleneck" in stype or "God" in stype:
-            if services:
-                target = services[0]
-                facade_name = f"{target}_facade"
-                edits.append(GraphEdit(action="add_node", from_service=facade_name))
-                edits.append(GraphEdit(
-                    action="add_edge",
-                    from_service=facade_name,
-                    to_service=target,
-                ))
-
-        elif "Coupling" in stype:
-            if services:
-                coupled = services[0]
-                facade_name = f"{coupled}_gateway"
-                edits.append(GraphEdit(action="add_node", from_service=facade_name))
-                edits.append(GraphEdit(
-                    action="add_edge",
-                    from_service=facade_name,
-                    to_service=coupled,
-                ))
-
-        elif "Dead" in stype or "Isolated" in stype:
-            if services:
-                isolated = services[0]
-                target_hub = _find_best_remediation_target(isolated)
-                if target_hub:
-                    edits.append(GraphEdit(
-                        action="add_edge",
-                        from_service=target_hub,
-                        to_service=isolated,
-                    ))
-
-        elif "Shared Database" in stype:
-            target = smell.get("evidence", {}).get("shared_target", "")
-            if target and len(services) >= 2:
-                facade = f"{services[0]}_data_facade"
-                edits.append(GraphEdit(action="add_node", from_service=facade))
-                edits.append(GraphEdit(action="add_edge", from_service=services[1], to_service=facade))
-                edits.append(GraphEdit(action="remove_edge", from_service=services[1], to_service=target))
-
-        elif "Chatty" in stype:
-            if len(services) >= 2:
-                broker = "event_broker"
-                edits.append(GraphEdit(action="add_node", from_service=broker))
-                edits.append(GraphEdit(action="add_edge", from_service=services[0], to_service=broker))
-                edits.append(GraphEdit(action="add_edge", from_service=services[1], to_service=broker))
-                edits.append(GraphEdit(action="remove_edge", from_service=services[1], to_service=services[0]))
-
-        elif "Circuit Breaker" in stype:
-            if services:
-                src = services[0]
-                gateway_name = f"{src}_gateway"
-                edits.append(GraphEdit(action="add_node", from_service=gateway_name))
-                edits.append(GraphEdit(action="add_edge", from_service=gateway_name, to_service=src))
-
-        elif "Hub-and-Spoke" in stype or "Hub and Spoke" in stype:
-            if services:
-                hub = services[0]
-                broker = "event_broker"
-                edits.append(GraphEdit(action="add_node", from_service=broker))
-                edits.append(GraphEdit(action="add_edge", from_service=hub, to_service=broker))
-
-    return edits
-
-
-
-def _compute_uncapped_score_from_smells(smell_counts: Dict[str, int]) -> float:
-    """Calculate raw sum of smell weights without capping at 100.
-    
-    Weights mirror relative severities across all 10 architectural smell types:
-      - circular_dependency: 30 (CRITICAL)
-      - shared_database: 20 (HIGH)
-      - hub_and_spoke: 20 (HIGH)
-      - bottleneck_service: 20 (HIGH)
-      - dependency_explosion: 20 (HIGH)
-      - high_coupling: 15 (MEDIUM)
-      - api_instability: 15 (MEDIUM)
-      - chatty_communication: 12 (MEDIUM)
-      - missing_circuit_breaker: 12 (MEDIUM)
-      - isolated_service: 5 (LOW)
-    """
-    score = 0.0
-    score += smell_counts.get("circular_dependency", 0) * 30      # CRITICAL
-    score += smell_counts.get("shared_database", 0) * 20          # HIGH
-    score += smell_counts.get("hub_and_spoke", 0) * 20            # HIGH
-    score += smell_counts.get("bottleneck_service", 0) * 20       # HIGH
-    score += smell_counts.get("dependency_explosion", 0) * 20     # HIGH
-    score += smell_counts.get("high_coupling", 0) * 15            # MEDIUM
-    score += smell_counts.get("api_instability", 0) * 15          # MEDIUM
-    score += smell_counts.get("chatty_communication", 0) * 12     # MEDIUM
-    score += smell_counts.get("missing_circuit_breaker", 0) * 12  # MEDIUM
-    score += smell_counts.get("isolated_service", 0) * 5          # LOW
-    return score
-
-
-# Deliberately chosen anchor point: a single critical circular dependency (raw=30)
-# corresponds to a moderate MEDIUM risk score of 45.0 on the 0-100 scale.
-# Solving: 45 = 100 * (30 / (30 + k)) => 45 * 30 + 45 * k = 3000 => k = 1650 / 45 = 110 / 3 ≈ 36.6667
-SATURATION_CONSTANT_K: float = 110.0 / 3.0
-
-
-def _normalize_score(raw: float, k: float = SATURATION_CONSTANT_K) -> float:
-    """Monotonically map an unbounded non-negative raw smell score to [0.0, 100.0).
-
-    Uses a saturating rational function S(R) = 100 * R / (R + k).
-    Rounded to 3 decimal places internally to preserve strict monotonicity.
-    Display-layer code should round to 1dp for human readability; this function
-    must NOT round below 3dp or score ties re-emerge around R ≈ 408.
-    """
-    if raw <= 0.0:
-        return 0.0
-    return round((100.0 * raw) / (raw + k), 3)
-
-
-def compute_architecture_health(smell_counts: Dict[str, int]) -> Dict[str, Any]:
-    """Single canonical function to calculate the Architecture Health score and severity from smell counts.
-
-    Used by both the main Architecture Health dial and the Simulator Before/After gauges
-    to guarantee 100% mathematical and topological parity across the entire application.
-    """
+def compute_architecture_health(smell_counts: Dict[str, int], snapshot: GraphSnapshot | None = None) -> Dict[str, Any]:
     raw = _compute_uncapped_score_from_smells(smell_counts)
     score = _normalize_score(raw)
-    severity = _get_severity(score)
-    return {
-        "score": score,
-        "severity": severity,
-        "raw_score": raw,
-        "total_smells": sum(smell_counts.values()),
-        "smells": smell_counts,
-    }
+    result = {"score": score, "severity": _get_severity(score), "raw_score": raw,
+            "total_smells": sum(smell_counts.values()), "smells": dict(smell_counts),
+            "normalization_constant": SATURATION_CONSTANT_K, "detector_version": DETECTOR_VERSION,
+            "weights": dict(SMELL_WEIGHTS)}
+    if snapshot is not None:
+        from domain.relations import is_startup, is_call
+        data = snapshot.to_data()
+        imported = data["project"].get("source") == "repository"
+        edges = data["dependencies"]
+        startup = sum(is_startup(edge) for edge in edges)
+        calls = sum(is_call(edge) for edge in edges)
+        result["evidence"] = {"startup_relations": startup, "static_or_modeled_calls": calls,
+                              "configuration_relations": len(edges) - startup - calls,
+                              "runtime_traffic_measured": False,
+                              "unassessed_rules": (["runtime_isolation", "missing_resilience_without_explicit_evidence"] if imported else [])}
+        result["assessment_status"] = ("insufficient_communication_evidence" if imported and len(edges) == startup
+                                       else "partial" if imported else "modeled_graph")
+        result["interpretation"] = ("Observed static findings only; zero does not establish a debt-free or safe architecture. "
+                                    "Startup order is excluded; configuration references do not prove runtime calls.")
+    return result
 
 
 def breakdown_smells(smells: List[Dict[str, Any]]) -> Dict[str, int]:
-    """Map a list of detected smell findings to canonical smell count keys."""
-    counts: Dict[str, int] = {
-        "circular_dependency": 0,
-        "shared_database": 0,
-        "hub_and_spoke": 0,
-        "bottleneck_service": 0,
-        "dependency_explosion": 0,
-        "high_coupling": 0,
-        "api_instability": 0,
-        "chatty_communication": 0,
-        "missing_circuit_breaker": 0,
-        "isolated_service": 0,
-    }
-    for s in smells:
-        stype = s.get("type", "")
-        if "Circular" in stype:
-            counts["circular_dependency"] += 1
-        elif "Shared Database" in stype:
-            counts["shared_database"] += 1
-        elif "Hub-and-Spoke" in stype or "Hub and Spoke" in stype:
-            counts["hub_and_spoke"] += 1
-        elif "Bottleneck" in stype or "God" in stype:
-            counts["bottleneck_service"] += 1
-        elif "Dependency Explosion" in stype:
-            counts["dependency_explosion"] += 1
-        elif "API Instability" in stype:
-            counts["api_instability"] += 1
-        elif "Coupling" in stype:
-            counts["high_coupling"] += 1
-        elif "Chatty" in stype:
-            counts["chatty_communication"] += 1
-        elif "Circuit Breaker" in stype:
-            counts["missing_circuit_breaker"] += 1
-        elif "Isolated" in stype or "Dead" in stype:
-            counts["isolated_service"] += 1
+    counts = dict.fromkeys(SMELL_WEIGHTS, 0)
+    for smell in smells:
+        key = SMELL_KEYS.get(smell.get("type", ""))
+        if key:
+            counts[key] += 1
     return counts
 
 
-def _calculate_simulation_metrics(
-    before_smells: Dict[str, int],
-    after_smells: Dict[str, int],
-    edits: List[GraphEdit],
-) -> Tuple[float, float, float, bool, str]:
-    """Calculate before_score, after_score, point_reduction, measurable_change, and message for pure architectural smell risk."""
-    before_health = compute_architecture_health(before_smells)
-    after_health = compute_architecture_health(after_smells)
-
-    before_score = before_health["score"]
-    before_total = before_health["total_smells"]
-    after_total = after_health["total_smells"]
-    smells_resolved = max(0, before_total - after_total)
-
-    cycles_resolved = max(0, before_smells.get("circular_dependency", 0) - after_smells.get("circular_dependency", 0))
-    shared_db_resolved = max(0, before_smells.get("shared_database", 0) - after_smells.get("shared_database", 0))
-    hub_resolved = max(0, before_smells.get("hub_and_spoke", 0) - after_smells.get("hub_and_spoke", 0))
-    bottlenecks_resolved = max(0, before_smells.get("bottleneck_service", 0) - after_smells.get("bottleneck_service", 0))
-    coupling_resolved = max(0, before_smells.get("high_coupling", 0) - after_smells.get("high_coupling", 0))
-    chatty_resolved = max(0, before_smells.get("chatty_communication", 0) - after_smells.get("chatty_communication", 0))
-    cb_resolved = max(0, before_smells.get("missing_circuit_breaker", 0) - after_smells.get("missing_circuit_breaker", 0))
-    isolated_resolved = max(0, before_smells.get("isolated_service", 0) - after_smells.get("isolated_service", 0))
-    dep_growth_resolved = max(0, before_smells.get("dependency_explosion", 0) - after_smells.get("dependency_explosion", 0))
-    api_instability_resolved = max(0, before_smells.get("api_instability", 0) - after_smells.get("api_instability", 0))
-
-    after_score = after_health["score"]
-    point_reduction = round(before_score - after_score, 3)
-
-    smells_changed = any(before_smells.get(k, 0) != after_smells.get(k, 0) for k in set(before_smells) | set(after_smells))
-    measurable_change = (point_reduction != 0.0) or (smells_resolved > 0) or (after_total != before_total) or smells_changed
-
-    details = []
-    if cycles_resolved > 0:
-        details.append(f"{cycles_resolved} circular dependency resolved")
-    if shared_db_resolved > 0:
-        details.append(f"{shared_db_resolved} shared database resolved")
-    if hub_resolved > 0:
-        details.append(f"{hub_resolved} hub-and-spoke resolved")
-    if bottlenecks_resolved > 0:
-        details.append(f"{bottlenecks_resolved} bottleneck resolved")
-    if coupling_resolved > 0:
-        details.append(f"{coupling_resolved} coupling resolved")
-    if chatty_resolved > 0:
-        details.append(f"{chatty_resolved} chatty communication resolved")
-    if cb_resolved > 0:
-        details.append(f"{cb_resolved} missing circuit breaker resolved")
-    if isolated_resolved > 0:
-        details.append(f"{isolated_resolved} isolated service resolved")
-    if dep_growth_resolved > 0:
-        details.append(f"{dep_growth_resolved} dependency explosion resolved")
-    if api_instability_resolved > 0:
-        details.append(f"{api_instability_resolved} API instability resolved")
-    if not details and point_reduction > 0:
-        details.append("architectural remediation applied")
-
-    if point_reduction > 0:
-        if details:
-            message = f"Risk reduction verified: {', '.join(details)} (-{point_reduction} pts smell risk)"
-        else:
-            message = f"Risk reduction verified: -{point_reduction} pts smell risk"
-    elif point_reduction < 0:
-        point_increase = abs(point_reduction)
-        smells_added = max(0, after_total - before_total)
-        if smells_added > 0:
-            message = f"Warning: Proposed edit increases architectural risk by +{point_increase} pts ({smells_added} new smell(s) introduced)"
-        else:
-            message = f"Warning: Proposed edit increases architectural risk by +{point_increase} pts"
-    elif measurable_change:
-        message = "Smell reduction verified"
+def _calculate_simulation_metrics(before_smells, after_smells, edits) -> Tuple[float, float, float, bool, str]:
+    before, after = compute_architecture_health(before_smells), compute_architecture_health(after_smells)
+    raw_before, raw_after = before["raw_score"], after["raw_score"]
+    exact_delta = 100 * raw_before / (raw_before + SATURATION_CONSTANT_K) - 100 * raw_after / (raw_after + SATURATION_CONSTANT_K)
+    measurable = abs(exact_delta) > SCORE_TOLERANCE or before_smells != after_smells
+    if exact_delta > SCORE_TOLERANCE:
+        message = "Risk reduction verified for graph-level smells; application behavior is not verified."
+    elif exact_delta < -SCORE_TOLERANCE:
+        message = "Warning: Proposed edit increases architectural risk."
+    elif measurable:
+        message = "Tracked findings changed with no net architectural debt reduction."
     else:
         message = "No measurable change in tracked architectural smells"
-
-    return before_score, after_score, point_reduction, measurable_change, message
-
+    return before["score"], after["score"], round(before["score"] - after["score"], 3), measurable, message
 
 
+def _find_best_remediation_target(exclude_service: str) -> str:
+    data = registry_snapshot().to_data()
+    names = [s["name"] for s in data["services"] if s["name"] != exclude_service and s["node_type"] == "service"]
+    degree = {name: sum(name in (d["from"], d["to"]) for d in data["dependencies"]) for name in names}
+    return min(names, key=lambda n: (-degree[n], n)) if names else ""
 
-# ---------------------------------------------------------------------------
-# Main Simulator
-# ---------------------------------------------------------------------------
+
+def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
+    """Suggest explicit hypothetical changes; detection decides their effects."""
+    data = registry_snapshot().to_data()
+    deps, names, edits = data["dependencies"], {s["name"] for s in data["services"]}, []
+
+    def new_name(base):
+        name, i = base, 2
+        while name in names:
+            name, i = f"{base}_{i}", i + 1
+        names.add(name)
+        return name
+
+    def remove(edge):
+        return GraphEdit(action="remove_edge", from_service=edge["from"], to_service=edge["to"],
+                         dependency_type=edge["type"], endpoint=edge["endpoint"])
+
+    for smell in smells:
+        kind, services, evidence = smell.get("type", ""), smell.get("services", []), smell.get("evidence", {})
+        if not services:
+            continue
+        target = services[0]
+        if kind == "Circular Dependency":
+            cycle = evidence.get("cycle") or (services + services[:1])
+            if len(cycle) >= 2:
+                matching = [d for d in deps if d["from"] == cycle[-2] and d["to"] == cycle[-1]]
+                edits.extend([remove(d) for d in matching] or [GraphEdit(action="remove_edge", from_service=cycle[-2], to_service=cycle[-1])])
+        elif kind == "Missing Circuit Breaker":
+            edits.append(GraphEdit(action="update_node", from_service=target, has_circuit_breaker=True))
+        elif kind in {"God / Bottleneck Service", "High Coupling"}:
+            intermediary = new_name(f"{target}_facade" if "Bottleneck" in kind else f"{target}_gateway")
+            edits.append(GraphEdit(action="add_node", from_service=intermediary))
+            inbound = "Bottleneck" in kind
+            matching = [d for d in deps if d["from"] != d["to"] and d["to" if inbound else "from"] == target]
+            for d in matching:
+                edits.append(remove(d))
+                edits.append(GraphEdit(action="add_edge", from_service=d["from"] if inbound else intermediary,
+                                       to_service=intermediary if inbound else d["to"], dependency_type=d["type"], endpoint=d["endpoint"]))
+            edits.append(GraphEdit(action="add_edge", from_service=intermediary if inbound else target, to_service=target if inbound else intermediary))
+        elif kind == "Shared Database" and evidence.get("shared_target") and len(services) >= 2:
+            db, facade = evidence["shared_target"], new_name(f"{target}_data_facade")
+            edits.append(GraphEdit(action="add_node", from_service=facade))
+            edits.append(GraphEdit(action="add_edge", from_service=facade, to_service=db, dependency_type="database"))
+            routed = set()
+            for edge in deps:
+                if edge["to"] == db and edge["from"] in services:
+                    edits.append(remove(edge))
+                    if edge["from"] not in routed:
+                        edits.append(GraphEdit(action="add_edge", from_service=edge["from"], to_service=facade))
+                        routed.add(edge["from"])
+        elif kind == "Dead / Isolated Service":
+            hub = _find_best_remediation_target(target)
+            if hub:
+                edits.append(GraphEdit(action="add_edge", from_service=hub, to_service=target))
+        # Chatter, centralization and historical contracts need a design decision.
+    return edits if len(edits) <= MAX_PREVIEW_EDITS else []
+
 
 class RemediationSimulator:
-    """Execute what-if graph edits in a sandboxed Neo4j transaction."""
-
     def __init__(self):
         self.driver = get_neo4j_driver()
 
-    def _is_mock(self) -> bool:
-        return isinstance(self.driver, MockNeo4jDriver) or self.driver is None
+    def _is_mock(self):
+        return self.driver is None or isinstance(self.driver, MockNeo4jDriver) or getattr(self.driver, "is_mock", False)
 
-    # ------------------------------------------------------------------ #
-    #  Public API
-    # ------------------------------------------------------------------ #
+    async def simulate_fix(self, edits: List[GraphEdit], baseline_risk_score: Optional[float] = None,
+                           affected_files_count: Optional[int] = None, baseline_smells: Optional[Dict[str, int]] = None,
+                           snapshot_version: Optional[str] = None, evaluation_mode: str = "snapshot") -> Dict[str, Any]:
+        if evaluation_mode not in {"snapshot", "neo4j_transaction"}:
+            raise ValueError("Unknown evaluation mode")
+        snapshot = registry_snapshot()
+        if snapshot_version and snapshot_version != snapshot.version:
+            raise ValueError("Stale snapshot: refresh the architecture before previewing")
+        if evaluation_mode == "neo4j_transaction":
+            if self._is_mock():
+                raise ValueError("A live Neo4j connection is required for transaction evaluation")
+            return await self._simulate_live(edits, baseline_risk_score, affected_files_count, snapshot=snapshot)
+        after, removed = apply_snapshot_edits(snapshot, edits)
+        return self._result(snapshot, after, edits, removed, baseline_risk_score, affected_files_count, "snapshot")
 
-    async def simulate_fix(
-        self,
-        edits: List[GraphEdit],
-        baseline_risk_score: Optional[float] = None,
-        affected_files_count: Optional[int] = None,
-        baseline_smells: Optional[Dict[str, int]] = None,
-    ) -> Dict[str, Any]:
-        """Run edits in a sandbox and return before/after comparison.
+    async def _simulate_mock(self, edits, baseline_risk_score=None, affected_files_count=None, baseline_smells=None):
+        return await self.simulate_fix(edits, baseline_risk_score, affected_files_count)
 
-        Returns a dict with keys: before, after, delta, commit_risk, sandbox.
-        """
-        if self._is_mock():
-            return await self._simulate_mock(
-                edits,
-                baseline_risk_score=baseline_risk_score,
-                affected_files_count=affected_files_count,
-                baseline_smells=baseline_smells,
-            )
-        return await self._simulate_live(
-            edits,
-            baseline_risk_score=baseline_risk_score,
-            affected_files_count=affected_files_count,
-            baseline_smells=baseline_smells,
-        )
-
-
-    # ------------------------------------------------------------------ #
-    #  Live Neo4j mode
-    # ------------------------------------------------------------------ #
-
-    async def _simulate_live(
-        self,
-        edits: List[GraphEdit],
-        baseline_risk_score: Optional[float] = None,
-        affected_files_count: Optional[int] = None,
-        baseline_smells: Optional[Dict[str, int]] = None,
-    ) -> Dict[str, Any]:
-        """Transactional simulation on a real Neo4j instance."""
-
-        def _run_in_tx():
-            assert self.driver is not None
+    async def _simulate_live(self, edits, baseline_risk_score=None, affected_files_count=None, baseline_smells=None, snapshot=None):
+        context = snapshot or registry_snapshot()
+        def run():
             with self.driver.session() as session:
                 tx = session.begin_transaction()
                 try:
-                    # 1. Use the canonical baseline smells already computed by SmellDetector
-                    if baseline_smells:
-                        before_smells = dict(baseline_smells)
-                    else:
-                        before_smells = _count_smells_on_tx(tx)
-
-                    # 2. Apply edits
+                    before = snapshot_from_transaction(tx, context)
+                    if before.version != context.version:
+                        raise ValueError("Stale Neo4j projection: refresh it before transaction evaluation")
+                    expected, removed = apply_snapshot_edits(before, edits)
                     _apply_edits_on_tx(tx, edits)
-
-                    # 3. Measure AFTER state: evaluate structural changes on tx and preserve baseline historical smells
-                    tx_smells = _count_smells_on_tx(tx)
-                    after_smells = dict(before_smells)
-                    structural_keys = [
-                        "circular_dependency", "bottleneck_service", "high_coupling",
-                        "chatty_communication", "missing_circuit_breaker", "hub_and_spoke",
-                        "shared_database", "isolated_service"
-                    ]
-                    for k in structural_keys:
-                        after_smells[k] = tx_smells.get(k, 0)
-
-                    return before_smells, after_smells
+                    after = snapshot_from_transaction(tx, context)
+                    if after.version != expected.version:
+                        raise ValueError("Transaction result does not match the requested graph edits")
+                    return self._result(before, after, edits, removed, baseline_risk_score, affected_files_count, "neo4j_transaction")
                 finally:
-                    # ALWAYS rollback — the graph is never mutated
                     tx.rollback()
+        return await asyncio.to_thread(run)
 
-        before_smells, after_smells = await asyncio.to_thread(_run_in_tx)
-
-        before_score, after_score, point_reduction, measurable_change, message = _calculate_simulation_metrics(
-            before_smells, after_smells, edits
-        )
-
-        before_total = sum(before_smells.values())
-        after_total = sum(after_smells.values())
-
+    @staticmethod
+    def _result(before, after, edits, removed, baseline_risk_score, affected_files_count, mode):
+        thresholds = configured_thresholds()
+        before_findings, after_findings = detect_smells(before, thresholds), detect_smells(after, thresholds)
+        before_counts, after_counts = breakdown_smells(before_findings), breakdown_smells(after_findings)
+        before_health, after_health = compute_architecture_health(before_counts, before), compute_architecture_health(after_counts, after)
+        _, _, reduction, measurable, message = _calculate_simulation_metrics(before_counts, after_counts, edits)
+        before_ids, after_ids = {f["id"] for f in before_findings}, {f["id"] for f in after_findings}
+        resolved = [f for f in before_findings if f["id"] not in after_ids]
+        introduced = [f for f in after_findings if f["id"] not in before_ids]
+        unchanged = [f for f in after_findings if f["id"] in before_ids]
+        measurable = measurable or bool(resolved or introduced)
         commit_risk = None
         if baseline_risk_score is not None:
-            base_score = round(float(baseline_risk_score), 1)
-            sev = _get_severity(base_score)
-            files_desc = (
-                f"{affected_files_count} source file{'s' if affected_files_count != 1 else ''}"
-                if affected_files_count
-                else "modified source files"
-            )
-            commit_risk = {
-                "score": base_score,
-                "severity": sev,
-                "files_count": affected_files_count,
-                "message": (
-                    f"Git Commit Risk remains {base_score}/100 ({sev}) because deployment blast radius "
-                    f"is driven by {files_desc} and core configurations."
-                ),
-            }
-
+            if not math.isfinite(baseline_risk_score) or not 0 <= baseline_risk_score <= 100:
+                raise ValueError("Commit risk must be between zero and 100")
+            commit_risk = {"score": baseline_risk_score, "severity": _get_severity(baseline_risk_score),
+                           "files_count": affected_files_count,
+                           "message": "Commit risk is supplied context, not recomputed by this graph preview."}
         return {
-            "before": {
-                "score": round(before_score, 1),
-                "severity": _get_severity(before_score),
-                "smells": before_smells,
-                "total_smells": before_total,
-            },
-            "after": {
-                "score": round(after_score, 1),
-                "severity": _get_severity(after_score),
-                "smells": after_smells,
-                "total_smells": after_total,
-            },
-            "delta": {
-                "score_reduction": round(point_reduction, 1),
-                "smells_resolved": max(0, before_total - after_total),
-                "measurable_change": measurable_change,
-                "message": message,
-            },
-            "commit_risk": commit_risk,
-            "measurable_change": measurable_change,
-            "metric": "Architectural Smell Risk",
-            "description": "Evaluates architectural anti-patterns (cycles, bottlenecks, coupling, isolation) on the dependency graph.",
-            "sandbox": True,
+            "before": before_health, "after": after_health,
+            "delta": {"score_reduction": reduction, "raw_debt_reduction": before_health["raw_score"] - after_health["raw_score"],
+                      "smells_resolved": len(resolved), "smells_introduced": len(introduced), "measurable_change": measurable, "message": message},
+            "findings": {"resolved": resolved, "introduced": introduced, "unchanged": unchanged},
+            "removed_dependencies": removed, "commit_risk": commit_risk, "sandbox": True,
+            "measurable_change": measurable, "snapshot_version": before.version, "preview_snapshot_version": after.version,
+            "detector_version": DETECTOR_VERSION, "evaluation_mode": mode, "thresholds": thresholds,
+            "metric": "Architectural Smell Risk", "description": "Measured graph-level architectural debt; runtime behavior is not verified.",
+            "provenance": {"source": before.source, "baseline": "server_recomputed", "historical_findings": "held_constant",
+                           "cycle_max_nodes": 8, "numeric_tolerance": SCORE_TOLERANCE},
+            "warnings": (["Removed dependencies may break functional behavior; validate application contracts."] if removed else [])
+                        + (["Resilience properties are hypothetical; runtime circuit breakers are not verified."]
+                           if any(e.has_circuit_breaker or e.resilient for e in edits) else []),
         }
-
-    # ------------------------------------------------------------------ #
-    #  Mock / fallback mode
-    # ------------------------------------------------------------------ #
-
-    async def _simulate_mock(
-        self,
-        edits: List[GraphEdit],
-        baseline_risk_score: Optional[float] = None,
-        affected_files_count: Optional[int] = None,
-        baseline_smells: Optional[Dict[str, int]] = None,
-    ) -> Dict[str, Any]:
-        """Heuristic estimation when Neo4j is unavailable."""
-        if baseline_smells:
-            before_counts = dict(baseline_smells)
-        else:
-            from services.smell_detector import SmellDetector
-
-            detector = SmellDetector()
-            try:
-                current_smells = await detector.detect_all_smells()
-            except Exception:
-                current_smells = []
-
-            before_counts = breakdown_smells(current_smells)
-
-        # Estimate after: each edit targets its corresponding smell type
-        after_counts = dict(before_counts)
-        for edit in edits:
-            if edit.action == "remove_edge":
-                if after_counts["circular_dependency"] > 0:
-                    after_counts["circular_dependency"] -= 1
-                elif after_counts["chatty_communication"] > 0:
-                    after_counts["chatty_communication"] -= 1
-                elif after_counts["shared_database"] > 0:
-                    after_counts["shared_database"] -= 1
-            elif edit.action == "add_node":
-                from_svc = edit.from_service or ""
-                if "_facade" in from_svc or "_gateway" in from_svc:
-                    if after_counts["bottleneck_service"] > 0:
-                        after_counts["bottleneck_service"] = max(0, after_counts["bottleneck_service"] - 1)
-                    if after_counts["high_coupling"] > 0:
-                        after_counts["high_coupling"] = max(0, after_counts["high_coupling"] - 1)
-                    if after_counts["missing_circuit_breaker"] > 0:
-                        after_counts["missing_circuit_breaker"] = max(0, after_counts["missing_circuit_breaker"] - 1)
-                    if after_counts["shared_database"] > 0:
-                        after_counts["shared_database"] = max(0, after_counts["shared_database"] - 1)
-                elif "broker" in from_svc:
-                    if after_counts["hub_and_spoke"] > 0:
-                        after_counts["hub_and_spoke"] = max(0, after_counts["hub_and_spoke"] - 1)
-                    if after_counts["chatty_communication"] > 0:
-                        after_counts["chatty_communication"] = max(0, after_counts["chatty_communication"] - 1)
-            elif edit.action == "add_edge":
-                if after_counts["isolated_service"] > 0:
-                    after_counts["isolated_service"] -= 1
-
-        before_score, after_score, point_reduction, measurable_change, message = _calculate_simulation_metrics(
-            before_counts, after_counts, edits
-        )
-
-        before_total = sum(before_counts.values())
-        after_total = sum(after_counts.values())
-
-        commit_risk = None
-        if baseline_risk_score is not None:
-            base_score = round(float(baseline_risk_score), 1)
-            sev = _get_severity(base_score)
-            files_desc = (
-                f"{affected_files_count} source file{'s' if affected_files_count != 1 else ''}"
-                if affected_files_count
-                else "modified source files"
-            )
-            commit_risk = {
-                "score": base_score,
-                "severity": sev,
-                "files_count": affected_files_count,
-                "message": (
-                    f"Git Commit Risk remains {base_score}/100 ({sev}) because deployment blast radius "
-                    f"is driven by {files_desc} and core configurations."
-                ),
-            }
-
-        return {
-            "before": {
-                "score": round(before_score, 1),
-                "severity": _get_severity(before_score),
-                "smells": before_counts,
-                "total_smells": before_total,
-            },
-            "after": {
-                "score": round(after_score, 1),
-                "severity": _get_severity(after_score),
-                "smells": after_counts,
-                "total_smells": after_total,
-            },
-            "delta": {
-                "score_reduction": round(point_reduction, 1),
-                "smells_resolved": max(0, before_total - after_total),
-                "measurable_change": measurable_change,
-                "message": message,
-            },
-            "commit_risk": commit_risk,
-            "measurable_change": measurable_change,
-            "metric": "Architectural Smell Risk",
-            "description": "Evaluates architectural anti-patterns (cycles, bottlenecks, coupling, isolation) on the dependency graph.",
-            "sandbox": True,
-        }
-

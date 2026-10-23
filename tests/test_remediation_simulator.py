@@ -1,440 +1,212 @@
-"""Tests for the What-If Remediation Simulator."""
-import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+"""Regression tests for measured previews, explicit edits and immutable baselines."""
+import copy
+import json
+import os
+from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
+from domain.architecture import GraphSnapshot, configured_thresholds, detect_smells
 from services.remediation_simulator import (
-    GraphEdit,
-    RemediationSimulator,
-    generate_edits_for_smells,
-    _compute_score_from_smells,
-    _compute_uncapped_score_from_smells,
-    _get_severity,
-    _normalize_score,
-    SATURATION_CONSTANT_K,
-    _calculate_simulation_metrics,
+    GraphEdit, RemediationSimulator, apply_snapshot_edits, breakdown_smells,
+    compute_architecture_health, generate_edits_for_smells, _normalize_score,
+    _compute_uncapped_score_from_smells, _calculate_simulation_metrics,
 )
 
 
-class GraphEditSchemaTests(unittest.TestCase):
-    """Validate the GraphEdit Pydantic model."""
-
-    def test_remove_edge_schema(self):
-        edit = GraphEdit(action="remove_edge", from_service="A", to_service="B")
-        self.assertEqual(edit.action, "remove_edge")
-        self.assertEqual(edit.from_service, "A")
-        self.assertEqual(edit.to_service, "B")
-        self.assertEqual(edit.relationship_type, "DEPENDS_ON")
-
-    def test_add_node_schema(self):
-        edit = GraphEdit(action="add_node", from_service="new_svc")
-        self.assertEqual(edit.action, "add_node")
-        self.assertIsNone(edit.to_service)
-
-    def test_invalid_action_rejected(self):
-        from pydantic import ValidationError
-        with self.assertRaises(ValidationError):
-            GraphEdit(action="drop_table", from_service="X")  # type: ignore
+def make_graph(names=("a", "b", "c", "d"), pairs=(("a", "b"), ("b", "a"), ("c", "d"))):
+    return GraphSnapshot.from_data({"services": [{"name": n} for n in names],
+        "dependencies": [{"from": a, "to": b, "type": "http", "endpoint": ""} for a,b in pairs]})
 
 
-class ScoringSeverityTests(unittest.TestCase):
-    """Verify the risk-score computation and severity mapping."""
-
-    def test_empty_smells_score_zero(self):
-        counts = {
-            "circular_dependency": 0,
-            "bottleneck_service": 0,
-            "high_coupling": 0,
-            "isolated_service": 0,
-            "shared_database": 0,
-            "hub_and_spoke": 0,
-            "chatty_communication": 0,
-            "missing_circuit_breaker": 0,
-            "dependency_explosion": 0,
-            "api_instability": 0,
-        }
-        self.assertEqual(_compute_score_from_smells(counts), 0.0)
-        self.assertEqual(_compute_uncapped_score_from_smells(counts), 0.0)
-
-    def test_scoring_weights_all_ten_smells(self):
-        """Verify explicit point weighting across all 10 architectural smells."""
-        self.assertEqual(_compute_uncapped_score_from_smells({"circular_dependency": 1}), 30.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"shared_database": 1}), 20.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"hub_and_spoke": 1}), 20.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"bottleneck_service": 1}), 20.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"dependency_explosion": 1}), 20.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"high_coupling": 1}), 15.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"api_instability": 1}), 15.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"chatty_communication": 1}), 12.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"missing_circuit_breaker": 1}), 12.0)
-        self.assertEqual(_compute_uncapped_score_from_smells({"isolated_service": 1}), 5.0)
-
-    def test_single_cycle_scores_anchor_point(self):
-        counts = {
-            "circular_dependency": 1,
-        }
-        self.assertEqual(_compute_score_from_smells(counts), 45.0)
-
-    def test_score_caps_asymptotically_below_100(self):
-        counts = {
-            "circular_dependency": 5,
-            "bottleneck_service": 3,
-            "high_coupling": 2,
-            "isolated_service": 10,
-        }
-        self.assertEqual(_compute_score_from_smells(counts), 88.8)
-        self.assertLess(_compute_score_from_smells(counts), 100.0)
-        self.assertGreater(_compute_uncapped_score_from_smells(counts), 100.0)
-
-    def test_severity_mapping(self):
-        self.assertEqual(_get_severity(80), "CRITICAL")
-        self.assertEqual(_get_severity(60), "HIGH")
-        self.assertEqual(_get_severity(30), "MEDIUM")
-        self.assertEqual(_get_severity(10), "LOW")
+async def preview(graph, edits, **kwargs):
+    with patch("services.remediation_simulator.registry_snapshot", return_value=graph), patch("services.remediation_simulator.get_neo4j_driver", return_value=None):
+        return await RemediationSimulator().simulate_fix(edits, **kwargs)
 
 
-class GenerateEditsTests(unittest.TestCase):
-    """Test deterministic edit generation from smell findings."""
-
-    def test_cycle_generates_remove_edge(self):
-        smells = [{
-            "type": "Circular Dependency",
-            "services": ["A", "B"],
-            "evidence": {"cycle": ["A", "B", "A"]},
-        }]
-        edits = generate_edits_for_smells(smells)
-        self.assertEqual(len(edits), 1)
-        self.assertEqual(edits[0].action, "remove_edge")
-        self.assertEqual(edits[0].from_service, "B")
-        self.assertEqual(edits[0].to_service, "A")
-
-    def test_bottleneck_generates_facade(self):
-        smells = [{
-            "type": "God / Bottleneck Service",
-            "services": ["payment_service"],
-            "evidence": {"incoming": 5, "outgoing": 2},
-        }]
-        edits = generate_edits_for_smells(smells)
-        self.assertEqual(len(edits), 2)
-        self.assertEqual(edits[0].action, "add_node")
-        self.assertEqual(edits[0].from_service, "payment_service_facade")
-        self.assertEqual(edits[1].action, "add_edge")
-        self.assertEqual(edits[1].to_service, "payment_service")
-
-    def test_coupling_generates_gateway(self):
-        smells = [{
-            "type": "High Coupling",
-            "services": ["order_service"],
-            "evidence": {"direct_dependencies": 6},
-        }]
-        edits = generate_edits_for_smells(smells)
-        self.assertEqual(len(edits), 2)
-        self.assertEqual(edits[0].action, "add_node")
-        self.assertIsNotNone(edits[0].from_service)
-        assert edits[0].from_service is not None
-        self.assertIn("gateway", edits[0].from_service)
-
-    def test_isolated_generates_edge_to_dynamic_target(self):
-        smells = [{
-            "type": "Dead / Isolated Service",
-            "services": ["orphan_service"],
-            "evidence": {"degree": 0},
-        }]
-        edits = generate_edits_for_smells(smells)
-        self.assertEqual(len(edits), 1)
-        self.assertEqual(edits[0].action, "add_edge")
-        self.assertEqual(edits[0].to_service, "orphan_service")
-        # Should dynamically pick an existing service from registry or api-gateway
-        self.assertIsNotNone(edits[0].from_service)
-        self.assertNotEqual(edits[0].from_service, "orphan_service")
-
-    def test_empty_smells_yields_no_edits(self):
-        self.assertEqual(generate_edits_for_smells([]), [])
-
-    def test_shared_database_generates_facade_and_reroute(self):
-        smells = [{
-            "type": "Shared Database",
-            "services": ["orders", "payments"],
-            "evidence": {"shared_target": "postgres-db"},
-        }]
-        edits = generate_edits_for_smells(smells)
-        self.assertEqual(len(edits), 3)
-        self.assertEqual(edits[0].action, "add_node")
-        self.assertEqual(edits[0].from_service, "orders_data_facade")
-        self.assertEqual(edits[1].action, "add_edge")
-        self.assertEqual(edits[1].from_service, "payments")
-        self.assertEqual(edits[1].to_service, "orders_data_facade")
-        self.assertEqual(edits[2].action, "remove_edge")
-        self.assertEqual(edits[2].from_service, "payments")
-        self.assertEqual(edits[2].to_service, "postgres-db")
-
-    def test_chatty_communication_generates_broker(self):
-        smells = [{
-            "type": "Chatty Communication",
-            "services": ["orders", "users"],
-            "evidence": {"pair": ["orders", "users"]},
-        }]
-        edits = generate_edits_for_smells(smells)
-        self.assertEqual(len(edits), 4)
-        self.assertEqual(edits[0].action, "add_node")
-        self.assertEqual(edits[0].from_service, "event_broker")
-
-    def test_circuit_breaker_generates_gateway(self):
-        smells = [{
-            "type": "Missing Circuit Breaker",
-            "services": ["api-client"],
-            "evidence": {"fan_out_count": 4},
-        }]
-        edits = generate_edits_for_smells(smells)
-        self.assertEqual(len(edits), 2)
-        self.assertEqual(edits[0].action, "add_node")
-        self.assertEqual(edits[0].from_service, "api-client_gateway")
+@pytest.mark.parametrize("payload", [
+    {"action": "remove_edge", "from_service": "a"},
+    {"action": "add_node", "from_service": " "},
+    {"action": "add_node", "from_service": "a", "to_service": "b"},
+    {"action": "drop_table", "from_service": "a"},
+    {"action": "update_node", "from_service": "a"},
+    {"action": "add_edge", "from_service": "a", "to_service": "b", "relationship_type": "DROP"},
+])
+def test_invalid_operations_are_rejected(payload):
+    with pytest.raises(ValidationError):
+        GraphEdit(**payload)
 
 
-class SimulatorMockModeTests(unittest.IsolatedAsyncioTestCase):
-    """Test the simulator in mock/fallback mode (no live Neo4j)."""
+@pytest.mark.asyncio
+async def test_no_edit_recomputes_baseline_and_has_zero_change():
+    graph = make_graph()
+    result = await preview(graph, [], baseline_smells={"circular_dependency": 999})
+    assert result["before"] == compute_architecture_health(breakdown_smells(detect_smells(graph)), graph)
+    assert result["before"] == result["after"]
+    assert result["delta"]["score_reduction"] == 0
+    assert not result["measurable_change"]
+    assert result["provenance"]["baseline"] == "server_recomputed"
 
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_mock_mode_returns_valid_structure(self, mock_get_driver):
-        from core.database import MockNeo4jDriver
-        mock_get_driver.return_value = MockNeo4jDriver()
 
+@pytest.mark.asyncio
+async def test_removing_unrelated_edge_does_not_resolve_cycle_and_reports_new_isolation():
+    graph = make_graph()
+    result = await preview(graph, [GraphEdit(action="remove_edge", from_service="c", to_service="d")])
+    assert result["before"]["smells"]["circular_dependency"] == result["after"]["smells"]["circular_dependency"] == 1
+    assert result["delta"]["score_reduction"] < 0
+    assert result["after"]["smells"]["isolated_service"] == 2
+    assert len(result["removed_dependencies"]) == 1
+    assert len(result["findings"]["introduced"]) == 2
+    assert result["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_adding_cycle_is_measured_as_degradation():
+    graph = make_graph(("a", "b"), (("a", "b"),))
+    result = await preview(graph, [GraphEdit(action="add_edge", from_service="b", to_service="a")])
+    assert result["before"]["score"] == 0
+    assert result["after"]["smells"]["circular_dependency"] == 1
+    assert result["delta"]["score_reduction"] == -45
+    assert "increases architectural risk" in result["delta"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_removing_cycle_edge_preserves_functional_warning_and_live_input():
+    graph = make_graph()
+    original = graph.to_data()
+    result = await preview(graph, [GraphEdit(action="remove_edge", from_service="b", to_service="a")])
+    assert result["after"]["smells"]["circular_dependency"] == 0
+    assert result["delta"]["score_reduction"] > 0
+    assert any(f["type"] == "Circular Dependency" for f in result["findings"]["resolved"])
+    assert graph.to_data() == original
+    assert result["snapshot_version"] == graph.version
+    assert result["preview_snapshot_version"] != graph.version
+
+
+@pytest.mark.asyncio
+async def test_gateway_name_does_not_grant_resilience_or_erase_findings():
+    graph = make_graph(("a", "b", "c", "d"), (("a", "b"), ("a", "c"), ("a", "d")))
+    result = await preview(graph, [GraphEdit(action="add_node", from_service="a_gateway")])
+    assert result["after"]["smells"]["high_coupling"] == result["before"]["smells"]["high_coupling"]
+    assert result["after"]["smells"]["missing_circuit_breaker"] == result["before"]["smells"]["missing_circuit_breaker"]
+    assert any(f["services"] == ["a_gateway"] and f["type"] == "Dead / Isolated Service" for f in result["findings"]["introduced"])
+
+
+@pytest.mark.asyncio
+async def test_explicit_resilience_property_changes_only_supported_evidence():
+    graph = make_graph(("a", "b", "c", "d"), (("a", "b"), ("a", "c"), ("a", "d")))
+    result = await preview(graph, [GraphEdit(action="update_node", from_service="a", has_circuit_breaker=True)])
+    assert result["after"]["smells"]["missing_circuit_breaker"] == 0
+    assert result["after"]["smells"]["high_coupling"] == result["before"]["smells"]["high_coupling"]
+    assert any("hypothetical" in warning for warning in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_snapshot_version_rejects_stale_baseline():
+    with pytest.raises(ValueError, match="Stale snapshot"):
+        await preview(make_graph(), [], snapshot_version="old")
+
+
+@pytest.mark.asyncio
+async def test_unknown_service_missing_edge_and_excessive_edits_rejected():
+    graph = make_graph()
+    invalid = [
+        [GraphEdit(action="add_edge", from_service="unknown", to_service="a")],
+        [GraphEdit(action="remove_edge", from_service="a", to_service="d")],
+        [GraphEdit(action="add_node", from_service=f"x{i}") for i in range(101)],
+    ]
+    original = graph.version
+    for edits in invalid:
+        with pytest.raises(ValueError):
+            await preview(graph, edits)
+        assert graph.version == original
+
+
+def test_late_validation_error_leaves_original_snapshot_unchanged():
+    graph = make_graph()
+    original = graph.to_data()
+    with pytest.raises(ValueError):
+        apply_snapshot_edits(graph, [GraphEdit(action="add_node", from_service="new"), GraphEdit(action="remove_edge", from_service="a", to_service="d")])
+    assert graph.to_data() == original
+
+
+def test_ambiguous_removal_requires_an_endpoint_selector():
+    data = make_graph().to_data()
+    data["dependencies"].append({"from":"a", "to":"b", "type":"http", "endpoint":"/second"})
+    graph = GraphSnapshot.from_data(data)
+    with pytest.raises(ValueError, match="Ambiguous"):
+        apply_snapshot_edits(graph, [GraphEdit(action="remove_edge", from_service="a", to_service="b")])
+    after, removed = apply_snapshot_edits(graph, [GraphEdit(action="remove_edge", from_service="a", to_service="b", dependency_type="http", endpoint="/second")])
+    assert removed[0]["endpoint"] == "/second"
+    assert len(after.to_data()["dependencies"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_commit_risk_is_separate_from_measured_debt():
+    result = await preview(make_graph(), [], baseline_risk_score=85.125, affected_files_count=14)
+    assert result["commit_risk"]["score"] == 85.125
+    assert result["commit_risk"]["files_count"] == 14
+    assert result["before"]["score"] != 85.125
+
+
+@pytest.mark.parametrize("raw,expected", [(244,86.936),(214,85.372),(184,83.384),(154,80.769),(124,77.178),(216,85.488),(144,79.705),(75,67.164)])
+def test_published_normalization_and_precision(raw, expected):
+    assert _normalize_score(raw) == expected
+
+
+@pytest.mark.asyncio
+async def test_preview_json_preserves_three_decimal_values():
+    graph = make_graph(("a", "b", "c"), (("a", "b"), ("b", "a")))
+    result = json.loads(json.dumps(await preview(graph, [])))
+    assert result["before"]["raw_score"] == 35
+    assert result["before"]["score"] == 48.837
+    assert result["before"]["normalization_constant"] == 110/3
+    assert result["before"]["detector_version"]
+    assert result["before"]["weights"]["circular_dependency"] == 30
+
+
+def test_all_weights_and_zero():
+    expected = {"circular_dependency":30,"shared_database":20,"hub_and_spoke":20,"bottleneck_service":20,
+                "dependency_explosion":20,"high_coupling":15,"api_instability":15,"chatty_communication":12,
+                "missing_circuit_breaker":12,"isolated_service":5}
+    for kind, weight in expected.items():
+        assert _compute_uncapped_score_from_smells({kind:1}) == weight
+    assert _normalize_score(0) == 0
+    assert _normalize_score(30) == 45
+    with pytest.raises(ValueError):
+        _normalize_score(float("nan"))
+
+
+def test_generated_shared_database_plan_keeps_a_path_to_storage():
+    graph = GraphSnapshot.from_data({"services":[{"name":"a"},{"name":"b"}],
+        "dependencies":[{"from":n,"to":"store","type":"database"} for n in ("a","b")]})
+    finding = next(f for f in detect_smells(graph) if f["type"] == "Shared Database")
+    with patch("services.remediation_simulator.registry_snapshot", return_value=graph):
+        edits = generate_edits_for_smells([finding])
+    after, removed = apply_snapshot_edits(graph, edits)
+    deps = after.to_data()["dependencies"]
+    assert len(removed) == 2
+    facade = next(e.from_service for e in edits if e.action == "add_node")
+    assert any(d["from"] == facade and d["to"] == "store" for d in deps)
+    assert all(any(d["from"] == name and d["to"] == facade for d in deps) for name in ("a","b"))
+    assert not any(f["type"] == "Shared Database" for f in detect_smells(after))
+
+
+@pytest.mark.asyncio
+async def test_live_transaction_rolls_back_after_failure_in_detector():
+    graph = make_graph()
+    driver = MagicMock()
+    tx = driver.session.return_value.__enter__.return_value.begin_transaction.return_value
+    with patch("services.remediation_simulator.get_neo4j_driver", return_value=driver):
         sim = RemediationSimulator()
-        edits = [GraphEdit(action="remove_edge", from_service="A", to_service="B")]
-        result = await sim.simulate_fix(edits)
-
-        self.assertTrue(result["sandbox"])
-        self.assertIn("before", result)
-        self.assertIn("after", result)
-        self.assertIn("delta", result)
-        self.assertIn("score", result["before"])
-        self.assertIn("severity", result["before"])
-        self.assertIn("smells", result["before"])
-        self.assertIn("score_reduction", result["delta"])
-        self.assertIn("smells_resolved", result["delta"])
-        self.assertEqual(result["metric"], "Architectural Smell Risk")
-
-    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock, return_value=[])
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_mock_mode_with_no_smells(self, mock_get_driver, mock_detect_smells):
-        from core.database import MockNeo4jDriver
-        mock_get_driver.return_value = MockNeo4jDriver()
-
-        sim = RemediationSimulator()
-        edits = [GraphEdit(action="add_node", from_service="new_service")]
-        result = await sim.simulate_fix(edits)
-
-        # Honest reporting when no tracked smells change
-        self.assertEqual(result["before"]["score"], 0.0)
-        self.assertEqual(result["after"]["score"], 0.0)
-        self.assertEqual(result["delta"]["score_reduction"], 0.0)
-        self.assertEqual(result["delta"]["smells_resolved"], 0)
-        self.assertFalse(result["delta"]["measurable_change"])
-        self.assertFalse(result["measurable_change"])
-
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_null_driver_uses_mock_mode(self, mock_get_driver):
-        mock_get_driver.return_value = None
-
-        sim = RemediationSimulator()
-        edits = [GraphEdit(action="remove_edge", from_service="X", to_service="Y")]
-        result = await sim.simulate_fix(edits)
-
-        self.assertTrue(result["sandbox"])
-        self.assertIn("before", result)
-
-    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_baseline_risk_score_with_resilience_facade(self, mock_get_driver, mock_detect_smells):
-        from core.database import MockNeo4jDriver
-        mock_get_driver.return_value = MockNeo4jDriver()
-        mock_detect_smells.return_value = [
-            {"type": "Circular Dependency", "services": ["order-service", "user-service"]}
-        ]
-
-        sim = RemediationSimulator()
-        edits = [
-            GraphEdit(action="remove_edge", from_service="order-service", to_service="user-service"),
-            GraphEdit(action="add_node", from_service="order-service_facade"),
-            GraphEdit(action="add_edge", from_service="order-service_facade", to_service="order-service"),
-            GraphEdit(action="add_edge", from_service="order-service_facade", to_service="user-service"),
-        ]
-        result = await sim.simulate_fix(edits, baseline_risk_score=85.0, affected_files_count=14)
-
-        # Architectural smell risk is independent of git diff score; normalized raw=30 -> 45.0
-        self.assertEqual(result["before"]["score"], 45.0)
-        self.assertEqual(result["before"]["severity"], "MEDIUM")
-        self.assertEqual(result["after"]["score"], 0.0)
-        self.assertEqual(result["after"]["severity"], "LOW")
-        self.assertEqual(result["delta"]["score_reduction"], 45.0)
-        self.assertTrue(result["delta"]["measurable_change"])
-        self.assertEqual(result["metric"], "Architectural Smell Risk")
-
-        # Commit risk is preserved separately
-        self.assertIsNotNone(result["commit_risk"])
-        assert result["commit_risk"] is not None
-        self.assertEqual(result["commit_risk"]["score"], 85.0)
-        self.assertEqual(result["commit_risk"]["severity"], "CRITICAL")
-        self.assertEqual(result["commit_risk"]["files_count"], 14)
-        self.assertIn("14 source files", result["commit_risk"]["message"])
-
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_baseline_risk_score_with_no_resilience_edits(self, mock_get_driver):
-        from core.database import MockNeo4jDriver
-        mock_get_driver.return_value = MockNeo4jDriver()
-
-        sim = RemediationSimulator()
-        edits = [GraphEdit(action="add_node", from_service="unrelated_node")]
-        result = await sim.simulate_fix(edits, baseline_risk_score=85.0)
-
-        # Architectural smell score is unchanged when edits do not resolve smells
-        self.assertEqual(result["before"]["score"], result["after"]["score"])
-        self.assertEqual(result["delta"]["score_reduction"], 0.0)
-        self.assertFalse(result["delta"]["measurable_change"])
-
-        # Commit risk remains reported
-        self.assertIsNotNone(result["commit_risk"])
-        assert result["commit_risk"] is not None
-        self.assertEqual(result["commit_risk"]["score"], 85.0)
-        self.assertEqual(result["commit_risk"]["severity"], "CRITICAL")
-
-    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_shared_database_simulation_score_reduction(self, mock_get_driver, mock_detect_smells):
-        """Resolving a Shared Database finding must reduce architectural smell score and show measurable change."""
-        from core.database import MockNeo4jDriver
-        mock_get_driver.return_value = MockNeo4jDriver()
-        mock_detect_smells.return_value = [{
-            "type": "Shared Database",
-            "services": ["order-service", "payment-service"],
-            "evidence": {"shared_target": "postgres-db", "sharing_services": ["order-service", "payment-service"]},
-        }]
-
-        sim = RemediationSimulator()
-        edits = [
-            GraphEdit(action="add_node", from_service="order-service_facade"),
-            GraphEdit(action="add_edge", from_service="payment-service", to_service="order-service_facade"),
-            GraphEdit(action="remove_edge", from_service="payment-service", to_service="postgres-db"),
-        ]
-        result = await sim.simulate_fix(edits)
-
-        # Before: 1 Shared Database (weight 20) -> normalized score = 35.3
-        self.assertEqual(result["before"]["score"], 35.3)
-        self.assertEqual(result["before"]["smells"]["shared_database"], 1)
-
-        # After: 0 Shared Database -> score = 0.0
-        self.assertEqual(result["after"]["score"], 0.0)
-        self.assertEqual(result["after"]["smells"]["shared_database"], 0)
-
-        # Score reduction & measurable change verified
-        self.assertEqual(result["delta"]["score_reduction"], 35.3)
-        self.assertEqual(result["delta"]["smells_resolved"], 1)
-        self.assertTrue(result["delta"]["measurable_change"])
-        self.assertIn("shared database resolved", result["delta"]["message"])
-        self.assertLess(result["after"]["score"], result["before"]["score"])
-
-    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_gateway_simulation_resolves_high_coupling_without_false_cycles(self, mock_get_driver, mock_detect_smells):
-        """Simulating a gateway facade reduces coupling and score without introducing cycles."""
-        from core.database import MockNeo4jDriver
-        mock_get_driver.return_value = MockNeo4jDriver()
-        mock_detect_smells.return_value = [
-            {"type": "High Coupling", "services": ["order-service"]},
-            {"type": "God / Bottleneck Service", "services": ["order-service"]},
-        ]
-
-        sim = RemediationSimulator()
-        edits = [
-            GraphEdit(action="add_node", from_service="order-service_gateway"),
-            GraphEdit(action="add_edge", from_service="order-service_gateway", to_service="order-service"),
-        ]
-        result = await sim.simulate_fix(edits)
-
-        self.assertEqual(result["before"]["smells"]["high_coupling"], 1)
-        self.assertEqual(result["after"]["smells"]["high_coupling"], 0)
-        self.assertEqual(result["after"]["smells"]["circular_dependency"], 0)
-        self.assertEqual(result["after"]["smells"]["missing_circuit_breaker"], 0)
-        self.assertTrue(result["delta"]["measurable_change"])
-        self.assertGreater(result["delta"]["score_reduction"], 0)
-
-    @patch("services.smell_detector.SmellDetector.detect_all_smells", new_callable=AsyncMock)
-    @patch("services.remediation_simulator.get_neo4j_driver")
-    async def test_resilience_facade_simulation_resolves_missing_circuit_breaker(self, mock_get_driver, mock_detect_smells):
-        """Simulating a resilience facade resolves missing circuit breaker and bottleneck."""
-        from core.database import MockNeo4jDriver
-        mock_get_driver.return_value = MockNeo4jDriver()
-        mock_detect_smells.return_value = [
-            {"type": "Missing Circuit Breaker", "services": ["order-service"]},
-            {"type": "God / Bottleneck Service", "services": ["order-service"]},
-        ]
-
-        sim = RemediationSimulator()
-        edits = [
-            GraphEdit(action="add_node", from_service="order-service_facade"),
-            GraphEdit(action="add_edge", from_service="order-service_facade", to_service="order-service"),
-        ]
-        result = await sim.simulate_fix(edits)
-
-        self.assertEqual(result["before"]["smells"]["missing_circuit_breaker"], 1)
-        self.assertEqual(result["after"]["smells"]["missing_circuit_breaker"], 0)
-        self.assertEqual(result["after"]["smells"]["circular_dependency"], 0)
-        self.assertTrue(result["delta"]["measurable_change"])
-        self.assertGreater(result["delta"]["score_reduction"], 0)
+    with patch("services.remediation_simulator.snapshot_from_transaction", return_value=graph), patch("services.remediation_simulator.detect_smells", side_effect=RuntimeError("injected")):
+        with pytest.raises(RuntimeError, match="injected"):
+            await sim._simulate_live([], snapshot=graph)
+    tx.rollback.assert_called_once()
+    tx.commit.assert_not_called()
 
 
-class SaturatingScoreRegressionTests(unittest.TestCase):
-    """Regression test for saturating score calculation.
-    
-    Verifies that _normalize_score properly differentiates after-states
-    when raw cumulative smell debt is large, eliminating score ties.
-    """
-
-    def test_normalize_score_anchor_point(self):
-        """Single circular dependency (raw=30) anchors to MEDIUM score (45.0)."""
-        self.assertEqual(_normalize_score(0.0), 0.0)
-        self.assertEqual(_normalize_score(30.0), 45.0)
-
-    def test_screenshot_scenario_no_ties(self):
-        """Actual screenshot scenario: raw_before=216, after-states 144 and 75.
-        
-        Asserts that two different after-states produce two strictly distinct scores
-        and distinct point reductions rather than tying.
-        """
-        raw_before = 216.0
-        raw_after_1 = 144.0
-        raw_after_2 = 75.0
-
-        score_before = _normalize_score(raw_before)
-        score_after_1 = _normalize_score(raw_after_1)
-        score_after_2 = _normalize_score(raw_after_2)
-
-        self.assertEqual(score_before, 85.5)
-        self.assertEqual(score_after_1, 79.7)
-        self.assertEqual(score_after_2, 67.2)
-        # Crucial assertion: the two after states must NOT tie!
-        self.assertNotEqual(score_after_1, score_after_2)
-        self.assertGreater(score_after_1, score_after_2)
-
-        # Verify via _calculate_simulation_metrics end-to-end
-        # High before-state (raw=215: 7 cycles * 30 + 1 isolated * 5)
-        smells_high = {"circular_dependency": 7, "isolated_service": 1}
-        # Two distinct reduced after-states
-        smells_mid = {"circular_dependency": 4, "bottleneck_service": 1}  # raw=140: 4*30 + 1*20
-        smells_low = {"circular_dependency": 2, "high_coupling": 1}       # raw=75: 2*30 + 1*15
-
-        # Directly verify that metrics calculation uses _normalize_score:
-        b1, a1, red1, change1, msg1 = _calculate_simulation_metrics(smells_high, smells_mid, [])
-        b2, a2, red2, change2, msg2 = _calculate_simulation_metrics(smells_high, smells_low, [])
-
-        self.assertEqual(b1, b2)  # baseline before score is identical
-        self.assertEqual(b1, _normalize_score(215.0))
-        self.assertEqual(a1, _normalize_score(140.0))
-        self.assertEqual(a2, _normalize_score(75.0))
-        self.assertNotEqual(a1, a2, "Two different after-states must produce two distinct scores, not ties!")
-        self.assertNotEqual(red1, red2, "Two different after-states must produce distinct point reductions!")
-        self.assertTrue(change1)
-        self.assertTrue(change2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_transaction_mode_requires_live_connection():
+    with pytest.raises(ValueError, match="live Neo4j"):
+        await preview(make_graph(), [], evaluation_mode="neo4j_transaction")

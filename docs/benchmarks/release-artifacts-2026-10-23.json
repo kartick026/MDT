@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-23",
+  "publication": "local review only",
+  "artifacts": [
+    {
+      "path": "extensions/browser/mdt-browser-alpha-0.1.0.zip",
+      "bytes": 10065,
+      "sha256": "b147ed6443890705372bf0064dbe944866e914d671ed764127412b840f1fc0fe",
+      "entries": [
+        "background.js",
+        "client.js",
+        "manifest.json",
+        "popup.css",
+        "popup.html",
+        "popup.js",
+        "PRIVACY.md"
+      ]
+    },
+    {
+      "path": "extensions/vscode/mdt-architecture-review-0.1.0.vsix",
+      "bytes": 23405,
+      "sha256": "efe86b98d0ef5a27a3d6a8b2fd91ef5f4b9110c6d0b6c2624fd335292674e131",
+      "entries": [
+        "extension.vsixmanifest",
+        "[Content_Types].xml",
+        "extension/package.json",
+        "extension/readme.md",
+        "extension/dist/client.js",
+        "extension/dist/extension.js",
+        "extension/dist/git.js",
+        "extension/dist/results.js",
+        "extension/dist/web-extension.js"
+      ]
+    },
+    {
+      "path": "scratch/alpha-completion-2026-10-23/mdt-web-alpha.zip",
+      "sha256": "7e3ca6c137c2ad9bf87ba05f922a4bb42b7095508fd80542c265a20fb1a2aa57",
+      "bytes": 618490,
+      "profile": "public frontend; local diagnostics disabled"
+    }
+  ],
+  "frontend_files": {
+    "assets/AuthPage-2DlT91K6.js": "fa8d16ec0f885bf6adeab16bb1736bd47c6ac19485b91ad1c54b1804547df635",
+    "assets/DependencyGraph-YWrT6Sve.js": "77540756716f58baa63ed70513df390235b981e4cb59105bdd181bd8e62c4116",
+    "assets/Diagnostics-CisyKO8r.js": "f541cf00eac895d71c8a767d03152364a5a4836b24b05ab04b1ca97c1aa6cafd",
+    "assets/elk-worker.min-r_yRvuMO.js": "e4f5c51c6f2fd564bb64e52e81c4a85a316ef2f24f8b90e1db5eb886c765b030",
+    "assets/index-COopGNJg.js": "dd53dcdb784e23fee8261dbc89c8253e0b1f48d0899559722ddf499103e31c26",
+    "assets/index-ntaXRAl5.css": "f7c14d9cde391f79beb4b879cc4ea723d4e8857678dae1182cbbc26faca1dd2c",
+    "assets/LoginModal-CpbYsSdq.js": "1d9b4244643ffa684c6677a5ae5124070dce501d0cb9d8bdc91f36b6bcb08693",
+    "assets/ProjectDrift-B3Erc10K.js": "0e39adbc1288b7b6756ca0bae590e9e1a0ac701e0f62b990a0dc02bb82c4a936",
+    "assets/ProjectHistory-jAOUB2XC.js": "6a716f4b834409e8a57c1d2753cc161a5b047c26273ab3a230b78355d299311e",
+    "assets/ProjectPolicies-B4TdINPE.js": "e16122fe2f2d5198a9a80a3c1742a91ab23a5406f63d848fb02d4724df089a96",
+    "assets/Workspace-CuKcrEoU.js": "b6f56d397e7aec366548d62994ff14c0d1096e8fe3b1c3654dfc30f207217d87",
+    "demo.json": "77071aa3aae2919074acf839b9ad6e80e45181650ac15c7b49c5b2f6388804fb",
+    "favicon.svg": "61bc9a161de58248288e6905425d7180f0624c2865007b97d763fdac12043a66",
+    "icons.svg": "b45fa506195cfcdef406ba9f0c77b36ddc1a7c224040926ec70abc2fdea7b93a",
+    "index.html": "6eddb006d481079401edf335be3d70d0fa3f8ec77b033b4f36e497ac9e918b60",
+    "third-party-notices.txt": "08412b04f7a96ffd60bc133bd29d26aeb807e9e084c7cf707d76f79edc9d3532"
+  }
+}

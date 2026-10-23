@@ -24,6 +24,7 @@ export default class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
+      const loadingError = /dynamically imported module|Loading chunk|module script/i.test(this.state.error?.message || '');
       return (
         <div className="card" style={{
           margin: '24px auto',
@@ -36,10 +37,10 @@ export default class ErrorBoundary extends React.Component {
         }}>
           <div style={{ fontSize: '36px', marginBottom: '12px' }}>⚠️</div>
           <h3 style={{ color: '#ff2d55', marginBottom: '8px', fontSize: '18px' }}>
-            Something went wrong in this view
+            {loadingError ? 'This view needs to reload' : 'Something went wrong in this view'}
           </h3>
           <p style={{ color: '#a0a5b8', fontSize: '14px', marginBottom: '16px' }}>
-            {this.state.error?.message || "An unexpected rendering error occurred."}
+            {loadingError ? 'The app may have updated or the connection was interrupted. Refresh to load the current version; your saved analyses remain on the server.' : this.state.error?.message || "An unexpected rendering error occurred."}
           </p>
           <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
             <button

@@ -66,3 +66,63 @@ class RetrievalEngineTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VersionedRetrievalTests(unittest.IsolatedAsyncioTestCase):
+    async def test_revisions_and_embedding_dimensions_do_not_overwrite_or_purge_history(self):
+        from unittest.mock import patch, MagicMock, AsyncMock
+        from services.retrieval import _tfidf_embed
+        client = MagicMock()
+        collections = {}
+        def get_collection(**kwargs):
+            collections.setdefault(kwargs["name"], MagicMock())
+            return collections[kwargs["name"]]
+        client.get_or_create_collection.side_effect = get_collection
+        lexical = {"provider": "local", "model": "hashed-tokens-v1", "dimension": 256, "evidence_kind": "lexical"}
+        semantic = {"provider": "test", "model": "learned-v2", "dimension": 3, "evidence_kind": "semantic"}
+        embeddings = AsyncMock(side_effect=[(_tfidf_embed(["code"]), lexical), (_tfidf_embed(["code"]), lexical), ([[0.1, 0.2, 0.3]], semantic)])
+        engine = RetrievalEngine()
+        with patch("services.retrieval.get_chroma_client", return_value=client), patch("services.retrieval._embed_with_provenance", embeddings):
+            for revision in ["a" * 40, "b" * 40, "c" * 40]:
+                await engine.index_change("main.py", "def f(): pass", "api", "modified", "python", ["f"], [],
+                    repository_key="github:o/r", project_id="project-a", commit_sha=revision, commit_timestamp=10)
+        assert len(collections) == 2
+        first_collection = next(iter(collections.values()))
+        first_ids = first_collection.upsert.call_args_list[0].kwargs["ids"]
+        second_ids = first_collection.upsert.call_args_list[1].kwargs["ids"]
+        assert first_ids != second_ids
+        client.delete_collection.assert_not_called()
+
+    async def test_chronology_project_filters_and_lexical_zero_modifier(self):
+        from unittest.mock import patch, MagicMock, AsyncMock
+        from types import SimpleNamespace
+        from services.retrieval import _tfidf_embed
+        collection = MagicMock()
+        collection.count.return_value = 5
+        base = {"repository_key": "github:o/r", "project_id": "project-a", "risk_score": 100}
+        collection.query.return_value = {
+            "documents": [["past", "current", "future", "other project"]],
+            "metadatas": [[{**base, "commit_sha": "a" * 40, "commit_timestamp": 5},
+                           {**base, "commit_sha": "b" * 40, "commit_timestamp": 10},
+                           {**base, "commit_sha": "c" * 40, "commit_timestamp": 20},
+                           {**base, "project_id": "project-b", "commit_sha": "d" * 40, "commit_timestamp": 1}]],
+            "distances": [[0, 0, 0, 0]]}
+        lexical = {"provider": "local", "model": "hashed-tokens-v1", "dimension": 256, "evidence_kind": "lexical"}
+        engine = RetrievalEngine()
+        with patch("services.retrieval.get_chroma_client", return_value=MagicMock()), patch.object(engine, "_get_collection", return_value=collection), patch("services.retrieval._embed_with_provenance", AsyncMock(return_value=(_tfidf_embed(["query"]), lexical))):
+            result = await engine.retrieve_similar([SimpleNamespace(file_path="main.py", ast_metadata={})],
+                repository_key="github:o/r", project_id="project-a", target_commit_sha="b" * 40, before_timestamp=10)
+        assert result["documents"] == ["past"]
+        assert result["risk_modifier"] == 0 and result["evidence_kind"] == "lexical"
+        where = collection.query.call_args.kwargs["where"]["$and"]
+        assert {"project_id": "project-a"} in where
+        assert {"commit_timestamp": {"$lt": 10}} in where
+
+    async def test_disabled_retrieval_never_calls_embedding_provider(self):
+        from unittest.mock import patch, AsyncMock
+        with patch("services.retrieval.get_chroma_client", return_value=None), patch("services.retrieval._embed_with_provenance", AsyncMock()) as embed:
+            engine = RetrievalEngine()
+            await engine.index_change("main.py", "code", "api", "modified", "python", [], [],
+                repository_key="github:o/r", project_id="project-a", commit_sha="a" * 40, commit_timestamp=1)
+            await engine.retrieve_similar([], repository_key="github:o/r", project_id="project-a", target_commit_sha="b" * 40, before_timestamp=2)
+            embed.assert_not_called()

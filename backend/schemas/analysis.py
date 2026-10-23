@@ -48,6 +48,8 @@ class ImpactResult(BaseModel):
     severity: SeverityLevel
     impacted_services: List[str] = []
     confidence: float  # 0-1
+    assessment_status: str = "insufficient_evidence"
+    confidence_evidence: Dict[str, Any] = Field(default_factory=dict)
     explanation: Optional[str] = None
     suggested_fixes: List[str] = []
     affected_files: List[DiffFile] = []
@@ -66,6 +68,8 @@ class AnalysisResponse(BaseModel):
     severity: str
     impacted_services: List[str] = []
     confidence: float
+    assessment_status: str = "insufficient_evidence"
+    confidence_evidence: Dict[str, Any] = Field(default_factory=dict)
     explanation: Optional[str] = None
     suggested_fixes: List[Union[SuggestedFix, Dict[str, Any], str]] = []
     connection_bugs: List[Dict[str, Any]] = []
@@ -79,6 +83,10 @@ class AnalysisResponse(BaseModel):
     architecture_smell_severity: str = "low"
     architecture_smells_count: int = 0
     architecture_smells_breakdown: Dict[str, int] = {}
+    coverage: Dict[str, Any] = Field(default_factory=dict)
+    evidence: Dict[str, Any] = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+    partial_results: bool = False
 
 
 class HistoryEntry(BaseModel):

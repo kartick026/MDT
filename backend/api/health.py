@@ -1,6 +1,7 @@
 """Health check endpoints"""
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from core.auth import get_current_user
 from core.config import settings
 from core.database import check_neo4j_health, check_chroma_health
 
@@ -19,12 +20,23 @@ async def health_check():
     }
 
 
+@router.get("/ready", summary="Durable storage readiness")
+def readiness():
+    from core.store import get_store
+    try:
+        with get_store().connection() as db:
+            db.execute("SELECT 1").fetchone()
+    except Exception:
+        raise HTTPException(503, "Durable storage unavailable")
+    return {"status": "ready", "profile": settings.RUNTIME_PROFILE}
+
+
 @router.get("/detailed", summary="Detailed component health")
-async def detailed_health():
+async def detailed_health(user=Depends(get_current_user)):
     """Check connectivity and readiness of all backend components."""
 
     # 1. Neo4j connectivity
-    neo4j_info = check_neo4j_health()
+    neo4j_info = check_neo4j_health() if settings.RUNTIME_PROFILE == "local" else {"status": "disabled", "connected": False}
 
     # 2. ChromaDB connectivity & stats
     chroma_info = check_chroma_health()

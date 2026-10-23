@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getHistory } from '../api';
+import { downloadAnalysis, formatScore } from '../utils/analysis';
 
 const RISK_COLORS = {
   LOW: 'var(--green)', MEDIUM: 'var(--yellow)', HIGH: 'var(--orange)', CRITICAL: 'var(--red)',
@@ -65,8 +66,8 @@ export default function AnalysisHistory() {
 
           return (
             <div key={i} className="h-card">
-              <div className="h-row" onClick={() => setExpanded(open ? null : i)}>
-                <span className="h-score-badge" style={{ color }}>{score}</span>
+              <div className="h-row" role="button" tabIndex={0} aria-expanded={open} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setExpanded(open ? null : i); } }} onClick={() => setExpanded(open ? null : i)}>
+                <span className="h-score-badge" style={{ color }}>{formatScore(score)}</span>
                 <span className="h-service" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                   <span>{repoName}</span>
                   {branchRef && <span className="text-dim text-xs" style={{ opacity: 0.7 }}>@{branchRef}</span>}
@@ -84,6 +85,7 @@ export default function AnalysisHistory() {
 
               {open && (
                 <div className="h-body anim-fade-in">
+                  <button className="btn btn-ghost" onClick={() => downloadAnalysis(item)}>Export saved result</button>
                   {item.explanation && (
                     <p className="h-explain">{item.explanation.replace(/\*\*/g, '')}</p>
                   )}
@@ -130,7 +132,7 @@ export default function AnalysisHistory() {
                     ))}
                     {item.confidence != null && (
                       <span className="h-chip">
-                        confidence: <strong>{(item.confidence * 100).toFixed(0)}%</strong>
+                        {item.confidence_evidence?.kind === 'evidence_completeness' ? 'Evidence completeness' : 'Legacy confidence'}: <strong>{(item.confidence * 100).toFixed(0)}%</strong>
                       </span>
                     )}
                   </div>

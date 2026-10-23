@@ -70,6 +70,10 @@ class MockNeo4jDriver:
 async def init_databases():
     """Initialize database connections with connection pooling, TLS, and retry."""
     global neo4j_driver, chroma_client
+    if settings.RUNTIME_PROFILE == "hosted":
+        neo4j_driver = MockNeo4jDriver()
+        chroma_client = None
+        return
 
     import os
     is_testing = os.getenv("TESTING", "").lower() in ("1", "true") or settings.DEBUG
@@ -84,8 +88,7 @@ async def init_databases():
     }
 
     # If TLS or AuraDB URI (neo4j+s:// or bolt+s://)
-    if settings.NEO4J_URI.startswith(("neo4j+s://", "bolt+s://")):
-        neo4j_opts["encrypted"] = True
+    # +s URI schemes configure TLS themselves; encrypted=True conflicts with them.
 
     for attempt in range(retries):
 
@@ -139,8 +142,6 @@ def _try_reconnect_neo4j() -> bool:
             "connection_timeout": 3.0,
             "max_connection_lifetime": 3600,
         }
-        if settings.NEO4J_URI.startswith(("neo4j+s://", "bolt+s://")):
-            neo4j_opts["encrypted"] = True
 
         driver = GraphDatabase.driver(
             settings.NEO4J_URI,
@@ -159,6 +160,9 @@ def _try_reconnect_neo4j() -> bool:
 def get_neo4j_driver() -> Optional[Any]:
     """Return the Neo4j driver singleton, or MockNeo4jDriver if closed / not connected."""
     global neo4j_driver
+    from core.registry import current_project_id
+    if settings.RUNTIME_PROFILE == "hosted" or current_project_id() is not None:
+        return MockNeo4jDriver()
     if (
         neo4j_driver is None
         or isinstance(neo4j_driver, MockNeo4jDriver)
@@ -173,6 +177,9 @@ def get_neo4j_driver() -> Optional[Any]:
 
 def get_chroma_client() -> Optional[Any]:
     """Return the ChromaDB client singleton, or None if not connected."""
+    from core.registry import current_project_id
+    if settings.RUNTIME_PROFILE == "hosted" or current_project_id() is not None:
+        return None
     return chroma_client
 
 

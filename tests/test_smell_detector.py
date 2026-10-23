@@ -1,286 +1,178 @@
-import unittest
-from unittest.mock import AsyncMock, patch
-
+"""Canonical detectors run on actual graphs, independent of database mocks."""
+import copy
+from unittest.mock import patch
+import pytest
+from domain.architecture import GraphSnapshot, detect_smells, circuit_breaker_threshold, hub_threshold
 from services.smell_detector import SmellDetector
-class SmellDetectorTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.detector = SmellDetector()
-        self.detector.driver = object()
+from services.remediation_simulator import breakdown_smells
 
-    @patch("services.smell_detector._run_query", new_callable=AsyncMock)
-    async def test_dependency_explosion_requires_real_growth(self, run_query):
-        run_query.return_value = [
-            {"edges": ["a->b", "a->c", "a->d", "a->e"], "created_at": "2026-01-02"},
-            {"edges": ["a->b"], "created_at": "2026-01-01"},
-        ]
 
-        findings = await self.detector._detect_dependency_explosion()
+def snapshot(names, pairs=(), **extra):
+    return GraphSnapshot.from_data({
+        "services": [{"name": name} if isinstance(name, str) else name for name in names],
+        "dependencies": [{"from": a, "to": b, "type": "http"} for a, b in pairs],
+        **extra,
+    })
 
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Dependency Explosion", findings[0]["type"])
-        self.assertEqual(["a->c", "a->d", "a->e"], findings[0]["evidence"]["added_edges"])
 
-    @patch("services.smell_detector._run_query", new_callable=AsyncMock)
-    async def test_api_instability_detects_removed_endpoint(self, run_query):
-        run_query.return_value = [
-            {"service": "orders", "endpoints": ["GET /orders"], "created_at": "2026-01-02"},
-            {"service": "orders", "endpoints": ["GET /orders", "POST /orders"], "created_at": "2026-01-01"},
-        ]
+def of_type(graph, kind):
+    return [f for f in detect_smells(graph) if f["type"] == kind]
 
-        findings = await self.detector._detect_api_instability()
 
-        self.assertEqual(1, len(findings))
-        self.assertEqual("HIGH", findings[0]["severity"])
-        self.assertEqual(["POST /orders"], findings[0]["evidence"]["removed_endpoints"])
+def test_simple_cycles_are_canonical_and_self_loops_are_evidence():
+    graph = snapshot(["a", "b", "c"], [("a", "b"), ("b", "c"), ("c", "a"), ("b", "b")])
+    cycles = of_type(graph, "Circular Dependency")
+    assert {tuple(f["evidence"]["cycle"]) for f in cycles} == {("a", "b", "c", "a"), ("b", "b")}
+    assert len({f["id"] for f in cycles}) == 2
 
-    @patch("services.smell_detector._run_query", new_callable=AsyncMock)
-    async def test_api_instability_ignores_unchanged_contract(self, run_query):
-        run_query.return_value = [
-            {"service": "orders", "endpoints": ["GET /orders"], "created_at": "2026-01-02"},
-            {"service": "orders", "endpoints": ["GET /orders"], "created_at": "2026-01-01"},
-        ]
 
-        self.assertEqual([], await self.detector._detect_api_instability())
+def test_parallel_endpoints_do_not_duplicate_a_cycle():
+    graph = snapshot(["a", "b"], dependencies=[
+        {"from": "a", "to": "b", "endpoint": "/one"},
+        {"from": "a", "to": "b", "endpoint": "/two"},
+        {"from": "b", "to": "a"},
+    ])
+    assert len(of_type(graph, "Circular Dependency")) == 1
+    assert len(of_type(graph, "Chatty Communication")) == 1
 
-    @patch("core.registry.RegistryManager.get_dependencies")
-    async def test_shared_database_detection(self, mock_deps):
-        mock_deps.return_value = [
-            {"from": "order-service", "to": "postgres-db", "type": "database", "endpoint": ":5432"},
-            {"from": "payment-service", "to": "postgres-db", "type": "database", "endpoint": ":5432"},
-        ]
-        findings = await self.detector._detect_shared_database()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Shared Database", findings[0]["type"])
-        self.assertIn("order-service", findings[0]["services"])
-        self.assertIn("payment-service", findings[0]["services"])
 
-    @patch("core.registry.RegistryManager.get_dependencies")
-    async def test_chatty_communication_bidirectional(self, mock_deps):
-        mock_deps.return_value = [
-            {"from": "order-service", "to": "user-service", "type": "http", "endpoint": "/users"},
-            {"from": "user-service", "to": "order-service", "type": "http", "endpoint": "/orders"},
-        ]
-        findings = await self.detector._detect_chatty_communication()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Chatty Communication", findings[0]["type"])
-        self.assertTrue(findings[0]["evidence"]["bidirectional"])
+def test_two_node_cycle_is_not_double_counted_as_chatter():
+    graph = snapshot(["a", "b"], [("a", "b"), ("b", "a")])
+    assert len(of_type(graph, "Circular Dependency")) == 1
+    assert of_type(graph, "Chatty Communication") == []
 
-    @patch("core.registry.RegistryManager.get_services")
-    @patch("core.registry.RegistryManager.get_dependencies")
-    async def test_missing_circuit_breaker(self, mock_deps, mock_services):
-        mock_services.return_value = [
-            {"name": "order-service"},
-            {"name": "user-service"},
-            {"name": "payment-service"},
-            {"name": "notification-service"},
-            {"name": "inventory-service"},
-        ]
-        mock_deps.return_value = [
-            {"from": "order-service", "to": "user-service", "type": "http"},
-            {"from": "order-service", "to": "payment-service", "type": "http"},
-            {"from": "order-service", "to": "notification-service", "type": "http"},
-            {"from": "order-service", "to": "inventory-service", "type": "http"},
-        ]
-        findings = await self.detector._detect_missing_circuit_breaker()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Missing Circuit Breaker", findings[0]["type"])
-        self.assertEqual(["order-service"], findings[0]["services"])
 
-    @patch("core.registry.RegistryManager.get_services")
-    @patch("core.registry.RegistryManager.get_dependencies")
-    async def test_hub_and_spoke_centralization(self, mock_deps, mock_services):
-        mock_services.return_value = [
-            {"name": "core-hub"},
-            {"name": "service-a"},
-            {"name": "service-b"},
-            {"name": "service-c"},
-            {"name": "service-d"},
-            {"name": "service-e"},
-        ]
-        # core-hub connects to service-a, service-b, service-c, service-d (4 out of 5 other services = 80% > 70%)
-        mock_deps.return_value = [
-            {"from": "service-a", "to": "core-hub", "type": "http"},
-            {"from": "core-hub", "to": "service-b", "type": "http"},
-            {"from": "core-hub", "to": "service-c", "type": "http"},
-            {"from": "core-hub", "to": "service-d", "type": "http"},
-        ]
-        findings = await self.detector._detect_hub_and_spoke()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Hub-and-Spoke Centralization", findings[0]["type"])
-        self.assertEqual(["core-hub"], findings[0]["services"])
+def test_bottleneck_counts_distinct_callers():
+    graph = snapshot(["hub", "a", "b", "c"], [("a", "hub"), ("b", "hub"), ("c", "hub")])
+    finding = of_type(graph, "God / Bottleneck Service")[0]
+    assert finding["services"] == ["hub"]
+    assert finding["evidence"] == {"incoming": 3, "outgoing": 0}
 
-    @patch("services.smell_detector._run_query", new_callable=AsyncMock)
-    async def test_circular_dependencies(self, run_query):
-        run_query.return_value = [
-            {"cycle": ["service-a", "service-b", "service-c", "service-a"]}
-        ]
-        findings = await self.detector._detect_circular_dependencies()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Circular Dependency", findings[0]["type"])
-        self.assertEqual("CRITICAL", findings[0]["severity"])
-        self.assertEqual(["service-a", "service-b", "service-c"], findings[0]["services"])
 
-    @patch("services.smell_detector._run_query", new_callable=AsyncMock)
-    async def test_bottleneck_services(self, run_query):
-        run_query.return_value = [
-            {"name": "heavy-bottleneck", "incoming_count": 5, "outgoing_count": 4}
-        ]
-        findings = await self.detector._detect_bottleneck_services()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("God / Bottleneck Service", findings[0]["type"])
-        self.assertEqual(["heavy-bottleneck"], findings[0]["services"])
+def test_parallel_endpoint_edges_do_not_inflate_coupling():
+    graph = snapshot(["a", "b"], dependencies=[{"from": "a", "to": "b", "endpoint": f"/{i}"} for i in range(7)])
+    assert not of_type(graph, "High Coupling")
 
-    @patch("services.smell_detector._run_query", new_callable=AsyncMock)
-    async def test_high_coupling(self, run_query):
-        run_query.return_value = [
-            {"name": "tightly-coupled", "dependency_count": 7}
-        ]
-        findings = await self.detector._detect_high_coupling()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("High Coupling", findings[0]["type"])
-        self.assertEqual(["tightly-coupled"], findings[0]["services"])
 
-    @patch("services.smell_detector._run_query", new_callable=AsyncMock)
-    async def test_isolated_services(self, run_query):
-        run_query.return_value = [
-            {"name": "lonely-service"}
-        ]
-        findings = await self.detector._detect_isolated_services()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Dead / Isolated Service", findings[0]["type"])
-        self.assertEqual(["lonely-service"], findings[0]["services"])
+def test_high_coupling_is_measured_from_distinct_targets():
+    graph = snapshot(["a", "b", "c", "d"], [("a", "b"), ("a", "c"), ("a", "d")])
+    assert of_type(graph, "High Coupling")[0]["evidence"]["direct_dependencies"] == 3
 
-    @patch.object(SmellDetector, "_detect_circular_dependencies", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_bottleneck_services", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_high_coupling", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_isolated_services", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_dependency_explosion", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_api_instability", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_shared_database", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_chatty_communication", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_missing_circuit_breaker", new_callable=AsyncMock)
-    @patch.object(SmellDetector, "_detect_hub_and_spoke", new_callable=AsyncMock)
-    async def test_detect_all_smells_aggregates_all_ten(
-        self, m_hub, m_cb, m_chat, m_db, m_api, m_expl, m_iso, m_coup, m_bottle, m_circ
-    ):
-        m_circ.return_value = [{"type": "Circular Dependency"}]
-        m_bottle.return_value = [{"type": "God / Bottleneck Service"}]
-        m_coup.return_value = [{"type": "High Coupling"}]
-        m_iso.return_value = [{"type": "Dead / Isolated Service"}]
-        m_expl.return_value = [{"type": "Dependency Explosion"}]
-        m_api.return_value = [{"type": "API Instability"}]
-        m_db.return_value = [{"type": "Shared Database"}]
-        m_chat.return_value = [{"type": "Chatty Communication"}]
-        m_cb.return_value = [{"type": "Missing Circuit Breaker"}]
-        m_hub.return_value = [{"type": "Hub-and-Spoke Centralization"}]
 
-        all_smells = await self.detector.detect_all_smells()
-        self.assertEqual(10, len(all_smells))
-        types = [s["type"] for s in all_smells]
-        self.assertIn("Circular Dependency", types)
-        self.assertIn("Shared Database", types)
-        self.assertIn("Missing Circuit Breaker", types)
-        self.assertIn("Hub-and-Spoke Centralization", types)
+def test_named_facades_gateways_and_brokers_are_not_implicitly_exempt():
+    graph = snapshot(["order_facade", "payment_gateway", "event_broker", {"name": "actual-broker", "node_type": "broker"}])
+    names = {f["services"][0] for f in of_type(graph, "Dead / Isolated Service")}
+    assert names == {"order_facade", "payment_gateway", "event_broker"}
 
-    @patch("core.registry.RegistryManager.get_dependencies")
-    async def test_shared_database_case_insensitive_grouping(self, mock_deps):
-        """Case variations like PostgresDB vs postgresdb must group to the same shared DB smell."""
-        mock_deps.return_value = [
-            {"from": "order-service", "to": "PostgresDB", "type": "database", "endpoint": ":5432"},
-            {"from": "payment-service", "to": "postgresdb", "type": "database", "endpoint": ":5432"},
-        ]
-        findings = await self.detector._detect_shared_database()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Shared Database", findings[0]["type"])
-        self.assertEqual(["order-service", "payment-service"], sorted(findings[0]["services"]))
 
-    @patch("core.registry.RegistryManager.get_dependencies")
-    @patch("core.registry.RegistryManager.get_services")
-    async def test_missing_circuit_breaker_does_not_exempt_named_services(self, mock_services, mock_deps):
-        """Services named 'order-gateway' without real resilience code must not be exempted."""
-        mock_services.return_value = [
-            {"name": "order-gateway"},
-            {"name": "svc-a"},
-            {"name": "svc-b"},
-            {"name": "svc-c"},
-            {"name": "svc-d"},
-        ]
-        mock_deps.return_value = [
-            {"from": "order-gateway", "to": "svc-a", "type": "http"},
-            {"from": "order-gateway", "to": "svc-b", "type": "http"},
-            {"from": "order-gateway", "to": "svc-c", "type": "http"},
-            {"from": "order-gateway", "to": "svc-d", "type": "http"},
-        ]
-        findings = await self.detector._detect_missing_circuit_breaker()
-        self.assertEqual(1, len(findings))
-        self.assertEqual("Missing Circuit Breaker", findings[0]["type"])
-        self.assertEqual(["order-gateway"], findings[0]["services"])
+def test_unknown_dependency_target_is_external_not_an_extra_runnable_service():
+    graph = snapshot(["a"], [("a", "unresolved-target")])
+    nodes = {n["name"]: n for n in graph.to_data()["services"]}
+    assert nodes["unresolved-target"]["node_type"] == "external"
+    assert not of_type(graph, "Missing Circuit Breaker")
 
-    @patch("core.registry.RegistryManager.get_dependencies")
-    async def test_chatty_communication_excludes_isolated_2node_cycle(self, mock_deps):
-        """Single bidirectional calls already caught as 2-node cycles are not double-counted as chatty."""
-        mock_deps.return_value = [
-            {"from": "order-service", "to": "user-service", "type": "http"},
-            {"from": "user-service", "to": "order-service", "type": "http"},
-        ]
-        excluded = {("order-service", "user-service")}
-        findings = await self.detector._detect_chatty_communication(exclude_pairs=excluded)
-        self.assertEqual(0, len(findings))
 
-    def test_circuit_breaker_threshold_mathematical_algorithm(self):
-        """Verify dynamic percolation scaling for circuit breaker threshold."""
-        from services.smell_detector import calculate_circuit_breaker_threshold
+def test_shared_database_uses_explicit_resource_type_not_name():
+    graph = snapshot(["orders", "payments", {"name": "storage", "node_type": "database"}], [("orders", "storage"), ("payments", "storage")])
+    assert of_type(graph, "Shared Database")[0]["evidence"]["shared_target"] == "storage"
+    ordinary = snapshot(["orders", "payments", "db-named-service"], [("orders", "db-named-service"), ("payments", "db-named-service")])
+    assert not of_type(ordinary, "Shared Database")
 
-        # Small fleets scale at minimum 2
-        self.assertEqual(calculate_circuit_breaker_threshold(2), 2)
-        self.assertEqual(calculate_circuit_breaker_threshold(3), 2)
-        # Demo fleet (5 services): ceil(sqrt(5)) = 3
-        self.assertEqual(calculate_circuit_breaker_threshold(5), 3)
-        # Medium fleets
-        self.assertEqual(calculate_circuit_breaker_threshold(9), 3)
-        self.assertEqual(calculate_circuit_breaker_threshold(10), 4)
-        # Large fleet
-        self.assertEqual(calculate_circuit_breaker_threshold(25), 5)
 
-        # Statistical outlier modulation with skewed outbound distribution
-        # e.g., 5 nodes where one calls 4 and others call 0: mean = 0.8, std ~ 1.6 => ceil(2.4) = 3
-        self.assertEqual(calculate_circuit_breaker_threshold(5, [4, 0, 0, 0, 0]), 3)
+def test_database_typed_edges_upgrade_legacy_resource_metadata():
+    graph = snapshot(["a", "b"], dependencies=[{"from": n, "to": "storage", "type": "postgresql"} for n in ("a", "b")])
+    assert len(of_type(graph, "Shared Database")) == 1
 
-    def test_hub_and_spoke_threshold_mathematical_algorithm(self):
-        """Verify Freeman centrality ratio scaling for hub-and-spoke threshold."""
-        from services.smell_detector import calculate_hub_and_spoke_threshold
 
-        # Fewer than 3 nodes cannot form a star hub
-        self.assertEqual(calculate_hub_and_spoke_threshold(1), 0)
-        self.assertEqual(calculate_hub_and_spoke_threshold(2), 0)
-        # 3 nodes: max(2, ceil(0.60 * 2)) = 2
-        self.assertEqual(calculate_hub_and_spoke_threshold(3), 2)
-        # 4 nodes: max(2, ceil(0.60 * 3)) = 2
-        self.assertEqual(calculate_hub_and_spoke_threshold(4), 2)
-        # 5 nodes (demo fleet): ceil(0.60 * 4) = 3
-        self.assertEqual(calculate_hub_and_spoke_threshold(5), 3)
-        # 10 nodes: ceil(0.684 * 9) = 7
-        self.assertEqual(calculate_hub_and_spoke_threshold(10), 7)
+def test_circuit_breaker_evidence_must_be_explicit():
+    base = snapshot(["hub_gateway", "a", "b", "c"], [("hub_gateway", n) for n in ("a", "b", "c")])
+    assert of_type(base, "Missing Circuit Breaker")
+    data = base.to_data()
+    next(n for n in data["services"] if n["name"] == "hub_gateway")["has_circuit_breaker"] = True
+    assert not of_type(GraphSnapshot.from_data(data), "Missing Circuit Breaker")
 
-    @patch("core.registry.RegistryManager.get_dependencies")
-    @patch("core.registry.RegistryManager.get_services")
-    async def test_hub_and_spoke_ignores_symmetric_clique(self, mock_services, mock_deps):
-        """A symmetric mesh/clique where all nodes have equal degree must not trigger hub-and-spoke."""
-        mock_services.return_value = [
-            {"name": "svc-1"},
-            {"name": "svc-2"},
-            {"name": "svc-3"},
-            {"name": "svc-4"},
-        ]
-        # Fully connected mesh: every service connects to every other service
-        mock_deps.return_value = [
-            {"from": "svc-1", "to": "svc-2", "type": "http"},
-            {"from": "svc-1", "to": "svc-3", "type": "http"},
-            {"from": "svc-1", "to": "svc-4", "type": "http"},
-            {"from": "svc-2", "to": "svc-3", "type": "http"},
-            {"from": "svc-2", "to": "svc-4", "type": "http"},
-            {"from": "svc-3", "to": "svc-4", "type": "http"},
-        ]
-        findings = await self.detector._detect_hub_and_spoke()
-        # All 4 services have degree 3, equal to average degree 3.0. No single hub exists.
-        self.assertEqual(0, len(findings))
+
+def test_hub_threshold_rejects_symmetric_mesh():
+    names = ["a", "b", "c", "d"]
+    graph = snapshot(names, [(a, b) for a in names for b in names if a < b])
+    assert not of_type(graph, "Hub-and-Spoke Centralization")
+
+
+def test_hub_threshold_detects_star():
+    graph = snapshot(["hub", "a", "b", "c", "d"], [("hub", n) for n in ("a", "b", "c", "d")])
+    assert of_type(graph, "Hub-and-Spoke Centralization")[0]["services"] == ["hub"]
+
+
+def test_historical_growth_requires_two_distinct_actual_snapshots():
+    graph = snapshot(["a", "b", "c", "d", "e"], dependency_snapshots=[
+        {"edges": ["a->b"], "created_at": "2026-01-01"},
+        {"edges": ["a->b", "a->c", "a->d", "a->e"], "created_at": "2026-01-02"},
+    ])
+    assert of_type(graph, "Dependency Explosion")[0]["evidence"]["added_edges"] == ["a->c", "a->d", "a->e"]
+    data = graph.to_data()
+    data["dependency_snapshots"] = data["dependency_snapshots"][:1] * 2
+    assert not of_type(GraphSnapshot.from_data(data), "Dependency Explosion")
+
+
+def test_api_history_detects_removed_endpoint_but_ignores_unchanged():
+    data = {"api_snapshots": [
+        {"service": "orders", "endpoints": ["GET /orders", "POST /orders"], "created_at": "2026-01-01"},
+        {"service": "orders", "endpoints": ["GET /orders"], "created_at": "2026-01-02"},
+    ]}
+    graph = snapshot(["orders"], **data)
+    assert of_type(graph, "API Instability")[0]["evidence"]["removed_endpoints"] == ["POST /orders"]
+    data["api_snapshots"][1]["endpoints"].append("POST /orders")
+    assert not of_type(snapshot(["orders"], **data), "API Instability")
+
+
+def test_foreign_history_does_not_enter_a_project():
+    graph = snapshot(["mine"], api_snapshots=[
+        {"service": "foreign", "endpoints": ["GET /x"], "created_at": "1"},
+        {"service": "foreign", "endpoints": [], "created_at": "2"},
+    ])
+    assert not of_type(graph, "API Instability")
+
+
+def test_renaming_preserves_all_counts_and_scores():
+    graph = snapshot(["hub", "a", "b", "c"], [("hub", "a"), ("hub", "b"), ("hub", "c"), ("a", "hub")])
+    data = graph.to_data()
+    rename = {"hub": "event_broker", "a": "a_facade", "b": "b_gateway", "c": "postgresdb"}
+    for node in data["services"]:
+        node["name"] = rename[node["name"]]
+    for edge in data["dependencies"]:
+        edge["from"], edge["to"] = rename[edge["from"]], rename[edge["to"]]
+    assert breakdown_smells(detect_smells(graph)) == breakdown_smells(detect_smells(GraphSnapshot.from_data(data)))
+
+
+@pytest.mark.parametrize("count,expected", [(2,2), (3,2), (5,3), (9,3), (10,4), (25,5)])
+def test_circuit_breaker_threshold(count, expected):
+    assert circuit_breaker_threshold(count) == expected
+
+
+def test_distribution_modulates_circuit_breaker_threshold():
+    assert circuit_breaker_threshold(16, [2] + [0] * 15) == 2
+
+
+@pytest.mark.parametrize("count,expected", [(1,0), (2,0), (3,2), (4,2), (5,3), (10,7), (200,170)])
+def test_hub_threshold(count, expected):
+    assert hub_threshold(count) == expected
+
+
+@pytest.mark.asyncio
+async def test_detector_adapter_uses_same_snapshot_with_no_graph_mutations():
+    graph = snapshot(["a", "b"], [("a", "b"), ("b", "a")])
+    with patch("services.smell_detector.get_neo4j_driver", return_value=None):
+        detector = SmellDetector()
+    with patch("services.smell_detector._run_query") as query:
+        assert await detector.detect_all_smells(graph) == detect_smells(graph)
+        query.assert_not_called()
+
+
+def test_snapshot_is_owned_and_mapping_changes_invalidate_its_version():
+    graph = snapshot(["a"], file_mappings={"services/a": "a"})
+    data = graph.to_data()
+    data["services"].clear()
+    assert len(graph.to_data()["services"]) == 1
+    data = graph.to_data()
+    data["file_mappings"] = {"services/other": "a"}
+    assert GraphSnapshot.from_data(data).version != graph.version

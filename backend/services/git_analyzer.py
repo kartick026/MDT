@@ -7,12 +7,13 @@ and AST metadata extraction for the MDT analysis pipeline.
 Two strategies for fetching diffs:
   1. GitHub REST API  — used when the repo is a GitHub URL and
      GITHUB_TOKEN is set. No local clone needed.
-  2. Local gitpython  — used when a local repo path is provided or
-     as a fallback after a clone.
+  2. Local gitpython — reads bounded immutable source snapshots from existing objects.
+
+Remote access errors and missing revisions are explicit failures, never empty safe analyses.
 
 AST extraction:
   - Python  : stdlib `ast` module (no extra deps)
-  - JS / TS : regex heuristics (tree-sitter integration is a TODO)
+  - JS / TS : bounded Tree-sitter syntax trees and literal routes
   - Others  : regex heuristics for functions / classes
 """
 import ast
@@ -21,7 +22,11 @@ import logging
 import os
 import re
 import subprocess
-import tempfile
+import hashlib
+import json
+import math
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set
@@ -30,8 +35,34 @@ import httpx
 from git import Repo, InvalidGitRepositoryError, GitCommandError, NULL_TREE
 
 from core.config import settings
+from services.source_parser import (extract_python_routes, parse_js_ts, semantic_comparison,
+                                    PythonModelContext, compare_schema_models, compare_route_contracts)
 
 logger = logging.getLogger(__name__)
+
+MAX_CHANGE_FILES = 100
+MAX_SOURCE_BYTES = 256 * 1024
+MAX_TOTAL_SOURCE_BYTES = 2 * 1024 * 1024
+MAX_CACHE_BYTES = 4 * 1024 * 1024
+MAX_CACHE_ENTRIES = 256
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def _safe_source_path(path: str) -> str:
+    path = str(path).replace("\\", "/")
+    if not path or path.startswith("/") or any(part in {"..", ".git"} for part in path.split("/")) or ":" in path or "\x00" in path:
+        raise ValueError("Source paths must be repository-relative paths without traversal.")
+    return path
+
+
+
+def extract_route_signatures(content: str, language: str = "python") -> List[Dict[str, Any]]:
+    """Literal routes, with bounded local annotation evidence where supported."""
+    if language == "python":
+        return extract_python_routes(content)
+    if language in {"javascript", "typescript"}:
+        return parse_js_ts(content, language)["routes"]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -49,12 +80,20 @@ class ChangeInfo:
     old_content: str          # file content before the commit
     new_content: str          # file content after the commit
     ast_metadata: Dict[str, Any] = field(default_factory=dict)
+    previous_path: Optional[str] = None
+    base_sha: str = ""
+    commit_sha: str = ""
+    extraction_status: str = "complete"
+    extraction_warnings: List[str] = field(default_factory=list)
+    is_binary: bool = False
+    parser_coverage: str = "unknown"
+    commit_timestamp: Optional[int] = None
 
     def __post_init__(self):
         # Normalise GitHub's "removed" → project-standard "deleted"
         if self.change_type == "removed":
             self.change_type = "deleted"
-        if self.change_type not in {"added", "modified", "deleted"}:
+        if self.change_type not in {"added", "modified", "deleted", "renamed", "copied"}:
             self.change_type = "modified"
 
     @property
@@ -80,6 +119,10 @@ _EXT_TO_LANG: Dict[str, str] = {
     ".ts": "typescript",
     ".jsx": "javascript",
     ".tsx": "typescript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".mts": "typescript",
+    ".cts": "typescript",
     ".java": "java",
     ".go": "go",
     ".rs": "rust",
@@ -180,13 +223,23 @@ def _parse_github_url(repo_url: str) -> Optional[tuple[str, str]]:
 # GitHub API client
 # ---------------------------------------------------------------------------
 
+class GitHubRateLimitError(ValueError):
+    """Safe, actionable error evidence without request tokens or response bodies."""
+
+    def __init__(self, retry_after_seconds: int):
+        self.retry_after_seconds = max(1, retry_after_seconds)
+        super().__init__(f"GitHub rate limit reached. Retry after {self.retry_after_seconds} seconds; analysis coverage is incomplete.")
+
+    @property
+    def evidence(self):
+        return f"github_rate_limit:retry_after_seconds={self.retry_after_seconds}"
+
+
 class GitHubAPIClient:
     """
     Thin async wrapper around the GitHub REST API.
     Used to fetch file contents and commit diffs without cloning.
     """
-    _is_globally_rate_limited = False
-
     def __init__(self, token: Optional[str] = None):
         self._token = token or settings.GITHUB_TOKEN or os.getenv("GITHUB_TOKEN", "")
         headers = {"Accept": "application/vnd.github+json",
@@ -194,6 +247,66 @@ class GitHubAPIClient:
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         self._headers = headers
+        # Job/client scoped: private source never crosses clients/accounts or
+        # persists to disk. Only full immutable SHAs are cacheable. Authentication
+        # changes (e.g. installation-token rotation) invalidate this cache.
+        self._source_cache = OrderedDict()
+        self._cache_bytes = 0
+        self._cache_identity = self._credential_identity()
+        self._retry_at = 0.0
+        self._public_archives = {}
+        self.source_evidence = {}
+
+    def _credential_identity(self):
+        return hashlib.sha256(self._headers.get("Authorization", "").encode()).digest()
+
+    def _sync_identity(self):
+        identity = self._credential_identity()
+        if identity != self._cache_identity:
+            self._source_cache.clear()
+            self._cache_bytes = 0
+            self._retry_at = 0.0
+            self._cache_identity = identity
+            self._public_archives.clear()
+            self.source_evidence = {}
+
+    def _check_cooldown(self):
+        self._sync_identity()
+        if self._retry_at > time.time():
+            raise GitHubRateLimitError(math.ceil(self._retry_at - time.time()))
+
+    def _check_rate_limit(self, response):
+        limited = response.status_code == 429 or response.status_code == 403 and (
+            response.headers.get("x-ratelimit-remaining") == "0" or "retry-after" in response.headers)
+        if not limited:
+            return
+        waits = [60.0]
+        for header, absolute in (("retry-after", False), ("x-ratelimit-reset", True)):
+            try:
+                value = float(response.headers.get(header, ""))
+                if math.isfinite(value):
+                    waits.append(max(0, value - time.time()) if absolute else max(0, value))
+            except ValueError:
+                pass
+        # Prefer documented retry times when present, using 60s only as fallback.
+        wait = max(waits[1:]) if len(waits) > 1 else waits[0]
+        self._retry_at = time.time() + max(1, wait)
+        raise GitHubRateLimitError(math.ceil(max(1, wait)))
+
+    def _remember_source(self, key, source):
+        if key is None:
+            return
+        size = len(source.encode("utf-8"))
+        if size > MAX_CACHE_BYTES:
+            return
+        previous = self._source_cache.pop(key, None)
+        if previous is not None:
+            self._cache_bytes -= len(previous.encode("utf-8"))
+        self._source_cache[key] = source
+        self._cache_bytes += size
+        while self._cache_bytes > MAX_CACHE_BYTES or len(self._source_cache) > MAX_CACHE_ENTRIES:
+            _, evicted = self._source_cache.popitem(last=False)
+            self._cache_bytes -= len(evicted.encode("utf-8"))
 
     async def _request_with_retry(
         self,
@@ -204,12 +317,14 @@ class GitHubAPIClient:
         max_retries: int = 3,
     ) -> httpx.Response:
         """Make an HTTP GET request with exponential backoff for transient failures."""
+        self._check_cooldown()
         req_headers = headers if headers is not None else self._headers
         last_exc = None
         resp: Optional[httpx.Response] = None
         for attempt in range(max_retries):
             try:
                 resp = await client.get(url, headers=req_headers, params=params)
+                self._check_rate_limit(resp)
                 if resp.status_code >= 500 and attempt < max_retries - 1:
                     backoff = 0.3 * (2 ** attempt)
                     logger.debug("GitHub transient status %d on attempt %d for %s. Backoff %.1fs", resp.status_code, attempt + 1, url, backoff)
@@ -230,104 +345,82 @@ class GitHubAPIClient:
             raise last_exc
         raise httpx.RequestError(f"Failed request to {url} after {max_retries} retries", request=None)
 
-    async def get_repo_tree(
-        self,
-        owner: str,
-        repo: str,
-        tree_sha: str = "main",
-    ) -> List[str]:
-        """Fetch the full recursive git tree paths for a repository branch or commit."""
-        # 1. Try GitHub REST API if not globally rate-limited or if token present
-        if self._token or not GitHubAPIClient._is_globally_rate_limited:
-            for branch_candidate in ([tree_sha, "master"] if tree_sha == "main" else [tree_sha]):
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        url = f"{_GH_API}/repos/{owner}/{repo}/git/trees/{branch_candidate}?recursive=1"
-                        resp = await self._request_with_retry(client, url)
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            return [item["path"] for item in data.get("tree", []) if "path" in item]
-                        if resp.status_code in (403, 429):
-                            GitHubAPIClient._is_globally_rate_limited = True
-                            logger.warning("GitHub git tree API rate limited for %s/%s, falling back to shallow clone", owner, repo)
-                            break
-                        logger.warning("GitHub git tree API %s/%s (ref=%s) → %d", owner, repo, branch_candidate, resp.status_code)
-                except Exception as exc:
-                    logger.warning("get_repo_tree REST failed for %s/%s: %s", owner, repo, exc)
-                    break
+    async def _public_archive(self, owner, repo, revision):
+        from services.public_github_source import PublicGitHubArchive
+        self._sync_identity()
+        if self._headers.get("Authorization") or not re.fullmatch("[a-fA-F0-9]{40}", revision):
+            raise ValueError("Anonymous archive fallback requires an exact public revision")
+        key = (owner.lower(), repo.lower(), revision.lower())
+        if key not in self._public_archives:
+            archive = await PublicGitHubArchive.fetch(owner, repo, revision)
+            self._public_archives.clear()
+            self._public_archives[key] = archive
+        self.source_evidence = self._public_archives[key].evidence
+        return self._public_archives[key]
 
-        # 2. Resilient fallback: shallow clone without hitting REST API rate limits
+    async def get_repo_tree(self, owner, repo, tree_sha="main"):
         try:
-            logger.info("Executing shallow clone fallback for %s/%s", owner, repo)
-            loop = asyncio.get_running_loop()
+            return await self._get_api_repo_tree(owner, repo, tree_sha)
+        except GitHubRateLimitError:
+            if self._headers.get("Authorization"):
+                raise
+            return sorted((await self._public_archive(owner, repo, tree_sha)).files)
 
-            def _clone_and_list() -> List[str]:
-                with tempfile.TemporaryDirectory() as td:
-                    clone_url = f"https://github.com/{owner}/{repo}.git"
-                    try:
-                        r = Repo.clone_from(clone_url, td, depth=1, branch=tree_sha)
-                    except Exception as e:
-                        logger.warning("Shallow clone branch %s failed for %s/%s: %s", tree_sha, owner, repo, e)
-                        return []
-                    return r.git.ls_files().splitlines()
-
-            file_list = await loop.run_in_executor(None, _clone_and_list)
-            if file_list:
-                return file_list
-        except Exception as exc:
-            logger.warning("Shallow clone fallback error for %s/%s: %s", owner, repo, exc)
-
-        return []
-
-    async def get_file_content(
-        self,
-        owner: str,
-        repo: str,
-        path: str,
-        ref: str,
-    ) -> str:
-        """Return raw file content at a specific commit/ref. Empty string on error."""
-        clean_path = path.lstrip("/")
+    async def get_file_content(self, owner, repo, path, ref):
+        path = _safe_source_path(path)
+        self._sync_identity()
+        key = (owner.lower(), repo.lower(), ref.lower())
+        if key in self._public_archives:
+            return self._public_archives[key].read(path)
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                # Fast path: If unauthenticated and already rate-limited, directly use raw.githubusercontent.com
-                if not self._token and GitHubAPIClient._is_globally_rate_limited:
-                    for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
-                        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
-                        fallback_resp = await client.get(raw_url, timeout=2.5)
-                        if fallback_resp.status_code == 200:
-                            return fallback_resp.text
-                    return ""
+            return await self._get_api_file_content(owner, repo, path, ref)
+        except GitHubRateLimitError:
+            if self._headers.get("Authorization"):
+                raise
+            return (await self._public_archive(owner, repo, ref)).read(path)
 
-                url = f"{_GH_API}/repos/{owner}/{repo}/contents/{clean_path}"
-                resp = await self._request_with_retry(client, url, params={"ref": ref}, max_retries=1)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("encoding") == "base64":
-                        import base64
-                        return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-                elif resp.status_code == 404:
-                    return ""   # file didn't exist at this ref
-                elif resp.status_code in (403, 429):
-                    GitHubAPIClient._is_globally_rate_limited = True
-                    for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
-                        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
-                        fallback_resp = await client.get(raw_url, timeout=2.5)
-                        if fallback_resp.status_code == 200:
-                            return fallback_resp.text
-                    return ""
-        except Exception as exc:
-            logger.debug("get_file_content failed for %s: %s", clean_path, exc)
-            try:
-                async with httpx.AsyncClient(timeout=2.5) as client:
-                    for branch_cand in ([ref, "master"] if ref == "main" else [ref]):
-                        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch_cand}/{clean_path}"
-                        r = await client.get(raw_url)
-                        if r.status_code == 200:
-                            return r.text
-            except Exception as exc:
-                logger.debug("Raw githubusercontent fallback failed for %s: %s", clean_path, exc)
-        return ""
+    async def _get_api_repo_tree(self, owner: str, repo: str, tree_sha: str = "main") -> List[str]:
+        """Read one exact, bounded tree. Truncated trees cannot support complete onboarding."""
+        from urllib.parse import quote
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await self._request_with_retry(client,
+                f"{_GH_API}/repos/{owner}/{repo}/git/trees/{quote(tree_sha, safe='')}",
+                params={"recursive": "1"}, max_retries=1)
+        if response.status_code != 200:
+            raise ValueError(f"Repository tree is unavailable (GitHub HTTP {response.status_code}).")
+        if len(response.content) > 8 * 1024 * 1024:
+            raise ValueError("Repository tree exceeds the onboarding limit.")
+        data = response.json()
+        if data.get("truncated") or len(data.get("tree", [])) > 20000:
+            raise ValueError("Repository tree exceeds the bounded alpha limit; select a smaller repository.")
+        return [_safe_source_path(item["path"]) for item in data.get("tree", [])
+                if item.get("type") == "blob"]
+
+    async def _get_api_file_content(self, owner: str, repo: str, path: str, ref: str) -> str:
+        """Read a bounded UTF-8 blob at exactly the requested ref; no branch substitution."""
+        from urllib.parse import quote
+        path = _safe_source_path(path)
+        self._sync_identity()
+        key = (owner.lower(), repo.lower(), ref.lower(), path) if re.fullmatch(r"[0-9a-fA-F]{40}", ref) else None
+        if key is not None and key in self._source_cache:
+            self._source_cache.move_to_end(key)
+            return self._source_cache[key]
+        self._check_cooldown()
+        url = f"{_GH_API}/repos/{owner}/{repo}/contents/{quote(path, safe='/')}"
+        headers = {**self._headers, "Accept": "application/vnd.github.raw+json"}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            async with client.stream("GET", url, params={"ref": ref}, headers=headers) as response:
+                self._check_rate_limit(response)
+                if response.status_code != 200:
+                    raise ValueError(f"Source unavailable (GitHub HTTP {response.status_code}).")
+                content = bytearray()
+                async for chunk in response.aiter_bytes():
+                    content.extend(chunk)
+                    if len(content) > MAX_SOURCE_BYTES:
+                        raise ValueError("Source exceeds the 256 KiB per-file limit.")
+                source = bytes(content).decode("utf-8")
+                self._remember_source(key, source)
+                return source
 
     async def get_commit_diff(
         self,
@@ -343,13 +436,6 @@ class GitHubAPIClient:
         """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                if not self._token and GitHubAPIClient._is_globally_rate_limited:
-                    patch_url = f"https://github.com/{owner}/{repo}/commit/{commit_sha}.patch"
-                    fallback_resp = await client.get(patch_url)
-                    if fallback_resp.status_code == 200:
-                        return _split_diff_by_file(fallback_resp.text)
-                    return None
-
                 url = f"{_GH_API}/repos/{owner}/{repo}/commits/{commit_sha}"
                 resp = await self._request_with_retry(
                     client,
@@ -358,14 +444,6 @@ class GitHubAPIClient:
                 )
                 if resp.status_code == 200:
                     return _split_diff_by_file(resp.text)
-                elif resp.status_code in (403, 429):
-                    GitHubAPIClient._is_globally_rate_limited = True
-                    # Rate limit exceeded, fallback to github.com commit patch
-                    patch_url = f"https://github.com/{owner}/{repo}/commit/{commit_sha}.patch"
-                    logger.warning("GitHub API rate limited, falling back to %s", patch_url)
-                    fallback_resp = await client.get(patch_url)
-                    if fallback_resp.status_code == 200:
-                        return _split_diff_by_file(fallback_resp.text)
                 logger.warning("GitHub commit diff API → %d", resp.status_code)
         except Exception as exc:
             logger.warning("get_commit_diff failed: %s", exc)
@@ -407,7 +485,7 @@ class ASTAnalyzer:
     """
     Extracts structural metadata from source code.
     - Python: uses stdlib `ast` — accurate function/class/import detection.
-    - JS/TS/others: regex heuristics.
+    - JS/TS: Tree-sitter syntax trees; other languages: regex heuristics.
     """
 
     # ---- public API ----
@@ -467,32 +545,7 @@ class ASTAnalyzer:
     # ---- JavaScript / TypeScript ----
 
     def _parse_js_ts(self, content: str, language: str) -> Dict[str, Any]:
-        functions: List[str] = []
-        classes: List[str] = []
-        imports: List[str] = []
-        exports: List[str] = []
-
-        # named functions
-        functions += re.findall(r'\bfunction\s+(\w+)\s*\(', content)
-        # arrow / const functions
-        functions += re.findall(
-            r'\bconst\s+(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>', content)
-        # class declarations
-        classes += re.findall(r'\bclass\s+(\w+)', content)
-        # import statements
-        imports += re.findall(r"import\s+.*?from\s+['\"]([^'\"]+)['\"]", content)
-        # require()
-        imports += re.findall(r"require\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", content)
-        # exports
-        exports += re.findall(r'\bexport\s+(?:default\s+)?(?:function|class|const)\s+(\w+)', content)
-
-        return {
-            "language": language,
-            "functions": list(dict.fromkeys(functions)),
-            "classes": list(dict.fromkeys(classes)),
-            "imports": list(dict.fromkeys(imports)),
-            "exports": list(dict.fromkeys(exports)),
-        }
+        return parse_js_ts(content, language)
 
     # ---- Java ----
 
@@ -586,79 +639,16 @@ def _is_local_workspace_match(repo_url: str) -> bool:
 
 
 def _resolve_local_workspace_sha(ref: str) -> Optional[str]:
-    """Resolve a branch or ref in the local git repository in < 10ms."""
+    """Resolve and verify one exact commit reference in the current workspace."""
+    if not ref or ref.startswith("-") or "\x00" in ref:
+        return None
+    git_dir = _find_git_dir()
+    if not git_dir:
+        return None
     try:
-        clean_ref = (ref or "").strip()
-        if not clean_ref:
-            return None
-        if re.match(r"^[0-9a-fA-F]{40}$", clean_ref):
-            return clean_ref.lower()
-
-        git_dir = _find_git_dir()
-        if not git_dir or not git_dir.exists():
-            return None
-
-        # 1. Direct filesystem read from .git/refs/
-        candidate_paths = [
-            git_dir / "refs" / "heads" / clean_ref,
-            git_dir / "refs" / "remotes" / "origin" / clean_ref,
-            git_dir / "refs" / "tags" / clean_ref,
-        ]
-        if clean_ref.startswith("refs/"):
-            candidate_paths.insert(0, git_dir / clean_ref)
-
-        for p in candidate_paths:
-            if p.is_file():
-                content = p.read_text(encoding="utf-8", errors="ignore").strip()
-                if re.match(r"^[0-9a-fA-F]{40}$", content):
-                    return content.lower()
-
-        # 2. Packed-refs file
-        packed_refs_file = git_dir / "packed-refs"
-        if packed_refs_file.is_file():
-            content = packed_refs_file.read_text(encoding="utf-8", errors="ignore")
-            for line in content.splitlines():
-                parts = line.strip().split()
-                if len(parts) >= 2 and re.match(r"^[0-9a-fA-F]{40}$", parts[0]):
-                    ref_name = parts[1]
-                    if (
-                        ref_name == f"refs/heads/{clean_ref}"
-                        or ref_name == f"refs/remotes/origin/{clean_ref}"
-                        or ref_name == f"refs/tags/{clean_ref}"
-                        or ref_name == clean_ref
-                    ):
-                        return parts[0].lower()
-
-        # 3. HEAD file if clean_ref is HEAD
-        if clean_ref.upper() == "HEAD":
-            head_file = git_dir / "HEAD"
-            if head_file.is_file():
-                head_content = head_file.read_text(encoding="utf-8", errors="ignore").strip()
-                if head_content.startswith("ref:"):
-                    target_ref = head_content.split(":", 1)[1].strip()
-                    target_p = git_dir / target_ref
-                    if target_p.is_file():
-                        content = target_p.read_text(encoding="utf-8", errors="ignore").strip()
-                        if re.match(r"^[0-9a-fA-F]{40}$", content):
-                            return content.lower()
-                elif re.match(r"^[0-9a-fA-F]{40}$", head_content):
-                    return head_content.lower()
-
-        # 4. Fallback: git rev-parse with --git-dir (bypasses working dir access issues)
-        for candidate in [clean_ref, f"{clean_ref}^{{commit}}", f"origin/{clean_ref}", f"refs/heads/{clean_ref}"]:
-            res = subprocess.run(
-                ["git", "--git-dir", str(git_dir), "rev-parse", candidate],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            if res.returncode == 0 and res.stdout.strip():
-                sha = res.stdout.strip().splitlines()[0].strip()
-                if re.match(r"^[0-9a-fA-F]{40}$", sha):
-                    return sha.lower()
-    except Exception as exc:
-        logger.debug("Local git rev-parse failed for %s: %s", clean_ref, exc)
-    return None
+        return Repo(git_dir).commit(ref).hexsha
+    except Exception:
+        return None
 
 
 class GitAnalyzer:
@@ -669,14 +659,14 @@ class GitAnalyzer:
       0. If repo corresponds to the local workspace, use local git (< 50ms, zero network).
       1. If the repo is on GitHub and GITHUB_TOKEN is available (or works
          without it for public repos), use the GitHub API — no clone needed.
-      2. Otherwise attempt a shallow clone into a temp dir and use gitpython.
-      3. On any failure, return minimal ChangeInfo with what we know from the
-         webhook payload (file path + change_type) so the pipeline still runs.
+      2. Submitted staged/working snapshots use the same bounded parsing pipeline.
+      3. Unavailable data is reported as partial or failed rather than silently safe.
     """
 
     def __init__(self):
         self._ast = ASTAnalyzer()
         self._gh = GitHubAPIClient()
+        self.last_extraction: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------ #
     #  Public entry point
@@ -743,12 +733,16 @@ class GitAnalyzer:
                 elif rel_part.startswith("^"):
                     steps = 1
 
-                for _ in range(min(steps, 20)):
+                if steps < 0 or steps > 20 or not re.fullmatch(r"[~^]\d*", rel_part):
+                    return None
+                if rel_part.startswith("^") and rel_part not in {"^", "^1"}:
+                    return None
+                for _ in range(steps):
                     parent = await self._get_parent_sha(owner, repo, curr_sha)
                     if parent:
                         curr_sha = parent
                     else:
-                        break
+                        return None
                 return curr_sha.lower()
 
         # 3. git ls-remote (fast, rate-limit free for branches and tags)
@@ -787,12 +781,6 @@ class GitAnalyzer:
                                         or ref_name.endswith(f"/{clean_ref}")
                                     ):
                                         return parts[0].lower()
-                            # Only fall back to default branch if user specifically requested a default branch name
-                            if clean_ref.lower() in ("main", "master", "head"):
-                                for line in lines:
-                                    parts = line.strip().split()
-                                    if len(parts) >= 2 and parts[1] in ("HEAD", "refs/heads/main", "refs/heads/master"):
-                                        return parts[0].lower()
                     except Exception as exc:
                         logger.debug("git ls-remote fallback scan failed: %s", exc)
                     return None
@@ -809,7 +797,7 @@ class GitAnalyzer:
             owner, repo = gh_coords
             try:
                 async with httpx.AsyncClient(timeout=8.0) as client:
-                    for branch_cand in ([clean_ref, "master"] if clean_ref == "main" else [clean_ref]):
+                    for branch_cand in [clean_ref]:
                         api_url = f"{_GH_API}/repos/{owner}/{repo}/commits/{branch_cand}"
                         resp = await client.get(api_url, headers=self._gh._headers)
                         if resp.status_code == 200:
@@ -822,7 +810,7 @@ class GitAnalyzer:
             # 5. Fallback: Check commit patch header
             try:
                 async with httpx.AsyncClient(timeout=8.0) as client:
-                    for branch_cand in ([clean_ref, "master"] if clean_ref == "main" else [clean_ref]):
+                    for branch_cand in [clean_ref]:
                         patch_url = f"https://github.com/{owner}/{repo}/commit/{branch_cand}.patch"
                         resp = await client.get(patch_url, headers={"User-Agent": "MDT-GitAnalyzer"})
                         if resp.status_code == 200:
@@ -832,304 +820,414 @@ class GitAnalyzer:
             except Exception as exc:
                 logger.warning("GitHub patch SHA resolution fallback failed: %s", exc)
 
-        return clean_ref.lower()
+        return None
 
-    async def analyze_push(
-        self,
-        repo_url: str,
-        commit_sha: str,
-        changed_files: Optional[List[str]] = None,
-    ) -> List[ChangeInfo]:
-        """
-        Analyse changed files for a commit or push event.
-        If changed_files is omitted or empty, all files in the commit are automatically detected.
-        """
-        from services.github_app import GitHubAppAuth
-        
-        # Dynamically fetch installation token for the repo (falls back to PAT)
-        dynamic_token = await GitHubAppAuth.get_installation_token_for_repo(repo_url)
-        if dynamic_token:
-            self._gh._token = dynamic_token
-            self._gh._headers["Authorization"] = f"Bearer {dynamic_token}"
-
-        logger.info("analyze_push | repo=%s commit=%s files=%s",
-                    repo_url, commit_sha, len(changed_files) if changed_files is not None else "auto-detect")
-
-        # If files explicitly provided, filter to supported extensions
-        files = None
-        if changed_files:
-            files = [f for f in changed_files
-                     if is_supported_file(f)]
-            if not files:
-                logger.info("No supported-extension files in specified list, skipping")
-                return []
-
-        # 0. Local workspace fast-path (< 50ms, zero network calls)
-        if _is_local_workspace_match(repo_url):
-            try:
-                local_changes = await asyncio.to_thread(
-                    self._analyze_from_local_workspace,
-                    commit_sha,
-                    files,
-                )
-                if local_changes:
-                    logger.info("Extracted %d changes directly from local git repository", len(local_changes))
-                    return local_changes
-            except Exception as exc:
-                logger.warning("Local workspace analysis failed: %s, falling back to remote strategies", exc)
-
-        gh_coords = _parse_github_url(repo_url)
-
-        if gh_coords:
-            api_changes = await self._analyze_via_github_api(
-                gh_coords[0], gh_coords[1], commit_sha, files)
-            if api_changes is not None:
-                return api_changes
-            logger.warning(
-                "GitHub API could not read %s at %s; falling back to git clone",
-                repo_url, commit_sha,
-            )
-            return await self._analyze_via_local_repo(
-                repo_url, commit_sha, files or [])
-        else:
-            return await self._analyze_via_local_repo(
-                repo_url, commit_sha, files or [])
-
-    def _analyze_from_local_workspace(
-        self,
-        target_ref: str,
-        files: Optional[List[str]] = None,
-    ) -> List[ChangeInfo]:
-        """Fast-path for repositories matching the local workspace: diffs and content in < 50ms."""
-        git_dir = _find_git_dir() or (Path(__file__).resolve().parent.parent.parent / ".git")
-        safe_cwd = tempfile.gettempdir()
-
-        # 1. Resolve commit or target reference
-        sha = _resolve_local_workspace_sha(target_ref) or target_ref
-
-        # 2. Determine diff base
-        is_explicit_commit = bool(
-            re.match(r"^[0-9a-fA-F]{7,40}$", target_ref)
-            or "~" in target_ref
-            or "^" in target_ref
-        )
-
-        if is_explicit_commit or target_ref.lower() in ("main", "master", "head"):
-            # Check if sha has a parent commit
-            rev_parse_parent = subprocess.run(
-                ["git", "--git-dir", str(git_dir), "rev-parse", "--verify", f"{sha}~1"],
-                cwd=safe_cwd,
-                capture_output=True,
-                text=True,
-                timeout=3,
-            )
-            if rev_parse_parent.returncode == 0 and rev_parse_parent.stdout.strip():
-                base_ref = rev_parse_parent.stdout.strip()
-            else:
-                # Root commit: diff against git empty tree hash
-                base_ref = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        else:
-            # Feature branch: diff against merge-base with main
-            main_sha = _resolve_local_workspace_sha("main")
-            if main_sha and main_sha != sha:
-                mb_res = subprocess.run(
-                    ["git", "--git-dir", str(git_dir), "merge-base", main_sha, sha],
-                    cwd=safe_cwd,
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                )
-                mb_val = mb_res.stdout.strip() if mb_res.returncode == 0 else ""
-                if mb_val and mb_val != sha:
-                    base_ref = mb_val
+    def _build_change(self, file_path: str, change_type: str, old_content: str,
+                      new_content: str, diff_text: str = "", *, previous_path=None,
+                      base_sha="", commit_sha="", warnings=None, is_binary=False,
+                      commit_timestamp=None) -> ChangeInfo:
+        """Parse complete snapshots only; a patch is never treated as source code."""
+        file_path = _safe_source_path(file_path)
+        warnings = list(warnings or [])
+        for name, content in (("old", old_content), ("new", new_content)):
+            if len(content.encode("utf-8")) > MAX_SOURCE_BYTES:
+                warnings.append(f"{name}_source_exceeds_limit")
+                if name == "old":
+                    old_content = ""
                 else:
-                    base_ref = f"{sha}~1"
-            else:
-                base_ref = f"{sha}~1"
-
-        # 3. Detect changed files if not explicitly provided
-        file_status_map: Dict[str, str] = {}
-        if not files:
-            res = subprocess.run(
-                ["git", "--git-dir", str(git_dir), "diff", "--name-status", base_ref, sha],
-                cwd=safe_cwd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="ignore",
-                timeout=5,
-            )
-            if res.returncode == 0 and res.stdout.strip():
-                for line in res.stdout.strip().splitlines():
-                    parts = line.strip().split(None, 1)
-                    if len(parts) == 2:
-                        status_code = parts[0][0].upper()
-                        fpath = parts[1].strip()
-                        if is_supported_file(fpath):
-                            st_map = {"A": "added", "D": "deleted", "M": "modified", "R": "modified"}
-                            file_status_map[fpath] = st_map.get(status_code, "modified")
-                files = list(file_status_map.keys())
-
-        if not files:
-            return []
-
-        changes: List[ChangeInfo] = []
-        for f in files:
-            try:
-                change_type = file_status_map.get(f, "modified")
-                # Extract diff
-                diff_res = subprocess.run(
-                    ["git", "--git-dir", str(git_dir), "diff", "-U3", base_ref, sha, "--", f],
-                    cwd=safe_cwd,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="ignore",
-                    timeout=3,
-                )
-                diff_text = diff_res.stdout if diff_res.returncode == 0 else ""
-                additions, deletions = _count_diff_lines(diff_text)
-
-                # Extract content at target commit
-                content = ""
-                if change_type != "deleted":
-                    show_res = subprocess.run(
-                        ["git", "--git-dir", str(git_dir), "show", f"{sha}:{f}"],
-                        cwd=safe_cwd,
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="ignore",
-                        timeout=3,
-                    )
-                    content = show_res.stdout if show_res.returncode == 0 else ""
-
-                lang = _EXT_TO_LANG.get(Path(f).suffix.lower(), "unknown")
-                ast_meta = self._ast.analyze(content or diff_text, lang)
-
-                ci = ChangeInfo(
-                    file_path=f,
-                    change_type=change_type,
-                    diff_content=diff_text,
-                    additions=additions,
-                    deletions=deletions,
-                    old_content="",
-                    new_content=content,
-                    ast_metadata=ast_meta,
-                )
-                changes.append(ci)
-            except Exception as exc:
-                logger.warning("Local extract failed for %s: %s", f, exc)
-                changes.append(self._minimal_change(f))
-
-        return changes
-
-    # ------------------------------------------------------------------ #
-    #  Strategy 1 — GitHub API (preferred, no clone)
-    # ------------------------------------------------------------------ #
-
-    async def _analyze_via_github_api(
-        self,
-        owner: str,
-        repo: str,
-        commit_sha: str,
-        files: Optional[List[str]] = None,
-    ) -> Optional[List[ChangeInfo]]:
-        """Fetch diffs + file contents via GitHub REST API."""
-        logger.info("Using GitHub API | owner=%s repo=%s", owner, repo)
-
-        # Fetch the full commit diff once (covers all files in one request)
-        file_diffs = await self._gh.get_commit_diff(owner, repo, commit_sha)
-        if file_diffs is None:
-            return None
-
-        # If files was not specified, auto-detect all supported files in this commit
-        if not files:
-            files = [f for f in file_diffs.keys()
-                     if is_supported_file(f)]
-            logger.info("Auto-detected %d changed files from commit diff", len(files))
-
-        if not files:
-            return []
-
-        # Derive the parent SHA for fetching old content
-        parent_sha = await self._get_parent_sha(owner, repo, commit_sha)
-
-        # Fan out file content fetches concurrently with low concurrency to protect rate limits
-        tasks = [
-            self._build_change_info_from_api(
-                owner, repo, f, commit_sha, parent_sha,
-                file_diffs.get(f, ""))
-            for f in files
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        changes: List[ChangeInfo] = []
-        for f, result in zip(files, results):
-            if isinstance(result, ChangeInfo):
-                changes.append(result)
-            else:
-                logger.warning("Failed to analyse %s: %s", f, result)
-                changes.append(self._minimal_change(f))
-
-        return changes
-
-    async def _build_change_info_from_api(
-        self,
-        owner: str,
-        repo: str,
-        file_path: str,
-        commit_sha: str,
-        parent_sha: Optional[str],
-        diff_text: str,
-    ) -> ChangeInfo:
-        """Build a single ChangeInfo using unified diff text and resilient fast content fallback."""
+                    new_content = ""
+        is_binary = is_binary or "\x00" in old_content or "\x00" in new_content
+        if is_binary:
+            old_content = new_content = ""
+            warnings.append("binary_source_not_parsed")
+        if not diff_text and not is_binary:
+            diff_text = _make_simple_diff(file_path, old_content, new_content)
+        if len(diff_text.encode("utf-8")) > MAX_SOURCE_BYTES:
+            diff_text = diff_text.encode("utf-8")[:MAX_SOURCE_BYTES].decode("utf-8", "ignore")
+            warnings.append("diff_truncated")
         additions, deletions = _count_diff_lines(diff_text)
+        language = _EXT_TO_LANG.get(Path(file_path).suffix.lower(), "unknown")
+        parser_coverage = "ast" if language == "python" else "heuristic"
+        if not is_supported_file(file_path):
+            parser_coverage = "unsupported"
+            warnings.append("unsupported_file_type")
+        old_meta = self._ast.analyze(old_content, language)
+        new_meta = self._ast.analyze(new_content, language)
+        if language in {"javascript", "typescript"}:
+            parser_coverage = "tree_sitter"
+            for name, metadata in (("old", old_meta), ("new", new_meta)):
+                warnings.extend(f"{name}_{warning}" for warning in metadata.get("parser_warnings", []))
+                if metadata.get("parser_coverage") in {"failed", "partial"}:
+                    parser_coverage = metadata["parser_coverage"]
+        if language == "python":
+            for name, source in (("old", old_content), ("new", new_content)):
+                if source:
+                    try:
+                        ast.parse(source)
+                    except (SyntaxError, ValueError, RecursionError):
+                        warnings.append(f"{name}_source_parse_failed")
+                        parser_coverage = "failed"
+        old_routes = old_meta.get("routes") if "routes" in old_meta else extract_route_signatures(old_content, language)
+        new_routes = new_meta.get("routes") if "routes" in new_meta else extract_route_signatures(new_content, language)
+        old_meta["routes"] = old_routes
+        new_meta["routes"] = new_routes
+        metadata = dict(old_meta if change_type in {"removed", "deleted"} else new_meta)
+        metadata["contract_changes"] = compare_route_contracts(old_routes, new_routes, language)
+        metadata.update(semantic_comparison(old_content, new_content, language,
+            complete=not is_binary and not any(any(marker in warning for marker in
+                ("source_", "binary", "syntax_node_limit", "unsupported_file_type")) for warning in warnings),
+            structural_change=change_type in {"added", "deleted", "removed", "renamed", "copied"} or bool(previous_path)))
+        if language == "python":
+            old_models = PythonModelContext({file_path: old_content}).schemas(file_path)
+            new_models = PythonModelContext({file_path: new_content}).schemas(file_path)
+            metadata["schema_changes"] = compare_schema_models(old_models, new_models)
+        if language in {"python", "javascript", "typescript", "json", "yaml", "toml"} and metadata["semantic_change"] is None:
+            warnings.append("semantic_analysis_unavailable")
+            for key in ("contract_changes", "schema_changes"):
+                if key in metadata:
+                    metadata[key] = {"added": [], "removed": [], "modified": [], "breaking_changes": [],
+                        "additive_changes": [], "uncertain_changes": [{"reason": "source_unavailable_or_invalid"}],
+                        "compatibility": "uncertain", "coverage": "unavailable"}
+        metadata.update({"old": old_meta, "new": new_meta, "parser_coverage": parser_coverage,
+                         "extraction_status": "partial" if warnings else "complete",
+                         "extraction_warnings": list(dict.fromkeys(warnings))})
+        return ChangeInfo(file_path, change_type, diff_text, additions, deletions,
+                          old_content, new_content, metadata, previous_path, base_sha,
+                          commit_sha, "partial" if warnings else "complete",
+                          list(dict.fromkeys(warnings)), is_binary, parser_coverage,
+                          commit_timestamp)
 
-        # Determine change_type from diff mode lines
-        change_type = "modified"
-        if "new file mode" in diff_text:
-            change_type = "added"
-        elif "deleted file mode" in diff_text:
-            change_type = "deleted"
+    def _summarize(self, changes, *, base_sha="", commit_sha="", warnings=None, source_context=None):
+        self._resolve_snapshot_contracts(changes, source_context)
+        warnings = list(warnings or [])
+        warnings.extend(w for c in changes for w in c.extraction_warnings)
+        self.last_extraction = {"status": "partial" if warnings else "complete",
+                                "base_sha": base_sha, "head_sha": commit_sha,
+                                "files_analyzed": len(changes),
+                                "warnings": list(dict.fromkeys(warnings))}
+        return changes
 
-        # Avoid 100+ requests hitting GitHub rate limits:
-        # Only fetch full file content for primary service entrypoints
-        new_content = ""
-        old_content = ""
-        entrypoint_names = {
-            "main.py", "app.py", "server.py", "manage.py", "wsgi.py", "asgi.py",
-            "server.js", "index.js", "app.js", "main.js", "server.ts", "index.ts", "app.ts", "main.ts",
-            "main.go", "app.go", "main.rs"
-        }
-        is_entrypoint = (
-            any(file_path.endswith(k) for k in ["main.py", "app.py", "server.js", "index.js", "app.js", "index.ts", "server.ts"])
-            or Path(file_path).name in entrypoint_names
-        )
+    def _resolve_snapshot_contracts(self, changes, source_context=None):
+        """Use only supplied immutable snapshots, never assume unseen imports match."""
+        before, after = {}, {}
+        if source_context:
+            if not isinstance(source_context, dict) or set(source_context) - {"before", "after"}:
+                raise ValueError("Source context must contain before and after snapshots.")
+            for side, target in (("before", before), ("after", after)):
+                values = source_context.get(side, {})
+                if not isinstance(values, dict):
+                    raise ValueError("Source context snapshots must be path-to-text mappings.")
+                for path, content in values.items():
+                    path = _safe_source_path(path)
+                    if not isinstance(content, str) or len(content.encode()) > MAX_SOURCE_BYTES:
+                        raise ValueError("Source context files must be text within the parser limit.")
+                    target[path] = content
+        for change in changes:
+            # The explicit change snapshots are authoritative over optional context.
+            before[change.previous_path or change.file_path] = change.old_content
+            after[change.file_path] = change.new_content
+        if max(len(before), len(after)) > MAX_CHANGE_FILES or sum(len(s.encode()) for s in list(before.values()) + list(after.values())) > MAX_TOTAL_SOURCE_BYTES:
+            raise ValueError("Combined change and context snapshots exceed the 100-file / 2 MiB analysis limit.")
+        # Never resolve another file against one side of an unavailable model.
+        # Missing snapshots are unknown evidence, not deleted definitions.
+        for change in changes:
+            if change.ast_metadata.get("semantic_change") is None:
+                before.pop(change.previous_path or change.file_path, None)
+                after.pop(change.file_path, None)
+        old_ctx, new_ctx = PythonModelContext(before), PythonModelContext(after)
+        changed_paths = {change.file_path for change in changes}
+        affected = []
+        for path in sorted(old_ctx.trees.keys() | new_ctx.trees.keys()):
+            if path in changed_paths:
+                continue
+            old_routes = extract_python_routes(before.get(path, ""), file_path=path, context=old_ctx)
+            new_routes = extract_python_routes(after.get(path, ""), file_path=path, context=new_ctx)
+            delta = compare_route_contracts(old_routes, new_routes, "python")
+            if delta["modified"]:
+                affected.append({"file_path": path, **delta})
+        for change in changes:
+            if change.language != "python":
+                continue
+            if change.ast_metadata.get("semantic_change") is None:
+                continue
+            old_path = change.previous_path or change.file_path
+            old_routes = extract_python_routes(change.old_content, file_path=old_path, context=old_ctx)
+            new_routes = extract_python_routes(change.new_content, file_path=change.file_path, context=new_ctx)
+            meta = change.ast_metadata
+            meta["old"]["routes"], meta["new"]["routes"] = old_routes, new_routes
+            meta["routes"] = old_routes if change.change_type == "deleted" else new_routes
+            meta["contract_changes"] = compare_route_contracts(old_routes, new_routes, "python")
+            if any(meta["contract_changes"][kind] for kind in ("added", "removed", "modified")) and meta.get("semantic_change") is False:
+                meta.update(semantic_change=True, semantic_status="changed", semantic_evidence="resolved_contract_change")
+            schemas = compare_schema_models(old_ctx.schemas(old_path), new_ctx.schemas(change.file_path))
+            if any(schemas[k] for k in ("added", "removed", "modified")):
+                schemas["affected_routes"] = [entry for entry in affected if any(
+                    model.get("source_path") in {old_path, change.file_path} or any(field.get("source_path") in {old_path, change.file_path} for field in model.get("fields", []))
+                    for route in entry["modified"] for state in ("before", "after")
+                    for model in list(route[state].get("request_schema", {}).values()) + list(route[state].get("response_schema", {}).get("models", {}).values()))]
+            meta["schema_changes"] = schemas
+            meta["contract_context"] = {"coverage": "supplied_snapshots_only", "files": len(old_ctx.trees.keys() | new_ctx.trees.keys()),
+                "unresolved_models": meta["contract_changes"]["unresolved_models"]}
 
-        if is_entrypoint:
+    def analyze_local_changes(self, local_changes, *, base_sha, commit_sha, source_context=None):
+        if not base_sha:
+            raise ValueError("Submitted source snapshots require an explicit base_sha.")
+        if len(local_changes) > MAX_CHANGE_FILES:
+            raise ValueError(f"At most {MAX_CHANGE_FILES} changed files may be submitted.")
+        changes, total = [], 0
+        for item in local_changes:
+            if hasattr(item, "model_dump"):
+                item = item.model_dump()
+            file_path = _safe_source_path(item.get("file_path") or item.get("path", ""))
+            previous_path = item.get("previous_path")
+            if previous_path:
+                previous_path = _safe_source_path(previous_path)
+            if "old_content" not in item or "new_content" not in item:
+                raise ValueError("Each submitted change requires old_content and new_content snapshots.")
+            old, new = item["old_content"], item["new_content"]
+            if not isinstance(old, str) or not isinstance(new, str):
+                raise ValueError("Source snapshots must be text.")
+            total += len(old.encode("utf-8")) + len(new.encode("utf-8"))
+            if total > MAX_TOTAL_SOURCE_BYTES:
+                raise ValueError("Submitted source snapshots exceed the 2 MiB analysis limit.")
+            changes.append(self._build_change(file_path, item.get("change_type", "modified"),
+                                             old, new, previous_path=previous_path,
+                                             base_sha=base_sha, commit_sha=commit_sha,
+                                             warnings=item.get("extraction_warnings", []),
+                                             is_binary=bool(item.get("is_binary", False))))
+        self._summarize(changes, base_sha=base_sha, commit_sha=commit_sha, source_context=source_context)
+        digest_input = [{"path": change.file_path, "previous_path": change.previous_path,
+                         "old": change.old_content, "new": change.new_content} for change in changes]
+        digest_input = {"changes": digest_input, "context": source_context or {}}
+        self.last_extraction.update(source="client_supplied_snapshots",
+            snapshot_digest=hashlib.sha256(json.dumps(digest_input, sort_keys=True).encode()).hexdigest())
+        return changes
+
+    async def analyze_push(self, repo_url: str, commit_sha: str,
+                           changed_files: Optional[List[str]] = None, *, base_sha=None,
+                           comparison_mode="direct", local_changes=None, source_context=None) -> List[ChangeInfo]:
+        if comparison_mode not in {"direct", "merge_base"}:
+            raise ValueError("comparison_mode must be direct or merge_base.")
+        if local_changes is not None:
+            return self.analyze_local_changes(local_changes, base_sha=base_sha, commit_sha=commit_sha, source_context=source_context)
+        if os.path.isdir(repo_url):
+            return await asyncio.to_thread(self._analyze_git_snapshots, Repo(repo_url),
+                                           commit_sha, changed_files, base_sha, comparison_mode)
+        if _is_local_workspace_match(repo_url):
+            return await asyncio.to_thread(self._analyze_from_local_workspace, commit_sha,
+                                           changed_files, base_sha, comparison_mode)
+        coords = _parse_github_url(repo_url)
+        if not coords:
+            raise ValueError("Only a local repository or a supported GitHub repository can be analyzed.")
+        from services.github_app import GitHubAppAuth
+        token = await GitHubAppAuth.get_installation_token_for_repo(repo_url)
+        if token:
+            self._gh._token = token
+            self._gh._headers["Authorization"] = f"Bearer {token}"
+        try:
+            return await self._analyze_via_github_api(*coords, commit_sha, changed_files,
+                base_sha=base_sha, comparison_mode=comparison_mode)
+        except GitHubRateLimitError:
+            if self._gh._headers.get("Authorization"):
+                raise
+            return await self._analyze_public_archives(*coords, commit_sha, changed_files,
+                base_sha=base_sha, comparison_mode=comparison_mode)
+
+    async def _analyze_public_archives(self, owner, repo, head_ref, files=None, *, base_sha=None, comparison_mode="direct"):
+        from services.public_github_source import public_commit_metadata
+        if comparison_mode != "direct":
+            raise ValueError("Anonymous archive analysis requires a direct comparison; merge-base analysis needs GitHub API access")
+        url = f"https://github.com/{owner}/{repo}"
+        head = await self.resolve_commit_sha(url, head_ref)
+        if not head:
+            raise ValueError("Head revision could not be resolved")
+        metadata = await asyncio.to_thread(public_commit_metadata, owner, repo, head)
+        base = (await self.resolve_commit_sha(url, base_sha)) if base_sha else next(iter(metadata["parents"]), EMPTY_TREE)
+        if not base:
+            raise ValueError("Base revision could not be resolved")
+        new = await self._gh._public_archive(owner, repo, head)
+        old = None if base in {EMPTY_TREE, "0" * 40} else await self._gh._public_archive(owner, repo, base)
+        old_files = old.files if old else {}
+        requested = {_safe_source_path(path) for path in files} if files else None
+        paths = sorted(set(old_files) | set(new.files))
+        changes, warnings, total = [], ["public_archive_comparison_rename_detection_unavailable"], 0
+        for path in paths:
+            if requested is not None and path not in requested:
+                continue
+            # Oversized files retain tree membership but cannot prove equality.
+            if path in old_files and path in new.files and old.digests[path] is not None and old.digests[path] == new.digests[path]:
+                continue
+            if len(changes) >= MAX_CHANGE_FILES:
+                warnings.append("file_count_limit_reached")
+                break
+            kind = "added" if path not in old_files else "deleted" if path not in new.files else "modified"
+            contents, file_warnings = {}, []
+            for side, archive, needed in (("old", old, kind != "added"), ("new", new, kind != "deleted")):
+                try:
+                    source = archive.read(path) if archive and needed else ""
+                    size = len(source.encode())
+                    if total + size > MAX_TOTAL_SOURCE_BYTES:
+                        raise ValueError("total source limit")
+                    total += size
+                    contents[side] = source
+                except ValueError:
+                    contents[side] = ""
+                    file_warnings.append(side + "_source_unavailable_or_limit")
+            changes.append(self._build_change(path, kind, contents["old"], contents["new"], base_sha=base,
+                commit_sha=head, warnings=file_warnings, commit_timestamp=metadata["timestamp"]))
+        result = self._summarize(changes, base_sha=base, commit_sha=head, warnings=warnings)
+        self.last_extraction.update(source="public_github_archives", transport_evidence={
+            "head": new.evidence, "base": old.evidence if old else {"revision": EMPTY_TREE}, "executed_source": False})
+        return result
+
+
+    def _analyze_from_local_workspace(self, target_ref, files=None, base_sha=None,
+                                      comparison_mode="direct"):
+        git_dir = _find_git_dir()
+        if not git_dir:
+            raise ValueError("Local repository objects are unavailable.")
+        return self._analyze_git_snapshots(Repo(git_dir), target_ref, files, base_sha, comparison_mode)
+
+    def _analyze_git_snapshots(self, repo, target_ref, files=None, base_sha=None,
+                              comparison_mode="direct"):
+        try:
+            head = repo.commit(target_ref)
+            base = (EMPTY_TREE if base_sha == EMPTY_TREE or base_sha == "0" * 40 else
+                    repo.commit(base_sha).hexsha if base_sha else
+                    head.parents[0].hexsha if head.parents else EMPTY_TREE)
+            if comparison_mode == "merge_base" and base != EMPTY_TREE:
+                bases = repo.merge_base(base, head)
+                if not bases:
+                    raise ValueError("The supplied base and head do not share a merge base.")
+                base = bases[0].hexsha
+        except Exception as exc:
+            raise ValueError("The requested base or head revision is unavailable.") from exc
+        records = repo.git.diff("--name-status", "-z", "--find-renames", base, head.hexsha).split("\x00")
+        requested = {_safe_source_path(f) for f in files} if files else None
+        changes, warnings, total, i = [], [], 0, 0
+        while i < len(records) and records[i]:
+            status = records[i]; path = records[i + 1]; i += 2
+            previous = None
+            if status[0] in {"R", "C"}:
+                previous, path = path, records[i]; i += 1
+            if requested is not None and path not in requested and previous not in requested:
+                continue
+            if len(changes) >= MAX_CHANGE_FILES:
+                warnings.append("file_count_limit_reached")
+                break
+            kind = {"A": "added", "D": "deleted", "R": "renamed", "C": "copied"}.get(status[0], "modified")
+            file_warnings = []
+            def read_blob(ref, source_path, absent=False):
+                nonlocal total
+                if absent:
+                    return ""
+                try:
+                    blob = repo.commit(ref).tree[source_path]
+                    if blob.size > MAX_SOURCE_BYTES or total + blob.size > MAX_TOTAL_SOURCE_BYTES:
+                        file_warnings.append("source_size_limit_reached")
+                        return ""
+                    total += blob.size
+                    return blob.data_stream.read(MAX_SOURCE_BYTES + 1).decode("utf-8")
+                except UnicodeDecodeError:
+                    file_warnings.append("binary_or_non_utf8_source")
+                    return ""
+                except (KeyError, ValueError):
+                    file_warnings.append("source_unavailable")
+                    return ""
+            old = read_blob(base, previous or path, kind == "added" or base == EMPTY_TREE)
+            new = read_blob(head.hexsha, path, kind == "deleted")
+            # Compute a bounded patch from the two verified source snapshots.
+            changes.append(self._build_change(path, kind, old, new, previous_path=previous,
+                          base_sha=base, commit_sha=head.hexsha, warnings=file_warnings,
+                          commit_timestamp=head.committed_date))
+        return self._summarize(changes, base_sha=base, commit_sha=head.hexsha, warnings=warnings)
+
+    async def _analyze_via_github_api(self, owner, repo, commit_sha, files=None, *,
+                                     base_sha=None, comparison_mode="direct"):
+        """Read bounded GitHub commit/compare metadata; never silently clone an unbounded repo."""
+        requested = {_safe_source_path(f) for f in files} if files else None
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            async def get_json(url, params=None):
+                response = await self._gh._request_with_retry(client, url, params=params, max_retries=1)
+                if response.status_code != 200:
+                    raise ValueError(f"GitHub could not read the requested revision (HTTP {response.status_code}).")
+                if len(response.content) > 8 * 1024 * 1024:
+                    raise ValueError("GitHub comparison metadata exceeds the analysis limit.")
+                return response.json()
+            head_data = await get_json(f"{_GH_API}/repos/{owner}/{repo}/commits/{commit_sha}", {"per_page": 100})
+            head = head_data["sha"]
+            parents = head_data.get("parents", [])
+            base = base_sha or (parents[0]["sha"] if parents else "")
+            metadata = head_data
+            warnings = []
+            if base_sha:
+                if base_sha in {EMPTY_TREE, "0" * 40}:
+                    raise ValueError("Remote root-tree comparisons require submitted bounded snapshots.")
+                metadata = await get_json(f"{_GH_API}/repos/{owner}/{repo}/compare/{base_sha}...{head}", {"per_page": 1})
+                base = metadata.get("base_commit", {}).get("sha", base_sha)
+                merge_base = metadata.get("merge_base_commit", {}).get("sha", base)
+                if comparison_mode == "merge_base":
+                    base = merge_base
+                elif merge_base != base:
+                    raise ValueError("GitHub compare uses merge-base semantics for divergent refs; submit snapshots for a direct divergent comparison.")
+                # GitHub returns at most 300 changed files on the first comparison page.
+                if len(metadata.get("files", [])) >= 300:
+                    warnings.append("github_compare_file_limit_reached")
+            all_files = metadata.get("files", [])
+            if not base_sha and len(all_files) >= 100:
+                warnings.append("github_commit_file_page_limit_reached")
+            selected = [f for f in all_files if requested is None or f.get("filename") in requested or f.get("previous_filename") in requested]
+            if requested and not requested.issubset({f.get("filename") for f in all_files} | {f.get("previous_filename") for f in all_files}):
+                warnings.append("requested_files_not_in_available_diff")
+            if len(selected) > MAX_CHANGE_FILES:
+                warnings.append("file_count_limit_reached")
+            changes, total = [], 0
+            timestamp = None
             try:
-                new_content = await asyncio.wait_for(
-                    self._gh.get_file_content(owner, repo, file_path, commit_sha),
-                    timeout=3.0,
-                )
-            except Exception as exc:
-                logger.debug("Fetching entrypoint %s via GitHub API failed: %s", file_path, exc)
-                new_content = ""
+                from datetime import datetime
+                timestamp = int(datetime.fromisoformat(head_data["commit"]["committer"]["date"].replace("Z", "+00:00")).timestamp())
+            except (KeyError, TypeError, ValueError):
+                warnings.append("commit_timestamp_unavailable")
+            for entry in selected[:MAX_CHANGE_FILES]:
+                path = entry["filename"]
+                kind = entry.get("status", "modified")
+                file_warnings = []
+                old = new = ""
+                for side, ref, source_path, needed in (
+                    ("old", base, entry.get("previous_filename", path), kind != "added" and bool(base)),
+                    ("new", head, path, kind not in {"removed", "deleted"})):
+                    if not needed:
+                        continue
+                    if total >= MAX_TOTAL_SOURCE_BYTES:
+                        file_warnings.append("total_source_limit_reached")
+                        continue
+                    try:
+                        source = await self._gh.get_file_content(owner, repo, source_path, ref)
+                        if len(source.encode("utf-8")) > MAX_SOURCE_BYTES or total + len(source.encode("utf-8")) > MAX_TOTAL_SOURCE_BYTES:
+                            source = ""
+                            file_warnings.append("source_size_limit_reached")
+                        total += len(source.encode("utf-8"))
+                        if side == "old": old = source
+                        else: new = source
+                    except GitHubRateLimitError as exc:
+                        file_warnings.append(f"{side}_{exc.evidence}")
+                    except Exception:
+                        file_warnings.append(f"{side}_source_unavailable")
+                if "patch" not in entry and entry.get("changes", 0):
+                    file_warnings.append("github_patch_unavailable_or_binary")
+                change = self._build_change(path, kind, old, new, previous_path=entry.get("previous_filename"),
+                    base_sha=base, commit_sha=head, warnings=file_warnings, commit_timestamp=timestamp)
+                # GitHub's counts remain valid even when source retrieval is partial.
+                change.additions = entry.get("additions", change.additions)
+                change.deletions = entry.get("deletions", change.deletions)
+                changes.append(change)
+        return self._summarize(changes, base_sha=base, commit_sha=head, warnings=warnings)
 
-        lang = _EXT_TO_LANG.get(Path(file_path).suffix.lower(), "unknown")
-        ast_meta = self._ast.analyze(new_content or diff_text, lang)
-
-        return ChangeInfo(
-            file_path=file_path,
-            change_type=change_type,
-            diff_content=diff_text,
-            additions=additions,
-            deletions=deletions,
-            old_content=old_content,
-            new_content=new_content,
-            ast_metadata=ast_meta,
-        )
+    async def _build_change_info_from_api(self, owner, repo, file_path, commit_sha, parent_sha, diff_text):
+        kind = "added" if "new file mode" in diff_text else "deleted" if "deleted file mode" in diff_text else "modified"
+        old = await self._gh.get_file_content(owner, repo, file_path, parent_sha) if parent_sha and kind != "added" else ""
+        new = await self._gh.get_file_content(owner, repo, file_path, commit_sha) if kind != "deleted" else ""
+        return self._build_change(file_path, kind, old, new, diff_text, base_sha=parent_sha or "", commit_sha=commit_sha)
 
     async def _get_parent_sha(
         self, owner: str, repo: str, commit_sha: str
@@ -1146,167 +1244,6 @@ class GitAnalyzer:
         except Exception as exc:
             logger.debug("get_parent_sha failed: %s", exc)
         return None
-
-    # ------------------------------------------------------------------ #
-    #  Strategy 2 — local gitpython (clone or existing repo)
-    # ------------------------------------------------------------------ #
-
-    async def _analyze_via_local_repo(
-        self,
-        repo_url: str,
-        commit_sha: str,
-        files: List[str],
-    ) -> List[ChangeInfo]:
-        """Clone the repo and use gitpython to extract diffs."""
-        logger.info("Falling back to gitpython clone | url=%s", repo_url)
-        tmp_dir = tempfile.mkdtemp(prefix="mdt_clone_")
-        try:
-            dynamic_token = self._gh._token if hasattr(self, '_gh') and self._gh._token else settings.GITHUB_TOKEN
-            repo = await asyncio.to_thread(
-                self._clone_repo, repo_url, tmp_dir, commit_sha, dynamic_token)
-            if not files:
-                try:
-                    c = repo.commit(commit_sha)
-                    if c.parents:
-                        diffs = c.parents[0].diff(c)
-                    else:
-                        diffs = c.diff(NULL_TREE)
-                    extracted_files = [str(d.a_path or d.b_path) for d in diffs if (d.a_path or d.b_path)]
-                    if not extracted_files and not c.parents:
-                        extracted_files = [item.path for item in c.tree.traverse() if item.type == 'blob']
-                    files = [f for f in extracted_files if is_supported_file(f)]
-                except Exception as exc:
-                    logger.debug("Failed extracting diff from commit %s: %s", commit_sha, exc)
-                    files = []
-
-            changes = []
-            for f in files:
-                try:
-                    ci = await asyncio.to_thread(
-                        self._extract_from_repo, repo, commit_sha, f)
-                    changes.append(ci)
-                except Exception as exc:
-                    logger.warning("gitpython extract failed for %s: %s", f, exc)
-                    changes.append(self._minimal_change(f))
-            return changes
-        except Exception as exc:
-            logger.error("Clone failed: %s", exc)
-            return [self._minimal_change(f) for f in files]
-        finally:
-            import shutil
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    @staticmethod
-    def _clone_repo(repo_url: str, target_dir: str, commit_sha: str, token: Optional[str] = None) -> Repo:
-        """Clone the repo and checkout target commit with resilience."""
-        clone_url = repo_url
-        if token and "github.com" in repo_url and "@" not in repo_url:
-            clone_url = repo_url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
-
-        # Clone with depth=50 to capture recent commit histories
-        try:
-            repo = Repo.clone_from(clone_url, target_dir, depth=50, no_single_branch=True)
-        except Exception:
-            repo = Repo.clone_from(clone_url, target_dir)
-
-        # Checkout the target commit
-        try:
-            repo.git.checkout(commit_sha)
-        except Exception:
-            # If commit_sha is older than depth=50, fetch it specifically
-            try:
-                repo.git.fetch("origin", commit_sha, depth=20)
-                repo.git.checkout(commit_sha)
-            except Exception:
-                try:
-                    repo.git.fetch("--unshallow")
-                    repo.git.checkout(commit_sha)
-                except Exception as exc:
-                    logger.warning("Checkout commit %s failed: %s", commit_sha, exc)
-                    raise
-        return repo
-
-    def _extract_from_repo(
-        self, repo: Repo, commit_sha: str, file_path: str
-    ) -> ChangeInfo:
-        """Use gitpython to extract diff + content for one file."""
-        commit = repo.commit(commit_sha)
-        parents = commit.parents
-
-        diff_text = ""
-        old_content = ""
-        new_content = ""
-        change_type = "modified"
-
-        if parents:
-            parent = parents[0]
-            diff_text = repo.git.diff(parent.hexsha, commit_sha, "--", file_path)
-
-            # Old content
-            try:
-                old_blob = parent.tree[file_path]
-                old_content = old_blob.data_stream.read().decode("utf-8",
-                                                                  errors="replace")
-            except KeyError:
-                old_content = ""
-                change_type = "added"
-        else:
-            # First commit — everything is new
-            change_type = "added"
-            try:
-                diff_text = repo.git.diff(NULL_TREE, commit_sha, "--", file_path)
-            except Exception:
-                diff_text = ""
-
-        # New content
-        try:
-            new_blob = commit.tree[file_path]
-            new_content = new_blob.data_stream.read().decode("utf-8",
-                                                              errors="replace")
-        except KeyError:
-            new_content = ""
-            if change_type != "added":
-                change_type = "deleted"
-
-        if not diff_text and (old_content or new_content):
-            diff_text = _make_simple_diff(file_path, old_content, new_content)
-
-        additions, deletions = _count_diff_lines(diff_text)
-        lang = _EXT_TO_LANG.get(Path(file_path).suffix.lower(), "unknown")
-        ast_meta = self._ast.analyze(new_content or old_content, lang)
-
-        return ChangeInfo(
-            file_path=file_path,
-            change_type=change_type,
-            diff_content=diff_text,
-            additions=additions,
-            deletions=deletions,
-            old_content=old_content,
-            new_content=new_content,
-            ast_metadata=ast_meta,
-        )
-
-    # ------------------------------------------------------------------ #
-    #  Helpers
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _minimal_change(file_path: str, change_type: str = "modified") -> ChangeInfo:
-        """Return a minimal ChangeInfo when analysis fails — pipeline still runs."""
-        return ChangeInfo(
-            file_path=file_path,
-            change_type=change_type,
-            diff_content="",
-            additions=0,
-            deletions=0,
-            old_content="",
-            new_content="",
-            ast_metadata={},
-        )
-
-    # ------------------------------------------------------------------ #
-    #  Convenience — analyse a single local file diff (used in tests)
-    # ------------------------------------------------------------------ #
 
     async def get_file_diff(
         self, repo_path: str, commit_sha: str, file_path: str

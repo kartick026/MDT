@@ -25,6 +25,7 @@ venv/
 ENV/
 env/
 .venv/
+.venv-alpha/
 
 # IDE
 .vscode/
@@ -69,3 +70,8 @@ backend/chroma_db/
 backend/data/
 *.sqlite3
 scratch/
+
+# Testing & browser artifacts
+.playwright-mcp/
+/screenshot_*.png
+/fresh_screenshot_*.png

@@ -30,7 +30,7 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
     Falls back gracefully if the service is unreachable.
     """
     name = svc["name"]
-    port = svc.get("port", 0)
+    port = svc.get("port")
     # Build a display name from the service name
     display_name = svc.get("display_name") or (
         name.replace("-service", "")
@@ -55,10 +55,14 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
         "api_count": svc.get("api_count") or 0,
         "endpoints": svc.get("endpoints") or [],
         "risk_level": (svc.get("risk_level") or "UNKNOWN").upper(),
-        "risk_score": svc.get("risk_score") or 0,
+        "risk_score": svc.get("risk_score"),
         "is_external": svc.get("is_external", False),
         "is_broken": svc.get("is_broken", False),
     }
+
+    if not svc.get("url") or RegistryManager.get_project_context().get("source") not in {"local_demo"}:
+        base["status"] = "unobserved"
+        return base
 
     # Ping candidate URLs (Docker internal networking, trailing slashes, root)
     url = (svc.get("url") or f"http://localhost:{port}").rstrip("/")
@@ -128,18 +132,9 @@ async def list_services():
     services = []
     for s in (reg_services or list(graph_map.values())):
         merged = {**s}
-        gm = graph_map.get(s.get("name", ""), {})
-
-        # Prioritize service's own specific risk score and level from registry
-        if s.get("risk_score") is not None and s.get("risk_score") > 0:
-            merged["risk_score"] = s["risk_score"]
-        elif gm.get("risk_score") is not None and gm["risk_score"] > 0:
-            merged["risk_score"] = gm["risk_score"]
-
-        if s.get("risk_level") and s.get("risk_level") != "UNKNOWN":
-            merged["risk_level"] = s["risk_level"]
-        elif gm.get("risk_level") and gm["risk_level"] != "UNKNOWN":
-            merged["risk_level"] = gm["risk_level"]
+        # A captured zero or missing assessment must not inherit stale Neo4j risk.
+        merged["risk_score"] = s.get("risk_score")
+        merged["risk_level"] = s.get("risk_level") if s.get("risk_score") is not None else "UNKNOWN"
 
         if s.get("api_count"):
             merged["api_count"] = s["api_count"]
@@ -169,21 +164,11 @@ async def get_service_graph():
     (for example order-service -> user-service) disappear from the UI.
     """
     registry_services = RegistryManager.get_services()
-    try:
-        graph_services = await graph.get_all_services()
-        graph_risk = {service.get("name"): service for service in graph_services}
-    except Exception as exc:
-        logger.debug("graph.get_all_services for graph_risk failed: %s", exc)
-        graph_risk = {}
-
     nodes = []
     for svc in registry_services:
         name = svc.get("name", "")
         if not name:
             continue
-        # Registry data wins.  Graph risk is only a fallback for older
-        # registry entries that have not yet received a risk assessment.
-        graph_data = graph_risk.get(name, {})
         risk_score = svc.get("risk_score")
         risk_level = svc.get("risk_level")
         is_broken = (
@@ -193,11 +178,11 @@ async def get_service_graph():
         nodes.append({
             "id": name,
             "label": name.replace("-service", "").replace("-", " ").title(),
-            "port": svc.get("port", 0),
-            "risk_level": (risk_level or graph_data.get("risk_level") or ("CRITICAL" if is_broken else "UNKNOWN")).upper(),
-            "risk_score": risk_score if risk_score is not None else (graph_data.get("risk_score") or (90.0 if is_broken else 0)),
+            "port": svc.get("port"),
+            "risk_level": (risk_level or "UNKNOWN").upper() if risk_score is not None else "UNKNOWN",
+            "risk_score": risk_score,
             "is_broken": is_broken,
-            "status": "offline" if is_broken else svc.get("status", "healthy"),
+            "status": svc.get("status", "unknown"),
         })
 
     # The registry is the source of truth.  The old process-local list was

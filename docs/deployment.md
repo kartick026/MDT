@@ -1,3 +1,5 @@
+> Historical research-stack documentation: some routes, claims and setup details below predate the owned-project alpha. Use [PUBLIC_ALPHA.md](PUBLIC_ALPHA.md), [VALIDATION.md](VALIDATION.md) and the running OpenAPI schema for current behavior.
+
 # Microservice Drift Tracker (MDT) — Production Deployment Guide
 
 This guide details the end-to-end deployment, container orchestration, and security hardening process for **Microservice Drift Tracker (MDT)** in staging and production environments.

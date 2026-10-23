@@ -31,6 +31,7 @@ from core.utils import now_iso
 logger = logging.getLogger(__name__)
 
 from core.registry import RegistryManager
+from domain.relations import is_startup, dependency_depth
 
 def _get_known_services(): return RegistryManager.get_services()
 def _get_known_dependencies(): return RegistryManager.get_dependencies()
@@ -56,9 +57,12 @@ def _now_iso() -> str:
 
 
 def _infer_service_from_path(file_path: str) -> Optional[str]:
-    """Return the owning service name for a file path, or None."""
-    for prefix, service in _get_file_service_map().items():
-        if file_path.replace("\\", "/").startswith(prefix):
+    """Use the most specific directory mapping, on path-segment boundaries."""
+    normalized = file_path.replace("\\", "/").removeprefix("./").strip("/")
+    mappings = [(prefix.replace("\\", "/").removeprefix("./").strip("/"), service)
+                for prefix, service in _get_file_service_map().items()]
+    for prefix, service in sorted(mappings, key=lambda item: len(item[0]), reverse=True):
+        if not prefix or prefix == "." or normalized == prefix or normalized.startswith(prefix + "/"):
             return service
     return None
 
@@ -72,6 +76,9 @@ async def _run_query(driver, query: str, **params) -> List[Dict[str, Any]]:
     Execute a Cypher query and return list of record dicts.
     Handles both AsyncDriver (neo4j ≥ 5 async) and sync Driver.
     """
+    from core.registry import current_project_id
+    if current_project_id() is not None:
+        return []
     if driver is None:
         return []
 
@@ -116,6 +123,10 @@ class DependencyGraph:
     def _refresh_driver(self):
         """Re-fetch driver in case it connected after this object was created."""
         from core.database import MockNeo4jDriver
+        from core.registry import current_project_id
+        if current_project_id() is not None:
+            self.driver = MockNeo4jDriver()
+            return
         if (
             self.driver is None
             or isinstance(self.driver, MockNeo4jDriver)
@@ -296,6 +307,7 @@ class DependencyGraph:
         to_service: str,
         dependency_type: str = "http",
         endpoint: str = "",
+        evidence: Optional[Dict[str, Any]] = None,
     ):
         """Create or update a DEPENDS_ON edge."""
         self._refresh_driver()
@@ -307,12 +319,14 @@ class DependencyGraph:
             MERGE (from:Service {name: $from_name})
             MERGE (to:Service   {name: $to_name})
             MERGE (from)-[r:DEPENDS_ON {type: $dep_type, endpoint: $endpoint}]->(to)
-            SET r.updated_at = $ts
+            SET r.updated_at = $ts, r += $evidence
             """,
             from_name=from_service,
             to_name=to_service,
             dep_type=dependency_type,
             endpoint=endpoint,
+            evidence={key: value for key, value in (evidence or {}).items()
+                      if key in {"evidence_kind", "source_file", "source_line", "environment_variable", "method"}},
             ts=_now_iso(),
         )
 
@@ -351,9 +365,15 @@ class DependencyGraph:
         Fall-through strategy:
           1. Look up the file in Neo4j → find owning service → find dependants
           2. Infer owning service from path prefix (no Neo4j lookup)
-          3. Return all 4 services as a safe maximum (Neo4j unavailable)
+          3. Leave ownership unresolved when neither source establishes it
         """
         self._refresh_driver()
+
+        # A scoped project owns its captured graph; the shared database is disabled
+        # for it. Resolve from that same snapshot before attempting Neo4j.
+        if RegistryManager.get_services():
+            owner = _infer_service_from_path(file_path)
+            return self._get_dependants_from_static_map(owner) if owner else []
 
         if self.driver:
             # Step 1 — graph-aware traversal
@@ -375,13 +395,14 @@ class DependencyGraph:
         if owner:
             return self._get_dependants_from_static_map(owner)
 
-        # Step 3 — safe maximum fallback
-        logger.debug("Cannot determine service for %s — returning all services", file_path)
-        return [s["name"] for s in _get_known_services()]
+        # Unknown ownership is incomplete evidence, not proof that every service
+        # changed. The analysis evidence layer reports the missing mapping.
+        logger.debug("Cannot determine service for %s", file_path)
+        return []
 
     def _get_dependants_from_static_map(self, service_name: str) -> List[str]:
         """
-        Using the hardcoded _get_known_dependencies(), return the given service
+        Using the captured project dependencies, return the given service
         plus every service that transitively depends on it.
         """
         affected = {service_name}
@@ -389,7 +410,7 @@ class DependencyGraph:
         while changed:
             changed = False
             for dep in _get_known_dependencies():
-                if dep["to"] in affected and dep["from"] not in affected:
+                if not is_startup(dep) and dep["to"] in affected and dep["from"] not in affected:
                     affected.add(dep["from"])
                     changed = True
         return list(affected)
@@ -495,19 +516,21 @@ class DependencyGraph:
 
     async def get_dependency_depth(self, service_name: str) -> int:
         """
-        Return the maximum dependency depth for a service.
+        Return maximum shortest-path distance in the captured graph, up to eight hops.
         Used by ImpactEngine to score depth-based risk.
         """
         self._refresh_driver()
+        if RegistryManager.get_services():
+            return dependency_depth(service_name, _get_known_dependencies())
         if not self.driver:
-            # Static calculation
-            chain = self._static_dependency_chain(service_name)
-            return len(chain)
+            return dependency_depth(service_name, _get_known_dependencies())
 
         records = await _run_query(
             self.driver,
             """
-            OPTIONAL MATCH p = (s:Service {name: $name})-[:DEPENDS_ON*1..8]->(dep:Service)
+            MATCH (s:Service {name: $name}), (dep:Service) WHERE s <> dep
+            OPTIONAL MATCH p = shortestPath((s)-[:DEPENDS_ON*1..8]->(dep))
+            WHERE all(r IN relationships(p) WHERE coalesce(r.type, 'http') <> 'startup')
             RETURN coalesce(max(length(p)), 0) AS depth
             """,
             name=service_name,

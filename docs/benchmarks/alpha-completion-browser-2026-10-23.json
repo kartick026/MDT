@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-23",
+  "demo": {
+    "grouped": {
+      "edgeCount": 10,
+      "details": "order-service → user-service\nClose connection details\n\nIllustrative demo records; these are not verified runtime calls.\n\nhttp: /users/{user_id}\nIllustrative modeled relation\nhttp: /users/{user_id}/profile\nIllustrative modeled relation"
+    },
+    "individual": {
+      "edgeCount": 11,
+      "profileCount": 1
+    },
+    "keyboardInspection": true,
+    "stationaryGeometrySamples": [
+      {
+        "context": {
+          "bottom": 345.20001220703125,
+          "height": 72,
+          "left": 41.60000228881836,
+          "right": 845.6000022888184,
+          "top": 273.20001220703125,
+          "width": 804,
+          "x": 41.60000228881836,
+          "y": 273.20001220703125
+        },
+        "svg": {
+          "bottom": 549.7125091552734,
+          "height": 149.43125915527344,
+          "left": 54.40625,
+          "right": 832.7937622070312,
+          "top": 400.28125,
+          "width": 778.3875122070312,
+          "x": 54.40625,
+          "y": 400.28125
+        },
+        "viewBox": "0 0 2094 402"
+      },
+      {
+        "context": {
+          "bottom": 345.20001220703125,
+          "height": 72,
+          "left": 41.60000228881836,
+          "right": 845.6000022888184,
+          "top": 273.20001220703125,
+          "width": 804,
+          "x": 41.60000228881836,
+          "y": 273.20001220703125
+        },
+        "svg": {
+          "bottom": 549.7125091552734,
+          "height": 149.43125915527344,
+          "left": 54.40625,
+          "right": 832.7937622070312,
+          "top": 400.28125,
+          "width": 778.3875122070312,
+          "x": 54.40625,
+          "y": 400.28125
+        },
+        "viewBox": "0 0 2094 402"
+      },
+      {
+        "context": {
+          "bottom": 345.20001220703125,
+          "height": 72,
+          "left": 41.60000228881836,
+          "right": 845.6000022888184,
+          "top": 273.20001220703125,
+          "width": 804,
+          "x": 41.60000228881836,
+          "y": 273.20001220703125
+        },
+        "svg": {
+          "bottom": 549.7125091552734,
+          "height": 149.43125915527344,
+          "left": 54.40625,
+          "right": 832.7937622070312,
+          "top": 400.28125,
+          "width": 778.3875122070312,
+          "x": 54.40625,
+          "y": 400.28125
+        },
+        "viewBox": "0 0 2094 402"
+      },
+      {
+        "context": {
+          "bottom": 345.20001220703125,
+          "height": 72,
+          "left": 41.60000228881836,
+          "right": 845.6000022888184,
+          "top": 273.20001220703125,
+          "width": 804,
+          "x": 41.60000228881836,
+          "y": 273.20001220703125
+        },
+        "svg": {
+          "bottom": 549.7125091552734,
+          "height": 149.43125915527344,
+          "left": 54.40625,
+          "right": 832.7937622070312,
+          "top": 400.28125,
+          "width": 778.3875122070312,
+          "x": 54.40625,
+          "y": 400.28125
+        },
+        "viewBox": "0 0 2094 402"
+      },
+      {
+        "context": {
+          "bottom": 345.20001220703125,
+          "height": 72,
+          "left": 41.60000228881836,
+          "right": 845.6000022888184,
+          "top": 273.20001220703125,
+          "width": 804,
+          "x": 41.60000228881836,
+          "y": 273.20001220703125
+        },
+        "svg": {
+          "bottom": 549.7125091552734,
+          "height": 149.43125915527344,
+          "left": 54.40625,
+          "right": 832.7937622070312,
+          "top": 400.28125,
+          "width": 778.3875122070312,
+          "x": 54.40625,
+          "y": 400.28125
+        },
+        "viewBox": "0 0 2094 402"
+      },
+      {
+        "context": {
+          "bottom": 345.20001220703125,
+          "height": 72,
+          "left": 41.60000228881836,
+          "right": 845.6000022888184,
+          "top": 273.20001220703125,
+          "width": 804,
+          "x": 41.60000228881836,
+          "y": 273.20001220703125
+        },
+        "svg": {
+          "bottom": 549.7125091552734,
+          "height": 149.43125915527344,
+          "left": 54.40625,
+          "right": 832.7937622070312,
+          "top": 400.28125,
+          "width": 778.3875122070312,
+          "x": 54.40625,
+          "y": 400.28125
+        },
+        "viewBox": "0 0 2094 402"
+      }
+    ],
+    "distinctGeometryFrames": 1
+  },
+  "retainedImport": {
+    "evidence": "Partial analysis — review coverage before relying on this resultMode: repository_import. Parser coverage: See individual source findings.Partial architecture assessment. Recorded findings only; zero does not establish a debt-free or safe architecture.Recorded detector: 2.0.0. Saved results keep their original evidence; import and analyze again to use updated detection.This result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.source_parse_failed:src/frontend/components/Button/Button.tsxsource_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.tssource_file_limit_reachedgrpc_contracts_unresolvedcompose_dependencies_are_startup_order_not_verified_calls",
+    "heading": "Imported architecturePartial architecture assessment",
+    "links": [
+      {
+        "href": "#/projects?project=8ae27de20f5b4e3c9956c579288ec385&job=59cfbb873eb54a86a924db373743d465&view=findings",
+        "text": "🔍Review 16 Findings16"
+      },
+      {
+        "href": "#/projects?project=8ae27de20f5b4e3c9956c579288ec385&job=59cfbb873eb54a86a924db373743d465&view=graph",
+        "text": "🕸Inspect Dependency Topology"
+      },
+      {
+        "href": "#/projects?project=8ae27de20f5b4e3c9956c579288ec385&view=analyze",
+        "text": "⚡Run Change Analysis"
+      }
+    ],
+    "scores": "Commit deployment riskUnavailableNo commit evaluatedArchitectural debt88.004/100Provisional · Incomplete static evidenceArchitectural Smells160 Critical · 7 High"
+  },
+  "liveRefreshChecks": [
+    {
+      "evidence": "Partial analysis — review coverage before relying on this resultMode: repository_import. Parser coverage: See individual source findings.Insufficient communication evidence. Observed static findings only; zero does not establish a debt-free or safe architecture. Startup order is excluded; configuration references do not prove runtime calls.Startup relations: 5 · Configuration references: 0 · Static/modeled calls: 0. Runtime traffic was not measured.Recorded detector: 2.1.0. Saved results keep their original evidence; import and analyze again to use updated detection.This result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.syntax_node_limit_reached:result/views/angular.min.jscompose_uses_recorded_defaults_not_runtime_environmentcompose_dependencies_are_startup_order_not_verified_callsstatic_topology_is_not_complete_runtime_communication",
+      "heading": "Imported architectureInsufficient communication evidence",
+      "kind": "import",
+      "progress": "partial · partialRefresh",
+      "project": "Voting app",
+      "scores": "Commit deployment riskUnavailableNo commit evaluatedArchitectural debt0/100Provisional · Incomplete static evidenceArchitectural Smells00 Critical · 0 High",
+      "url": "http://localhost:5173/#/projects?project=fb93477f71314e528c6e3ac6ad1ef0a3&job=0e0b70b43eaf4076b9574173ecccbc85"
+    },
+    {
+      "evidence": "Partial analysis — review coverage before relying on this resultMode: deterministic_snapshot. Parser coverage: See individual source findings.Insufficient communication evidence. Observed static findings only; zero does not establish a debt-free or safe architecture. Startup order is excluded; configuration references do not prove runtime calls.Startup relations: 5 · Configuration references: 0 · Static/modeled calls: 0. Runtime traffic was not measured.Recorded detector: 2.1.0. Saved results keep their original evidence; import and analyze again to use updated detection.Evidence completeness: 0%. This measures available static evidence, not prediction accuracy. There is insufficient evidence for an architecture risk assessment; the score is provisional.This result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.Change impact uses the captured project topology at 63e9150ca17af4ed05880d4245e486481f73fcb4. Import a new revision to measure structural drift.semantic_analysis_unavailabletopology:syntax_node_limit_reached:result/views/angular.min.jstopology:compose_uses_recorded_defaults_not_runtime_environmenttopology:compose_dependencies_are_startup_order_not_verified_callstopology:static_topology_is_not_complete_runtime_communicationchanged_source_incompletesemantic_comparison_unavailablechanged_files_not_mapped_to_servicestopology_coverage_partial",
+      "heading": "Analysis summaryInsufficient communication evidence",
+      "kind": "analysis",
+      "progress": "partial · partialRefresh",
+      "project": "Voting app",
+      "scores": "Commit deployment risk40/100Provisional · Insufficient evidenceArchitectural debt0/100Provisional · Incomplete static evidenceArchitectural Smells00 Critical · 0 High",
+      "url": "http://localhost:5173/#/projects?project=fb93477f71314e528c6e3ac6ad1ef0a3&job=67f0de54f7d2465eaad8a60079e762de"
+    },
+    {
+      "evidence": "Partial analysis — review coverage before relying on this resultMode: repository_import. Parser coverage: See individual source findings.Insufficient communication evidence. Observed static findings only; zero does not establish a debt-free or safe architecture. Startup order is excluded; configuration references do not prove runtime calls.Startup relations: 13 · Configuration references: 0 · Static/modeled calls: 0. Runtime traffic was not measured.Recorded detector: 2.1.0. Saved results keep their original evidence; import and analyze again to use updated detection.This result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.application_source_unavailable_for_declared_servicescompose_uses_recorded_defaults_not_runtime_environmentcompose_dependencies_are_startup_order_not_verified_callsstatic_topology_is_not_complete_runtime_communication",
+      "heading": "Imported architectureInsufficient communication evidence",
+      "kind": "import",
+      "progress": "partial · partialRefresh",
+      "project": "Spring Petclinic",
+      "scores": "Commit deployment riskUnavailableNo commit evaluatedArchitectural debt0/100Provisional · Incomplete static evidenceArchitectural Smells00 Critical · 0 High",
+      "url": "http://localhost:5173/#/projects?project=ea10f311c9844798b6cf95de39156fe7&job=7004d05dc15842be95eb952e088e81f8"
+    },
+    {
+      "evidence": "Partial analysis — review coverage before relying on this resultMode: deterministic_snapshot. Parser coverage: See individual source findings.Insufficient communication evidence. Observed static findings only; zero does not establish a debt-free or safe architecture. Startup order is excluded; configuration references do not prove runtime calls.Startup relations: 13 · Configuration references: 0 · Static/modeled calls: 0. Runtime traffic was not measured.Recorded detector: 2.1.0. Saved results keep their original evidence; import and analyze again to use updated detection.Evidence completeness: 0%. This measures available static evidence, not prediction accuracy. There is insufficient evidence for an architecture risk assessment; the score is provisional.This result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.Change impact uses the captured project topology at 1d76b00d683e86b62867a6bf59530f8ab301244f. Import a new revision to measure structural drift.topology:application_source_unavailable_for_declared_servicestopology:compose_uses_recorded_defaults_not_runtime_environmenttopology:compose_dependencies_are_startup_order_not_verified_callstopology:static_topology_is_not_complete_runtime_communicationsemantic_comparison_unavailablechanged_files_not_mapped_to_servicestopology_coverage_partial",
+      "heading": "Analysis summaryInsufficient communication evidence",
+      "kind": "analysis",
+      "progress": "partial · partialRefresh",
+      "project": "Spring Petclinic",
+      "scores": "Commit deployment risk5/100Provisional · Insufficient evidenceArchitectural debt0/100Provisional · Incomplete static evidenceArchitectural Smells00 Critical · 0 High",
+      "url": "http://localhost:5173/#/projects?project=ea10f311c9844798b6cf95de39156fe7&job=8e82ad3313f6482d96f7df073e87b37b"
+    },
+    {
+      "evidence": "Partial analysis — review coverage before relying on this resultMode: repository_import. Parser coverage: See individual source findings.Partial architecture assessment. Observed static findings only; zero does not establish a debt-free or safe architecture. Startup order is excluded; configuration references do not prove runtime calls.Startup relations: 46 · Configuration references: 55 · Static/modeled calls: 1. Runtime traffic was not measured.Recorded detector: 2.1.0. Saved results keep their original evidence; import and analyze again to use updated detection.This result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.source_parse_failed:src/frontend/components/Button/Button.tsxsource_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.tssource_file_limit_reachedapplication_source_unavailable_for_declared_servicescompose_uses_recorded_defaults_not_runtime_environmentcompose_dependencies_are_startup_order_not_verified_callsstatic_topology_is_not_complete_runtime_communication",
+      "heading": "Imported architecturePartial architecture assessment",
+      "kind": "import",
+      "progress": "partial · partialRefresh",
+      "project": "OpenTelemetry",
+      "scores": "Commit deployment riskUnavailableNo commit evaluatedArchitectural debt89.573/100Provisional · Incomplete static evidenceArchitectural Smells180 Critical · 9 High",
+      "url": "http://localhost:5173/#/projects?project=8ae27de20f5b4e3c9956c579288ec385&job=a235ccc5c52c47aeb7a3d8de6e1e0c33"
+    },
+    {
+      "evidence": "Partial analysis — review coverage before relying on this resultMode: deterministic_snapshot. Parser coverage: See individual source findings.Partial architecture assessment. Observed static findings only; zero does not establish a debt-free or safe architecture. Startup order is excluded; configuration references do not prove runtime calls.Startup relations: 46 · Configuration references: 55 · Static/modeled calls: 1. Runtime traffic was not measured.Recorded detector: 2.1.0. Saved results keep their original evidence; import and analyze again to use updated detection.Evidence completeness: 0%. This measures available static evidence, not prediction accuracy. There is insufficient evidence for an architecture risk assessment; the score is provisional.This result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.Change impact uses the captured project topology at ba1757b3f197916640fff4f7c549b99e54835ab8. Import a new revision to measure structural drift.public_archive_comparison_rename_detection_unavailabletopology:source_parse_failed:src/frontend/components/Button/Button.tsxtopology:source_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.tstopology:source_file_limit_reachedtopology:application_source_unavailable_for_declared_servicestopology:compose_uses_recorded_defaults_not_runtime_environmenttopology:compose_dependencies_are_startup_order_not_verified_callstopology:static_topology_is_not_complete_runtime_communicationchanged_files_not_mapped_to_servicesaffected_service_source_coverage_incompletetopology_coverage_partial",
+      "heading": "Analysis summaryPartial architecture assessment",
+      "kind": "analysis",
+      "progress": "partial · partialRefresh",
+      "project": "OpenTelemetry",
+      "scores": "Commit deployment risk55/100Provisional · Insufficient evidenceArchitectural debt89.573/100Provisional · Incomplete static evidenceArchitectural Smells180 Critical · 9 High",
+      "url": "http://localhost:5173/#/projects?project=8ae27de20f5b4e3c9956c579288ec385&job=c6d0f3333c8d4e278b299035418daf60"
+    }
+  ],
+  "openTelemetry": {
+    "grouped": {
+      "connections": 58,
+      "finitePaths": true,
+      "nodeOverlaps": 0,
+      "nodes": 20
+    },
+    "individualRelations": 102
+  },
+  "narrow": {
+    "contextHeight": 72,
+    "details": "order-service → user-serviceClose connection detailsIllustrative demo records; these are not verified runtime calls.http: /users/{user_id}Illustrative modeled relationhttp: /users/{user_id}/profileIllustrative modeled relation",
+    "dialog": {
+      "bottom": 828,
+      "height": 812,
+      "left": 16,
+      "right": 374,
+      "top": 16,
+      "width": 358,
+      "x": 16,
+      "y": 16
+    },
+    "dialogClientWidth": 356,
+    "dialogScrollWidth": 356,
+    "edgeCount": 10,
+    "height": 844,
+    "width": 390
+  },
+  "viewportReset": true,
+  "consoleErrors": []
+}

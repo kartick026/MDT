@@ -16,7 +16,8 @@ from api import services as services_api
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    from core.auth import create_access_token
+    return TestClient(app, headers={"Authorization": "Bearer " + create_access_token({"sub": "admin"})})
 
 
 def test_analysis_request_validation():

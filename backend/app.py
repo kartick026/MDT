@@ -11,14 +11,16 @@ for _p in (_backend_dir, _root_dir):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from api import webhook, analysis, services, health, registry, auth
+from api import webhook, analysis, services, health, registry, auth, projects
+from core.auth import get_current_user
+from core.store import get_store
 from core.config import settings
 from core.database import init_databases
-from core.middleware import RequestTracingMiddleware, JSONLogFormatter
+from core.middleware import RequestTracingMiddleware, JSONLogFormatter, RequestSizeLimitMiddleware
 import logging
 
 # Configure root logger format & level
@@ -39,27 +41,27 @@ async def lifespan(app: FastAPI):
     # Startup — databases first, then graph schema + seed
     await init_databases()
 
-    from services.dependency_graph import DependencyGraph
-    graph = DependencyGraph()
-    await graph.init_schema()   # creates constraints + seeds known services
-    from core.registry import RegistryManager
-    if RegistryManager.get_project_context().get("source") == "local_demo":
-        if hasattr(graph, "seed_demo_history"):
+    get_store()  # Fail readiness when durable storage is unavailable.
+    tasks = []
+    if settings.RUNTIME_PROFILE == "local":
+        from services.dependency_graph import DependencyGraph
+        from core.registry import RegistryManager
+        from services.smell_detector import SmellDetector
+        graph = DependencyGraph()
+        await graph.init_schema()
+        if RegistryManager.get_project_context().get("source") == "local_demo":
             await graph.seed_demo_history(RegistryManager.get_local_demo_smell_history())
-
-    # Snapshotting is useful for trend detection, but it must not hold API
-    # readiness hostage to optional service/OpenAPI probes.
-    from services.smell_detector import SmellDetector
-    snapshot_task = asyncio.create_task(SmellDetector().snapshot_current_state())
-
-    yield
-
-    # Shutdown
-    if not snapshot_task.done():
-        snapshot_task.cancel()
-        await asyncio.gather(snapshot_task, return_exceptions=True)
-    from core.database import close_databases
-    await close_databases()
+        tasks.append(asyncio.create_task(SmellDetector().snapshot_current_state()))
+    if os.getenv("TESTING", "").lower() not in {"1", "true"}:
+        tasks.append(asyncio.create_task(projects.run_worker()))
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        from core.database import close_databases
+        await close_databases()
 
 
 app = FastAPI(
@@ -71,6 +73,7 @@ app = FastAPI(
 
 # Request tracing and latency logging middleware
 app.add_middleware(RequestTracingMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware)
 
 # CORS middleware
 app.add_middleware(
@@ -86,10 +89,11 @@ app.add_middleware(
 app.include_router(health.router, prefix="/health", tags=["Health"])
 app.include_router(health.router, prefix="/api/v1/health", include_in_schema=False)
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
-app.include_router(webhook.router, prefix="/webhook", tags=["Webhook"])
-app.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
-app.include_router(services.router, prefix="/services", tags=["Services"])
-app.include_router(registry.router, prefix="/registry", tags=["Registry"])
+app.include_router(projects.router, prefix="/v1", tags=["Projects and jobs"])
+if settings.RUNTIME_PROFILE == "local":
+    app.include_router(webhook.router, prefix="/webhook", tags=["Webhook"])
+    for router, prefix, tag in ((analysis.router, "/analysis", "Analysis"), (services.router, "/services", "Services"), (registry.router, "/registry", "Registry")):
+        app.include_router(router, prefix=prefix, tags=[tag], dependencies=[Depends(get_current_user)])
 
 
 @app.get("/")

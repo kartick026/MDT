@@ -1,6 +1,5 @@
-import { useState, createContext, useContext } from 'react';
-
-const ToastContext = createContext(null);
+import { useState } from 'react';
+import { ToastContext } from '../context/useToast';
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
@@ -23,7 +22,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ addToast, removeToast }}>
       {children}
-      <div className="toast-container" style={{
+      <div className="toast-container" role="status" aria-live="polite" aria-atomic="false" style={{
         position: 'fixed',
         bottom: '24px',
         right: '24px',
@@ -66,6 +65,7 @@ export function ToastProvider({ children }) {
               </span>
               <span style={{ flex: 1, lineHeight: 1.4 }}>{toast.message}</span>
               <button
+                aria-label="Dismiss notification"
                 onClick={() => removeToast(toast.id)}
                 style={{
                   background: 'none',
@@ -85,15 +85,4 @@ export function ToastProvider({ children }) {
       </div>
     </ToastContext.Provider>
   );
-}
-
-export function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) {
-    return {
-      addToast: (msg, type) => console.log(`[Toast ${type}]: ${msg}`),
-      removeToast: () => {}
-    };
-  }
-  return ctx;
 }

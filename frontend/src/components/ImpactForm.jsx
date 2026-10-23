@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { analyzeImpact, getProjectContext, previewFix } from '../api';
+import { downloadAnalysis, formatScore } from '../utils/analysis';
+import EvidenceSummary from './EvidenceSummary';
 
 const RISK_COLORS = {
   LOW: 'var(--green)', MEDIUM: 'var(--yellow)',
@@ -45,7 +47,7 @@ function ScoreGauge({ score, level, size = 120 }) {
           transform={`rotate(-90 ${cx} ${cy})`}
           style={{ transition: 'stroke-dashoffset .9s cubic-bezier(0.16,1,.3,1), stroke .4s' }}
         />
-        <text x={cx} y={cy - (size > 100 ? 4 : 2)} textAnchor="middle" fill="white" fontSize={scoreFontSize} fontWeight="700" fontFamily="'JetBrains Mono', monospace">{score}</text>
+        <text x={cx} y={cy - (size > 100 ? 4 : 2)} textAnchor="middle" fill="white" fontSize={scoreFontSize} fontWeight="700" fontFamily="'JetBrains Mono', monospace">{formatScore(score)}</text>
         <text x={cx} y={cy + (size > 100 ? 14 : 11)} textAnchor="middle" fill={color} fontSize={labelFontSize} fontFamily="Inter,sans-serif" fontWeight="600" style={{textTransform:'uppercase'}}>{level}</text>
       </svg>
     </div>
@@ -90,7 +92,7 @@ export default function ImpactForm({
   useEffect(() => {
     if (cachedAnalysis) {
       setResults(Array.isArray(cachedAnalysis) ? cachedAnalysis : [cachedAnalysis]);
-    } else if (!cachedAnalysis && !loading) {
+    } else {
       setResults(null);
       setPreviewData(null);
       setActivePreviewIdx(null);
@@ -109,12 +111,12 @@ export default function ImpactForm({
     getProjectContext().then(setProjectContext).catch(() => setProjectContext(null));
   }, []);
 
-  const runAnalysis = async (
-    targetRepo = currentRepo,
-    targetBranch = currentBranch,
-    overrideFiles = files,
+  const runAnalysis = useCallback(async (
+    targetRepo,
+    targetBranch,
+    overrideFiles = '',
     triggerKey = null,
-    overrideCommit = commitRef
+    overrideCommit = ''
   ) => {
     if (!targetRepo || !targetRepo.trim()) {
       setError('Please import or select a repository from Overview to run impact analysis.');
@@ -136,7 +138,7 @@ export default function ImpactForm({
         ...(changedFiles && changedFiles.length > 0 ? { changed_files: changedFiles } : {}),
       });
       setResults([data]);
-      setProjectContext(data.project_context || projectContext);
+      setProjectContext(previous => data.project_context || previous);
       onSaveAnalysis?.(data, key);
       onAnalysis?.();
     } catch (err) {
@@ -145,7 +147,7 @@ export default function ImpactForm({
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeProject?.importedAt, onSaveAnalysis, onAnalysis]);
 
   // Auto-trigger analysis ONLY ONCE per repository/branch import, when the impact tab is active
   useEffect(() => {
@@ -166,7 +168,7 @@ export default function ImpactForm({
 
     lastAnalyzedKeyRef.current = key;
     runAnalysis(repo, branch, files, key, '');
-  }, [isActive, activeProject, projectContext?.repo_url, projectContext?.branch, analyzedProjectKey]);
+  }, [isActive, activeProject, projectContext?.repo_url, projectContext?.branch, analyzedProjectKey, files, runAnalysis]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -210,30 +212,11 @@ export default function ImpactForm({
 
   // Parse structured edits from suggestion if explicitly provided,
   // or synthesize architectural resilience edits if the recommendation proposes safeguards
-  const tryParseEdits = (suggestion, result) => {
+  const tryParseEdits = (suggestion) => {
     if (typeof suggestion === 'object' && suggestion.edits && Array.isArray(suggestion.edits) && suggestion.edits.length > 0) {
       return suggestion.edits;
     }
-    const text = typeof suggestion === 'object' ? suggestion.text : String(suggestion || '');
-    const impacted = result?.impacted_services || [];
-    const primary = impacted[0] || null;
-    if (!primary) return null;
-    const lower = text.toLowerCase();
-
-    if (lower.includes('circuit breaker') || lower.includes('facade') || lower.includes('resilience') || lower.includes('safeguard')) {
-      return [
-        { action: 'add_node', from_service: `${primary}_facade` },
-        { action: 'add_edge', from_service: `${primary}_facade`, to_service: primary }
-      ];
-    }
-    if (lower.includes('decouple') || lower.includes('queue') || lower.includes('event') || lower.includes('broker')) {
-      return [
-        { action: 'add_node', from_service: 'event_broker' },
-        { action: 'add_edge', from_service: primary, to_service: 'event_broker' }
-      ];
-    }
-    // Plain-text suggestions (like "run tests", "update docs") get no graph edits
-    // — no Preview button will be shown for these
+    // Only server-provided, structured edits can be simulated.
     return null;
   };
 
@@ -486,7 +469,7 @@ export default function ImpactForm({
                       </span>
 
                       <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-                        Confidence: <strong style={{ color: 'var(--cyan)' }}>{(result.confidence * 100).toFixed(0)}%</strong>
+                        {result.confidence_evidence?.kind === 'evidence_completeness' ? 'Evidence completeness' : 'Legacy confidence'}: <strong style={{ color: 'var(--cyan)' }}>{(result.confidence * 100).toFixed(0)}%</strong>
                       </span>
                       <span style={{ color: 'var(--border)' }}>•</span>
                       <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
@@ -501,7 +484,7 @@ export default function ImpactForm({
                       <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)' }}>
                         Commit Blast Radius
                       </span>
-                      <ScoreGauge score={Math.round(result.risk_score)} level={result.severity} size={92} />
+                      <ScoreGauge score={result.risk_score} level={result.severity} size={92} />
                       <span style={{ fontSize: '10px', color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
                         Git Diff Risk
                       </span>
@@ -510,10 +493,10 @@ export default function ImpactForm({
                     {/* Dial 2: Architecture Health (Smells) */}
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                       <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)' }}>
-                        Architecture Health
+                        Architectural Debt
                       </span>
                       <ScoreGauge
-                        score={Math.round(result.architecture_smell_score !== undefined ? result.architecture_smell_score : (result.smell_score || 0))}
+                        score={result.architecture_smell_score !== undefined ? result.architecture_smell_score : (result.smell_score || 0)}
                         level={result.architecture_smell_severity || (result.architecture_smell_score > 75 ? 'CRITICAL' : result.architecture_smell_score > 50 ? 'HIGH' : result.architecture_smell_score > 25 ? 'MEDIUM' : 'LOW')}
                         size={92}
                       />
@@ -524,6 +507,8 @@ export default function ImpactForm({
                   </div>
                 </div>
 
+                <EvidenceSummary result={result} />
+                <button className="btn btn-ghost" onClick={() => downloadAnalysis(result)}>Export analysis JSON</button>
                 {/* Connection Bugs Alert Banner */}
                 {result.connection_bugs?.length > 0 && (
                   <div style={{
@@ -763,7 +748,7 @@ export default function ImpactForm({
                                   {/* Before */}
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                                     <span style={{ fontSize: '10.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)' }}>Before (Smell Risk)</span>
-                                    <ScoreGauge score={Math.round(previewData.before.score)} level={previewData.before.severity} size={82} />
+                                    <ScoreGauge score={previewData.before.score} level={previewData.before.severity} size={82} />
                                     <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
                                       {previewData.before.total_smells} smell{previewData.before.total_smells !== 1 ? 's' : ''}
                                     </span>
@@ -790,7 +775,7 @@ export default function ImpactForm({
                                   {/* After */}
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                                     <span style={{ fontSize: '10.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)' }}>After (Smell Risk)</span>
-                                    <ScoreGauge score={Math.round(previewData.after.score)} level={previewData.after.severity} size={82} />
+                                    <ScoreGauge score={previewData.after.score} level={previewData.after.severity} size={82} />
                                     <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
                                       {previewData.after.total_smells} smell{previewData.after.total_smells !== 1 ? 's' : ''}
                                     </span>

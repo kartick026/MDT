@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, field_validator
@@ -77,6 +77,10 @@ class AnalysisRequest(BaseModel):
     repo_url: Optional[str] = Field(None, min_length=1, description="Repository URL (defaults to active architecture if omitted)")
     commit_sha: Optional[str] = Field(None, min_length=1, description="Commit SHA or branch reference (defaults to imported branch if omitted)")
     changed_files: Optional[List[str]] = Field(None, description="Optional manual list of changed files")
+    base_sha: Optional[str] = None
+    comparison_mode: Literal["direct", "merge_base"] = "direct"
+    input_mode: Literal["commit", "staged", "working", "push"] = "commit"
+    local_changes: Optional[List[Dict[str, Any]]] = Field(None, max_length=100)
 
     @field_validator("repo_url")
     @classmethod
@@ -102,7 +106,7 @@ class AnalysisRequest(BaseModel):
 @router.post("/analyze", response_model=AnalysisResponse, summary="Trigger impact analysis for a commit")
 async def analyze_impact(
     request: AnalysisRequest,
-    current_user: Optional[UserOut] = Depends(get_current_user_optional)
+    current_user: UserOut = Depends(require_admin)
 ) -> AnalysisResponse:
     """
     Trigger impact analysis for a commit.
@@ -120,16 +124,21 @@ async def analyze_impact(
         active_context = _ensure_active_project_matches(target_repo)
 
         # Resolve branch ref to exact commit SHA if needed
-        resolved_sha = await git_analyzer.resolve_commit_sha(
+        resolved_sha = None if request.local_changes is not None else await git_analyzer.resolve_commit_sha(
             repo_url=target_repo,
             ref=target_ref
         )
         effective_commit_sha = resolved_sha or target_ref
 
+        if request.input_mode in {"staged", "working"} and request.local_changes is None:
+            raise HTTPException(422, "Local change analysis requires full before/after source snapshots")
         changes = await git_analyzer.analyze_push(
             repo_url=target_repo,
             commit_sha=effective_commit_sha,
-            changed_files=request.changed_files
+            changed_files=request.changed_files,
+            base_sha=request.base_sha,
+            comparison_mode=request.comparison_mode,
+            local_changes=request.local_changes,
         )
 
         result = await engine.analyze_impact(changes, commit_sha=effective_commit_sha)
@@ -145,7 +154,7 @@ async def analyze_impact(
                     break
             if matched_svc not in service_files:
                 service_files[matched_svc] = {}
-            service_files[matched_svc][ch.file_path] = ch.new_content or ch.old_content
+            service_files[matched_svc][ch.file_path] = ch.new_content
 
         connection_bugs = ConnectionValidator.validate_topology(
             RegistryManager.get_services(), service_files
@@ -205,6 +214,8 @@ async def analyze_impact(
             "severity": sev_str,
             "impacted_services": result.impacted_services,
             "confidence": result.confidence,
+            "assessment_status": result.assessment_status,
+            "confidence_evidence": result.confidence_evidence,
             "explanation": result.explanation,
             "suggested_fixes": all_fixes,
             "connection_bugs": [b.to_dict() for b in connection_bugs],
@@ -227,6 +238,11 @@ async def analyze_impact(
             "architecture_smell_severity": architecture_smell_severity,
             "architecture_smells_count": architecture_smells_count,
             "architecture_smells_breakdown": architecture_smells_breakdown,
+            "coverage": getattr(git_analyzer, "last_extraction", {}),
+            "partial_results": getattr(git_analyzer, "last_extraction", {}).get("status") == "partial" or result.assessment_status in {"insufficient_evidence", "partial"},
+            "warnings": getattr(git_analyzer, "last_extraction", {}).get("warnings", []) + result.confidence_evidence.get("reasons", []),
+            "evidence": {"mode": "local_analysis", "confidence_kind": "evidence_completeness", "confidence_calibrated": False,
+                         "score_interpretation": "Engineering indicator, not a calibrated incident probability"},
         }
 
         # Thread-safe insert into history
@@ -236,6 +252,8 @@ async def analyze_impact(
 
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as e:
         logger.error("Analysis failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -247,6 +265,9 @@ async def get_analysis_history(
     service: Optional[str] = None
 ) -> HistoryResponse:
     """Return historical analysis results from the in-process store or Neo4j."""
+    complete_results = await history_store.get_all(service=service)
+    if complete_results:
+        return HistoryResponse(analyses=complete_results[:limit], total=len(complete_results), limit=limit, service_filter=service)
     persisted = await graph.get_analysis_history(limit=limit, service=service)
     ctx = RegistryManager.get_project_context()
     if persisted:
@@ -304,7 +325,8 @@ async def get_severity_thresholds() -> Dict[str, Dict[str, Any]]:
 
 class PreviewFixRequest(BaseModel):
     """What-If remediation preview request."""
-    edits: List[GraphEdit]
+    edits: List[GraphEdit] = Field(max_length=100)
+    snapshot_version: Optional[str] = None
     baseline_risk_score: Optional[float] = None
     affected_files_count: Optional[int] = None
     baseline_smells: Optional[Dict[str, int]] = None
@@ -326,10 +348,13 @@ async def preview_fix(
             baseline_risk_score=request.baseline_risk_score,
             affected_files_count=request.affected_files_count,
             baseline_smells=request.baseline_smells,
+            snapshot_version=request.snapshot_version,
         )
         return result
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409 if "stale" in str(exc).lower() else 422, detail=str(exc)) from exc
     except Exception as e:
         logger.error("Preview fix simulation failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

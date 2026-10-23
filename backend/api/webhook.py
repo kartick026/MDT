@@ -24,7 +24,8 @@ import time
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import APIRouter, Request, HTTPException, Header, Body, BackgroundTasks
+from fastapi import APIRouter, Request, HTTPException, Header, Body, BackgroundTasks, Depends
+from core.auth import require_admin
 from pydantic import ValidationError
 
 from schemas.webhook import GitHubPushPayload, GitHubPingPayload
@@ -279,8 +280,28 @@ async def github_webhook(
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid push payload: {exc}")
 
-        # Dispatch the actual heavy lifting to a background task
-        background_tasks.add_task(_process_push_background, push, x_github_delivery)
+        # Persist before acknowledging: redelivery must not duplicate analysis.
+        from api.analysis import _ensure_active_project_matches
+        from core.registry import RegistryManager
+        from core.store import get_store
+        from domain.architecture import GraphSnapshot
+        context = _ensure_active_project_matches(push.repo_url)
+        if push.after == "0" * 40:
+            return {"status": "ignored", "reason": "branch_deleted", "delivery_id": x_github_delivery}
+        if push.branch != context.get("branch"):
+            raise HTTPException(409, "Webhook branch does not match the imported architecture")
+        snapshot = RegistryManager.load()
+        project_id = "webhook-" + hashlib.sha256(context["repository_key"].encode()).hexdigest()[:24]
+        project = {"id": project_id, "name": "Local webhook", "repo_url": push.repo_url, "branch": push.branch,
+                   "role": "owner", "ready": True, "snapshot": snapshot,
+                   "snapshot_version": GraphSnapshot.from_data(snapshot).version}
+        delivery = x_github_delivery or hashlib.sha256(body).hexdigest()
+        try:
+            job_id = get_store().enqueue(settings.ADMIN_USERNAME, project_id,
+                {"project": project, "input": {"source": "commit", "base_ref": push.before, "head_ref": push.commit_sha}},
+                dedupe="webhook:" + delivery)
+        except ValueError as exc:
+            raise HTTPException(429, str(exc)) from exc
         
         return {
             "status": "accepted",
@@ -288,6 +309,7 @@ async def github_webhook(
             "delivery_id": x_github_delivery,
             "repo": push.repo_url,
             "commit": push.commit_sha
+            ,"job_id": job_id
         }
 
     # --- unhandled event type ---
@@ -300,7 +322,7 @@ async def github_webhook(
 
 
 @router.post("/test", summary="Test webhook connectivity")
-async def test_webhook():
+async def test_webhook(user=Depends(require_admin)):
     """
     Confirm the webhook endpoint is reachable.
     Safe to call from GitHub's 'Redeliver' UI or from curl.
@@ -317,6 +339,7 @@ async def test_webhook():
 
 @router.post("/simulate", summary="Simulate a GitHub push event (dev only)")
 async def simulate_push(
+    user=Depends(require_admin),
     repo_url: str = Body(..., embed=True),
     branch: str = Body("main", embed=True),
     commit_sha: str = Body("abc123def456", embed=True),
@@ -333,6 +356,10 @@ async def simulate_push(
 
     Builds a synthetic GitHubPushPayload, then runs the full pipeline.
     """
+    if settings.RUNTIME_PROFILE != "local" or settings.ENVIRONMENT not in {"development", "test"}:
+        raise HTTPException(404, "Simulation is available only in local development")
+    from api.analysis import _ensure_active_project_matches
+    _ensure_active_project_matches(repo_url)
     logger.info("Simulating push event | repo=%s | files=%s", repo_url, changed_files)
 
     analyzer = GitAnalyzer()

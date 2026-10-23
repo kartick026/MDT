@@ -87,6 +87,9 @@ def test_webhook_rate_limiting_enforced(client):
 
 def test_webhook_test_endpoint(client):
     response = client.post("/webhook/test")
+    assert response.status_code == 401
+    from core.auth import create_access_token
+    response = client.post("/webhook/test", headers={"Authorization": "Bearer " + create_access_token({"sub": "admin"})})
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"

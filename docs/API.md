@@ -1,3 +1,5 @@
+> Historical research-stack documentation: some routes, claims and setup details below predate the owned-project alpha. Use [PUBLIC_ALPHA.md](PUBLIC_ALPHA.md), [VALIDATION.md](VALIDATION.md) and the running OpenAPI schema for current behavior.
+
 # Microservice Drift Tracker (MDT) — API Documentation
 
 This document describes the REST API exposed by the MDT backend server (`http://localhost:8000`).

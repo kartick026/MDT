@@ -209,7 +209,7 @@ services:
         service_names = [s["name"] for s in services]
         self.assertIn("auth-service", service_names)
         self.assertIn("billing-service", service_names)
-        self.assertNotIn("redis", service_names)  # Infra filtered out
+        self.assertEqual(next(s for s in services if s["name"] == "redis")["node_type"], "database")
 
         # Check port
         auth_svc = next(s for s in services if s["name"] == "auth-service")
