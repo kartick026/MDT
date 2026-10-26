@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "evidence": {},
+  "instructions": "Add each independently reviewed report under its gate name as {path: relative/file.json, sha256: actual digest}. Required gates: accuracy, security, operations, clients, pilot, approval. Empty or local-only evidence cannot pass a professional release. See docs/PROFESSIONAL_READINESS.md."
+}

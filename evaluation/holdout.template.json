@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "split": "holdout",
+  "provenance": {
+    "kind": "human_adjudicated_repository_changes",
+    "independent": false,
+    "adjudicated": false,
+    "reviewers": [],
+    "used_for_tuning": false,
+    "frozen_at": null,
+    "repository_revisions": {}
+  },
+  "cases": []
+}

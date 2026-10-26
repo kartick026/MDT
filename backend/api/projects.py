@@ -67,6 +67,8 @@ class AnalysisInput(BaseModel):
     def bound_source(self):
         if len(json.dumps(self.model_dump()).encode()) > 3*1024*1024:
             raise ValueError("Source input exceeds 3 MiB")
+        if self.local_changes is not None and (self.before_files is not None or self.after_files is not None):
+            raise ValueError("Submit one source representation: local_changes or before_files/after_files")
         if self.source == "patch" and self.local_changes is None and self.before_files is None and self.after_files is None:
             raise ValueError("Patch analysis requires before_files/after_files or local_changes; a patch alone is incomplete source evidence")
         if self.source == "patch" and self.local_changes is None and (self.before_files is None or self.after_files is None):

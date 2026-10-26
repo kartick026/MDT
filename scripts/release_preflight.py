@@ -8,6 +8,7 @@ import argparse
 import ipaddress
 import json
 import re
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -54,8 +55,17 @@ def check(config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=Path(__file__).resolve().parents[1] / 'release-config.example.json')
+    parser.add_argument('--profile', choices=('alpha', 'professional'), default='alpha')
+    parser.add_argument('--evidence', type=Path, default=Path(__file__).resolve().parents[1] / 'release-evidence.example.json')
     args = parser.parse_args()
-    missing = check(json.loads(args.config.read_text(encoding='utf-8-sig')))
+    config = json.loads(args.config.read_text(encoding='utf-8-sig'))
+    missing = check(config)
+    if args.profile == 'professional':
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from scripts.professional_readiness import check_professional
+        evidence_result = check_professional(json.loads(args.evidence.read_text(encoding='utf-8-sig')), config)
+        missing.extend(gate['gate'] + ': ' + reason for gate in evidence_result['gates'] for reason in gate['remaining'])
     print(json.dumps({'ready_to_publish': not missing, 'remaining': missing,
+                      'profile': args.profile,
                       'scope': 'Metadata and recorded acceptance only; no network verification or publication'}, indent=2))
     raise SystemExit(2 if missing else 0)

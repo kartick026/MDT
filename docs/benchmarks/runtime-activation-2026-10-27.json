@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "kind": "local_runtime_activation",
+  "status": "passed",
+  "created_at": "2026-10-26T18:55:28.784702+00:00",
+  "user_date": "2026-10-27",
+  "timezone": "Asia/Calcutta",
+  "source": {
+    "sha256": "b4d1987948124158c412ff97eeb837a7832c8a3a16382577f5a5c3ad90445e8d",
+    "files": 213
+  },
+  "images": {
+    "running_local_backend": "sha256:1433224d17603dbd358d527b71b1187bad4c00017f997ecd6cb481d71d2d8f91",
+    "hosted_candidate": "sha256:218809d4c24d415b63259dda183c4c35e1cead6ba26a3a44a13c468fd4a337d2"
+  },
+  "tests": [
+    {
+      "name": "runtime-backend",
+      "image": "mdt-local-validation:20261027",
+      "source_sha256": "f4e59d23d325de29160e728575f0d501bf2a74e245885110ea6aa95c28f4c5cb",
+      "passed": 444,
+      "failed": 0,
+      "skipped": 0,
+      "junit_sha256": "27a04db5db35dcf5031c7abd3d4fcd407b5e34011a30026e954ca5c8d116159c",
+      "seconds": 54.912
+    },
+    {
+      "name": "hosted-backend",
+      "image": "mdt-hosted-validation:20261027",
+      "source_sha256": "b4d1987948124158c412ff97eeb837a7832c8a3a16382577f5a5c3ad90445e8d",
+      "passed": 444,
+      "failed": 0,
+      "skipped": 0,
+      "junit_sha256": "c05b13c2cfc0a04527d05116561ec245e70d24f636bb329ffd870ded76dc9650",
+      "seconds": 41.322
+    }
+  ],
+  "scanner": {
+    "tool": "Trivy 0.76.1",
+    "before_after": [
+      {
+        "path": "scratch/readiness/hosted-scan-20261027.json",
+        "sha256": "43d794e7c46d33ce4bcdf63f4f868abd3f64cc41409850ec655ff16b06e6ab70",
+        "created_at": "2026-10-26T18:45:28.413878369Z",
+        "image_id": "sha256:df741a0c670a9d6458f3d3c37fc57413491d16b6564025a6f63d19e68efe3e8d",
+        "counts": {
+          "HIGH": 1,
+          "MEDIUM": 1,
+          "LOW": 22
+        },
+        "findings": [
+          {
+            "VulnerabilityID": "CVE-2026-92392",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "HIGH"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-92388",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "MEDIUM"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-107928",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-107929",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-86409",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-86410",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-86411",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-86412",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-86413",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-86414",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-86415",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-87861",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-87862",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-87863",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-87864",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-87865",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-87866",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-92386",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-92387",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-92389",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-92390",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-92391",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-94265",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          },
+          {
+            "VulnerabilityID": "CVE-2026-94266",
+            "PkgName": "libcurl",
+            "InstalledVersion": "8.22.0-r0",
+            "FixedVersion": "8.23.0-r0",
+            "Severity": "LOW"
+          }
+        ]
+      },
+      {
+        "path": "scratch/readiness/hosted-scan-fixed-20261027.json",
+        "sha256": "a1b1c6ef770fa3419dc21cf167da407fb3021cdaf68618bf031a2697366edaac",
+        "created_at": "2026-10-26T18:50:09.013984317Z",
+        "image_id": "sha256:218809d4c24d415b63259dda183c4c35e1cead6ba26a3a44a13c468fd4a337d2",
+        "counts": {},
+        "findings": []
+      }
+    ],
+    "scope": "Hosted candidate only; known OS and Python package vulnerabilities at scan time; not an application security review"
+  },
+  "live_api": {
+    "provenance": "Recorded successful docker exec api_smoke.py and loopback admission script outputs",
+    "health": "ready",
+    "analysis_status": "partial",
+    "route_change_risk": 70.0,
+    "smells": 18,
+    "comment_only_risk": 0.0,
+    "unchanged_preview": true,
+    "history_snapshot_baseline_drift_reviews": "passed",
+    "ambiguous_source_http_statuses": [
+      422,
+      422,
+      422
+    ],
+    "valid_source_unknown_project_statuses": [
+      404,
+      404
+    ],
+    "invalid_login_burst": {
+      "401": 4,
+      "429": 8
+    },
+    "configured_login_limit_per_minute": 5,
+    "logout_revocation": "passed",
+    "existing_projects_before_after": [
+      4,
+      4
+    ],
+    "existing_project_digest_before_after": "e5319a181a03c49dac329b9730f6a545e6e2828dbddcaf389ba0da88495a7763",
+    "active_jobs_after": 0,
+    "temporary_project_removed": true,
+    "source_hashes_verified_against_running_container": {
+      "core/utils.py": "ae05014690bb5934fd8155bd66df9a5c24ba3546c8ade23ae8d990fcac5e9636",
+      "api/projects.py": "adfbbcf09e0f5e846a7a3b3bbd01b357d9d853629aeb0d99c7469862407af708"
+    }
+  },
+  "website_http": [
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/api/health/ready",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/demo",
+      "status": 200
+    }
+  ],
+  "browser_visual_check": {
+    "status": "not_run",
+    "reason": "Existing Codex Browser runtime returned no connected browsers; BrowserAct CLI and uv were not installed. No installation or unrelated browser control was attempted."
+  },
+  "professional_ready": false,
+  "remaining": [
+    "Independent held-out labels and security review",
+    "Actual HTTPS deployment and client acceptance",
+    "Hosting, publisher, privacy, support and license decisions",
+    "Real external pilot and final approval"
+  ]
+}

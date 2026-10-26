@@ -1,0 +1,65 @@
+{
+  "professional_ready": false,
+  "source": {
+    "sha256": "b4d1987948124158c412ff97eeb837a7832c8a3a16382577f5a5c3ad90445e8d",
+    "files": 213
+  },
+  "metadata_remaining": [
+    "web_url: supply the actual public HTTPS URL",
+    "api_url: supply the actual public HTTPS URL",
+    "privacy_url: supply the actual public HTTPS URL",
+    "publisher_id: supply the registered publisher identity",
+    "support_contact: supply the agreed support address or URL",
+    "license_spdx: select a contributor-approved license",
+    "contributors_approved_license: acceptance evidence is still required",
+    "public_https_cors_verified: acceptance evidence is still required",
+    "hosted_restart_restore_verified: acceptance evidence is still required",
+    "deployed_vscode_dev_verified: acceptance evidence is still required"
+  ],
+  "checked_at": "2026-10-26T18:52:32.774757+00:00",
+  "gates": [
+    {
+      "gate": "accuracy",
+      "passed": false,
+      "remaining": [
+        "Invalid evidence: Required evidence is missing"
+      ]
+    },
+    {
+      "gate": "security",
+      "passed": false,
+      "remaining": [
+        "Invalid evidence: Required evidence is missing"
+      ]
+    },
+    {
+      "gate": "operations",
+      "passed": false,
+      "remaining": [
+        "Invalid evidence: Required evidence is missing"
+      ]
+    },
+    {
+      "gate": "clients",
+      "passed": false,
+      "remaining": [
+        "Invalid evidence: Required evidence is missing"
+      ]
+    },
+    {
+      "gate": "pilot",
+      "passed": false,
+      "remaining": [
+        "Invalid evidence: Required evidence is missing"
+      ]
+    },
+    {
+      "gate": "approval",
+      "passed": false,
+      "remaining": [
+        "Invalid evidence: Required evidence is missing"
+      ]
+    }
+  ],
+  "scope": "Recorded evidence validation; not independent certification or permission to publish"
+}

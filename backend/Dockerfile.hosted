@@ -5,7 +5,9 @@ RUN apk add --no-cache build-base
 COPY requirements-hosted.txt ./
 RUN pip wheel --no-cache-dir --wheel-dir=/wheels -r requirements-hosted.txt
 
-FROM python:3.11-alpine3.24
+# Release builds refresh this stage with --no-cache-filter runtime so a
+# cached base image cannot hide newer Alpine security package updates.
+FROM python:3.11-alpine3.24 AS runtime
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8000
 RUN apk upgrade --no-cache && apk add --no-cache git ca-certificates libstdc++

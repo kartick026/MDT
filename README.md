@@ -10,6 +10,8 @@ MDT is an academic alpha for cross-service change impact and architectural-debt 
 
 - [Current implementation and zero-cost release runbook](docs/PUBLIC_ALPHA.md)
 - [25 October release checks, local packages and outstanding gates](docs/RELEASE_READINESS_2026-10-25.md)
+- [Professional support scope, measurable acceptance gates and remaining evidence](docs/PROFESSIONAL_READINESS.md)
+- [27 October running-backend checks and refreshed hosted-image security scan](docs/RUNTIME_VALIDATION_2026-10-27.md)
 - [Report audit, prioritized implementation plan, and research backlog](docs/IMPLEMENTATION_PLAN.md)
 - [Validation results and remaining release gates](docs/VALIDATION.md)
 - [Current implementation checklist and remaining work](docs/IMPLEMENTATION_STATUS.md)

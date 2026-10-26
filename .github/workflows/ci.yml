@@ -45,6 +45,17 @@ jobs:
       - run: pip install -r backend/requirements-hosted.txt -r requirements-test.txt 'neo4j>=5,<7'
       - run: python -m pytest -q
       - run: python scripts/export_demo.py --check
+      - name: Validate development accuracy controls and local recovery invariants
+        run: |
+          python scripts/evaluate_accuracy.py --output scratch/readiness/accuracy-development.json
+          python scripts/check_local_reliability.py --output scratch/readiness/local-reliability.json
+      - name: Preserve local validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: readiness-local-evidence
+          path: scratch/readiness/*.json
+          if-no-files-found: warn
   clients:
     runs-on: ubuntu-latest
     steps:
@@ -74,7 +85,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the release runtime
-        run: docker build --pull -f ${{ matrix.dockerfile }} -t mdt-release-validation ${{ matrix.context }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.context }}" = "backend" ]; then
+            docker build --pull --no-cache-filter runtime -f "${{ matrix.dockerfile }}" -t mdt-release-validation "${{ matrix.context }}"
+          else
+            docker build --pull --no-cache -f "${{ matrix.dockerfile }}" -t mdt-release-validation "${{ matrix.context }}"
+          fi
       - name: Reject known high or critical package findings
         run: >-
           docker run --rm
