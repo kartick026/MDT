@@ -5,6 +5,7 @@ replace only source transport. No repository source/build hooks are executed.
 """
 import argparse
 import asyncio
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -75,7 +76,7 @@ async def replay(args):
                 record.update(status=imported["status"], nodes=len(data["services"]), edges=len(data["dependencies"]),
                               architectural_debt=health["score"], architecture_health=health, findings=findings,
                               graph=data, snapshot_version=graph.version, coverage=imported["coverage"], commit_risk=None)
-                if prior.get("base_sha"):
+                if prior.get("base_sha") and not args.imports_only:
                     analyzer = GitAnalyzer()
                     analyzer._gh = ArchiveTransport()
                     changes = await analyzer._analyze_public_archives(*name.split("/"), revision, base_sha=prior["base_sha"])
@@ -98,8 +99,10 @@ async def replay(args):
         record["seconds"] = round(time.perf_counter() - started, 3)
         records.append(record)
         print(json.dumps({key: record.get(key) for key in ("repo", "status", "nodes", "edges", "architectural_debt", "commit_risk", "seconds")}), flush=True)
-        result = {"date": "2026-10-22", "detector_version": DETECTOR_VERSION,
-                  "method": "Pinned public archive replay through current importer, detector and deterministic risk core; not a Browser rerun or calibrated accuracy evaluation",
+        result = {"date": datetime.now(timezone.utc).date().isoformat(), "detector_version": DETECTOR_VERSION,
+                  "method": ("Pinned public archive replay through current importer and detector"
+                             + ("; commit analysis not rerun" if args.imports_only else " and deterministic risk core")
+                             + "; not a Browser rerun or calibrated accuracy evaluation"),
                   "executed_repository_code": False, "results": records,
                   "source_sha256": {str(path.relative_to(args.root)): hashlib.sha256(path.read_bytes()).hexdigest()
                                     for path in sorted((args.root / "backend").rglob("*.py"))}}
@@ -111,6 +114,7 @@ def main():
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--archives", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--imports-only", action="store_true", help="Replay cached topology imports without fetching parent commits")
     args = parser.parse_args()
     args.root = Path(__file__).resolve().parents[1]
     args.baseline, args.archives, args.output = args.baseline.resolve(), args.archives.resolve(), args.output.resolve()

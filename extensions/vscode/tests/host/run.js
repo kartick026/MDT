@@ -9,7 +9,9 @@ async function run() {
   const executable = process.env.VSCODE_EXECUTABLE || (process.platform === 'win32' ? path.join(process.env.LOCALAPPDATA, 'Programs/Microsoft VS Code/Code.exe') : 'code');
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mdt-vscode-host-'));
   const fixture = path.join(root, 'fixture');
-  const web = process.env.MDT_HOST_KIND === 'web';
+  const kind = process.argv.includes('--restricted') ? 'restricted' : process.argv.includes('--web') ? 'web' : process.env.MDT_HOST_KIND;
+  const web = kind === 'web';
+  const restricted = kind === 'restricted';
   const report = web ? path.join(fixture, 'web-host-result.json') : path.join(root, 'result.json');
   await fs.mkdir(fixture);
   const git = (...args) => execFileSync('git', ['-c', 'core.hooksPath=', ...args], { cwd: fixture, stdio: 'pipe', windowsHide: true });
@@ -22,10 +24,11 @@ async function run() {
     const env = { ...process.env, MDT_HOST_TEST_REPORT: report };
     delete env.ELECTRON_RUN_AS_NODE;
     const code = await new Promise((resolve, reject) => {
-      const child = spawn(executable, [fixture, '--no-sandbox', '--disable-gpu', '--disable-extensions', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust',
+      const child = spawn(executable, [fixture, '--no-sandbox', '--disable-gpu', '--disable-extensions', '--skip-welcome', '--skip-release-notes',
+        ...(restricted ? [] : ['--disable-workspace-trust']),
         `--user-data-dir=${path.join(root, 'user-data')}`, `--extensions-dir=${path.join(root, 'extensions')}`,
         ...(web ? ['--extensionDevelopmentKind=web'] : []),
-        `--extensionDevelopmentPath=${path.resolve(__dirname, '../..')}`, `--extensionTestsPath=${path.join(__dirname, web ? 'web.js' : 'index.js')}`], { env, windowsHide: true, stdio: 'inherit' });
+        `--extensionDevelopmentPath=${path.resolve(__dirname, '../..')}`, `--extensionTestsPath=${path.join(__dirname, web ? 'web.js' : restricted ? 'restricted.js' : 'index.js')}`], { env, windowsHide: true, stdio: 'inherit' });
       const timer = setTimeout(() => { child.kill(); reject(new Error('VS Code host tests exceeded 90 seconds.')); }, 90000);
       child.once('error', error => { clearTimeout(timer); reject(error); });
       child.once('exit', result => { clearTimeout(timer); resolve(result); });

@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from services.git_analyzer import GitAnalyzer, GitHubAPIClient, GitHubRateLimitError, extract_route_signatures
-from services.source_parser import parse_js_ts
+from services.source_parser import parse_js_ts, semantic_comparison
 from services.impact_engine import ImpactEngine
 from services.repo_onboarding import RepoOnboarder
 
@@ -34,10 +34,135 @@ export { handler as getHandler };
         ("GET", "/users"), ("POST", "/users"), ("DELETE", "/users/:id")}
 
 
+@pytest.mark.parametrize('language', ['javascript', 'typescript'])
+def test_jsx_ampersand_attributes_are_literal_not_call_evidence(language):
+    source = '''export const Page = () => <a href="/search?a=1&b=2" data-example="app.get(unknown, handler)">Link</a>;
+app.get('/real', handler);'''
+    parsed = parse_js_ts(source, language)
+    assert parsed['parser_coverage'] == 'tree_sitter'
+    assert [r['path'] for r in parsed['routes']] == ['/real']
+    assert semantic_comparison(source, '// comment\n' + source, language)['semantic_status'] == 'equivalent'
+    assert semantic_comparison(source, source.replace('a=1', 'a=2'), language)['semantic_status'] == 'changed'
+
+
+@pytest.mark.parametrize('source', [
+    'const p = <a href="/x?a=1&b=2"/>; const invalid = ( => {};',
+    'const p = <a href="/x?a=1&b=2 />;',
+    'const p = <a href={a & }/>;',
+    # This grammar loses the entire attribute boundary; do not broaden recovery.
+    '''const p = <a href="/x?a=1&app.get('/fake', handler)"/>;''',
+])
+def test_jsx_attribute_recovery_rejects_unrelated_and_unterminated_errors(source):
+    assert parse_js_ts(source, 'typescript')['parser_coverage'] == 'failed'
+
+
+@pytest.mark.parametrize('header', ['except ValueError, TypeError:', 'except* errors.ValueError, TypeError:'])
+def test_python_new_exception_syntax_preserves_semantics_routes_and_source_positions(header):
+    from services.source_parser import parse_python
+    import ast
+    source = '@app.get("/items")\ndef items():\n    try:\n        run()\n    ' + header + '\n        pass\n'
+    tree = parse_python(source)
+    handler = next(n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler))
+    assert ast.get_source_segment(source, handler.type.elts[0]) in {'ValueError', 'errors.ValueError'}
+    assert semantic_comparison(source, '# comment\n' + source, 'python')['semantic_status'] == 'equivalent'
+    change = GitAnalyzer()._build_change('app.py', 'modified', source, source.replace('/items', '/orders'))
+    assert change.parser_coverage == 'ast'
+    assert change.ast_metadata['contract_changes']['added'][0]['path'] == '/orders'
+
+
+@pytest.mark.parametrize('header', ['except ValueError, TypeError as exc:', 'except ValueError,:', 'except ValueError,, TypeError:'])
+def test_python_exception_compatibility_rejects_invalid_headers(header):
+    from services.source_parser import parse_python
+    with pytest.raises(SyntaxError):
+        parse_python('try:\n    pass\n' + header + '\n    pass\n')
+
+
 def test_tsx_and_single_argument_arrow_are_parsed():
     result = parse_js_ts('export const Page = (props: Props) => <main>{props.name}</main>; const id = x => x;', "typescript")
     assert result["parser_coverage"] == "tree_sitter"
     assert result["functions"] == ["Page", "id"]
+
+
+@pytest.mark.parametrize("source", [
+    "const Button = styled.button<{ $type?: 'primary' | 'link' }>`color: ${({ $type }) => $type};`;",
+    "export const Item = styled.div<{ $fullWidth?: boolean }>`width: ${({ $fullWidth }) => $fullWidth ? '100%' : 'auto'};`;",
+    "const view = tag<{ value: string }, number>`value: ${value}`;",
+    "const view = tag<{ value: string }> /* a comment */ `value: ${value}`;",
+    "const Button = styled.button<{ $type?: string }>`color: red`; export const Page = () => <Button />;",
+])
+def test_typescript_generic_tagged_templates_keep_supported_syntax_and_diagnostics(source):
+    result = parse_js_ts(source, "typescript")
+    assert result["parser_coverage"] == "tree_sitter"
+    assert result["parser_compatibility"] == ["typescript_generic_tagged_template"]
+    assert not result["parser_warnings"]
+    assert result["contract_coverage"] == "literal_method_path_only"
+    comparison = semantic_comparison(source, "// comment only\n" + source, "typescript")
+    assert comparison["semantic_status"] == "equivalent"
+
+
+def test_tagged_template_compatibility_preserves_route_lines_and_ignores_template_contents():
+    source = '''import styled from "styled-components";
+// Non-ASCII bytes before the supported grammar gap: café.
+export const Button = styled.button<{ $active?: boolean }>`
+  app.get('/not-a-route', handler);
+  ${({ $active }) => $active ? 'block' : 'none'}
+`;
+app.get('/actual-route', handler);
+'''
+    result = parse_js_ts(source, "typescript")
+    assert result["parser_coverage"] == "tree_sitter"
+    assert result["imports"] == ["styled-components"]
+    assert result["exports"] == ["Button"]
+    assert result["routes"] == [{"method": "GET", "path": "/actual-route", "line": 7,
+                                  "coverage": "syntax_literal_method_path"}]
+
+
+def test_unrecognized_nested_tagged_template_grammar_error_remains_unknown():
+    # The grammar emits an ERROR subtree for this valid, more complex form.
+    # The narrow compatibility path must not reinterpret arbitrary ERROR nodes.
+    source = "const view = tag<{ value: string }>`outer ${other<{ ready: boolean }>`inner`}`;"
+    assert parse_js_ts(source, "typescript")["parser_coverage"] == "failed"
+    assert semantic_comparison(source, source, "typescript")["semantic_status"] == "unknown"
+
+
+@pytest.mark.parametrize("suffix", [
+    "const invalid = ( => {};",  # A separate malformed declaration.
+    "const invalid = styled.div<{ x?: }>`value`;",  # Missing type.
+    "const invalid = styled.div<{ x?: boolean }>`value ${}`;",  # Missing expression.
+    "const invalid = styled.div<{ x?: boolean }>`unterminated;",  # Missing closing template.
+    "const invalid = styled?.div<{ x?: boolean }>`value`;",  # Invalid optional-chain tag.
+    "const invalid = styled.div<{ x?: boolean }>(;",  # Missing ordinary call arguments.
+])
+def test_tagged_template_compatibility_does_not_accept_other_missing_or_invalid_syntax(suffix):
+    source = "const valid = styled.div<{ x?: boolean }>`value`;\n" + suffix
+    result = parse_js_ts(source, "typescript")
+    assert result["parser_coverage"] == "failed"
+    assert result["parser_warnings"] == ["source_parse_failed"]
+    assert result["parser_compatibility"] == []
+    assert semantic_comparison(source, source, "typescript")["semantic_status"] == "unknown"
+
+
+@pytest.mark.parametrize("after", [
+    "const value = tag<{ active?: string }>`color: red ${color}`;",
+    "const value = tag<{ active?: boolean }>`color: blue ${color}`;",
+    "const value = tag<{ active?: boolean }>`color: red ${other}`;",
+    "const value = other<{ active?: boolean }>`color: red ${color}`;",
+])
+def test_tagged_template_changes_retain_conservative_semantic_comparison(after):
+    before = "const value = tag<{ active?: boolean }>`color: red ${color}`;"
+    assert semantic_comparison(before, after, "typescript")["semantic_status"] == "changed"
+
+
+def test_tagged_template_compatibility_remains_bounded(monkeypatch):
+    source = "const value = tag<{ active?: boolean }>`value`;"
+    monkeypatch.setattr("services.source_parser.MAX_SYNTAX_NODES", 10)
+    result = parse_js_ts(source, "typescript")
+    assert result["parser_coverage"] != "tree_sitter"
+    assert "syntax_node_limit_reached" in result["parser_warnings"]
+    assert result["parser_compatibility"] == []
+    assert semantic_comparison(source, source, "typescript")["semantic_status"] == "unknown"
+    oversized = source + " " * (256 * 1024)
+    assert parse_js_ts(oversized, "typescript")["parser_warnings"] == ["source_exceeds_parser_limit"]
 
 
 def test_invalid_javascript_and_dynamic_routes_are_explicitly_partial():

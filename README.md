@@ -9,6 +9,7 @@
 MDT is an academic alpha for cross-service change impact and architectural-debt analysis. It connects exact Git revisions or deliberately submitted source snapshots to a service graph, explains the available evidence, and evaluates proposed graph edits. Scores are engineering indicators, not calibrated incident probabilities or guarantees that a deployment is safe.
 
 - [Current implementation and zero-cost release runbook](docs/PUBLIC_ALPHA.md)
+- [25 October release checks, local packages and outstanding gates](docs/RELEASE_READINESS_2026-10-25.md)
 - [Report audit, prioritized implementation plan, and research backlog](docs/IMPLEMENTATION_PLAN.md)
 - [Validation results and remaining release gates](docs/VALIDATION.md)
 - [Current implementation checklist and remaining work](docs/IMPLEMENTATION_STATUS.md)

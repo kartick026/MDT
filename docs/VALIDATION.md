@@ -1,5 +1,7 @@
 # MDT alpha validation record
 
+> Current run: [25–26 October release validation](RELEASE_READINESS_2026-10-25.md). **414 backend + 63 client checks passed**, with no backend skips on the Alpine runtime. Both release images have zero package findings. The report includes ten repository replays, 12 accessibility page/viewport combinations, bounded scanner load, Chrome/Edge and VS Code host checks, actual Restricted Mode, dependency/container scans and PostgreSQL restore. Chrome/Edge authenticated connection, session recovery and logout pass against the local API; the native Windows VS Code credential, upload-consent, result and disconnect follow-up also passed all four checks. Deployed services and another OS remain unverified. All dated records below are historical.
+
 > Latest local completion (23 October): [graph connections, evidence labels, import findings and refreshed release artifacts](ALPHA_COMPLETION_2026-10-23.md). Current client tests: 19 frontend, 7 shared client, 10 browser, 9 VS Code; 20 targeted backend checks rerun. The unchanged backend retains its 355-pass full run. The [inventory](TEST_INVENTORY.md) lists 400 checks. Publication requirements are listed separately in the new report.
 
 

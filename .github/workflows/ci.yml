@@ -5,18 +5,44 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-disposable-password
+          POSTGRES_DB: mdt_tests
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      neo4j:
+        image: neo4j:5
+        env:
+          NEO4J_AUTH: neo4j/ci-disposable-password
+          NEO4J_server_memory_heap_initial__size: 256m
+          NEO4J_server_memory_heap_max__size: 256m
+          NEO4J_server_memory_pagecache_size: 128m
+        ports: ['7687:7687']
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p ci-disposable-password 'RETURN 1'"
+          --health-interval 10s --health-timeout 10s --health-retries 20
     env:
       TESTING: "true"
       OPENAI_API_KEY: ""
       GITHUB_TOKEN: ""
       NEO4J_URI: bolt://127.0.0.1:1
+      TEST_DATABASE_URL: postgresql://postgres:ci-disposable-password@127.0.0.1:5432/mdt_tests
+      MDT_LIVE_NEO4J_URI: bolt://127.0.0.1:7687
+      MDT_LIVE_NEO4J_USER: neo4j
+      MDT_LIVE_NEO4J_PASSWORD: ci-disposable-password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
-      - run: pip install -r backend/requirements-hosted.txt -r requirements-test.txt
+      - run: pip install -r backend/requirements-hosted.txt -r requirements-test.txt 'neo4j>=5,<7'
       - run: python -m pytest -q
       - run: python scripts/export_demo.py --check
   clients:
@@ -36,3 +62,23 @@ jobs:
         working-directory: extensions/browser
       - run: npm ci && npm test && npm run build
         working-directory: extensions/vscode
+  hosted-image:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - context: backend
+            dockerfile: backend/Dockerfile.hosted
+          - context: frontend
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the release runtime
+        run: docker build --pull -f ${{ matrix.dockerfile }} -t mdt-release-validation ${{ matrix.context }}
+      - name: Reject known high or critical package findings
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock:ro
+          aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+          image --scanners vuln --no-progress --exit-code 1 --severity HIGH,CRITICAL
+          mdt-release-validation

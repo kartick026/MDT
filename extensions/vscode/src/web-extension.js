@@ -13,7 +13,7 @@ function activate(context) {
   status.name = 'MDT analysis status'; status.command = 'mdt.showFindings';
   const view = vscode.window.createTreeView('mdt.findings', { treeDataProvider: {
     onDidChangeTreeData: changed.event,
-    getChildren: item => item?.children || resultTree(currentJob),
+    getChildren: item => item?.children || resultTree(currentJob, currentJob?.result ? MDT.coverageSummary(currentJob.result) : ''),
     getTreeItem: item => {
       const node = new vscode.TreeItem(item.label, item.children?.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       node.description = item.description; node.tooltip = item.tooltip || item.label;

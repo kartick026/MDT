@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { resultTree, statusText } = require('../src/results');
+const { coverageSummary } = require('../../../packages/client');
 
 test('tree presents canonical smells and exact source provenance without guessed lines', () => {
   const roots = resultTree({ status: 'succeeded', result: {
@@ -37,4 +38,13 @@ test('editor evidence includes the architecture assessment even without the lega
   assert.match(tree[1].tooltip,/zero does not establish/);
   assert.equal(tree[2].icon,'warning');
   assert.match(statusText(job),/warning.*unavailable/);
+});
+
+test('editor tree shows three independent coverage dimensions supplied by the shared formatter', () => {
+  const job = { status:'partial', result: { coverage: { candidate_files:161, files_read:100, source:'static_source', parsers:{ast:1,tree_sitter:52,heuristic:45,failed:2} } } };
+  const tree = resultTree(job, coverageSummary(job.result));
+  const indicators = tree[2].children.find(child => child.label === 'Coverage indicators').children;
+  assert.ok(indicators.some(child => child.label.startsWith('Source scan: 100 / 161')));
+  assert.ok(indicators.some(child => child.label.startsWith('Parser support: 53 / 100')));
+  assert.ok(indicators.some(child => child.label === 'Runtime verification: Not measured'));
 });

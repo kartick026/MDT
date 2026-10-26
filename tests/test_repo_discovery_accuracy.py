@@ -7,6 +7,18 @@ from services.repo_onboarding import RepoOnboarder
 
 
 @pytest.mark.asyncio
+async def test_minified_bundles_are_disclosed_and_do_not_consume_source_budget():
+    getter = AsyncMock(return_value='export const app = 1;')
+    sources, coverage = await RepoOnboarder()._collect_service_sources(
+        [{'name': 'app'}], {'src': 'app'}, ['src/app.js', 'src/angular.min.js'], getter)
+    assert list(sources['app']) == ['src/app.js']
+    assert coverage['files_read'] == coverage['candidate_files'] == 1
+    assert coverage['excluded_source_files'] == 1
+    assert coverage['excluded_source_reasons'] == {'minified_bundle': 1}
+    assert getter.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_shared_compose_context_maps_nested_dockerfile_and_repairs_declared_directory():
     onboarder = RepoOnboarder()
     services, dependencies, mappings = onboarder._parse_compose("""
@@ -46,7 +58,9 @@ services:
 
 
 @pytest.mark.asyncio
-async def test_large_frontend_does_not_starve_backend_source():
+async def test_large_frontend_does_not_starve_backend_source(monkeypatch):
+    from core.config import settings
+    monkeypatch.setattr(settings, "REPO_SOURCE_MAX_FILES", 100)
     files = {f"frontend/f{index:03d}.js": "export const value = 1;" for index in range(140)}
     files.update({f"backend/f{index:03d}.py": "value = 1" for index in range(60)})
     getter = AsyncMock(side_effect=lambda path: files[path])

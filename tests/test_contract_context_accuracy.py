@@ -34,6 +34,8 @@ async def test_job_resolves_unchanged_consumers_and_exposes_evidence():
     assert result["risk_score"] >= 30
     assert result["confidence_evidence"]["kind"] == "evidence_completeness"
     assert result["evidence"]["confidence_calibrated"] is False
+    assert result["topology_coverage"] == graph["coverage"]
+    assert result["coverage"] != result["topology_coverage"]
     assert RegistryManager.load() == baseline
 
 

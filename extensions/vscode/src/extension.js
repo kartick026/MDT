@@ -10,7 +10,7 @@ function activate(context) {
   const changed = new vscode.EventEmitter();
   let currentJob;
   let connectionEpoch = 0;
-  const tree = { onDidChangeTreeData: changed.event, getChildren: item => item?.children || resultTree(currentJob), getTreeItem: item => {
+  const tree = { onDidChangeTreeData: changed.event, getChildren: item => item?.children || resultTree(currentJob, currentJob?.result ? MDT.coverageSummary(currentJob.result) : ''), getTreeItem: item => {
     const node = new vscode.TreeItem(item.label, item.children?.length ? (item.expanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed) : vscode.TreeItemCollapsibleState.None);
     node.description = item.description;
     node.tooltip = item.tooltip || item.label;
@@ -141,7 +141,7 @@ function activate(context) {
           const job = await refresh(last, { reveal: attempt === 0, client, signal: controller.signal, epoch });
           progress.report({ message: job.stage || job.status });
           if (MDT.isTerminal(job.status)) {
-            const choice = await vscode.window.showInformationMessage(`MDT analysis ${job.status}${job.result?.partial_results ? ' with partial coverage' : ''}.`, 'Open web result');
+            const choice = await vscode.window.showInformationMessage(`MDT analysis ${job.status}${job.result?.partial_results ? ' with limited evidence; review the coverage indicators' : ''}.`, 'Open web result');
             if (choice) await open(last);
             return;
           }

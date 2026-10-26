@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-25",
+  "status": "incomplete",
+  "scope": "Historical incomplete native attempts; superseded by the 26 October follow-up",
+  "current": {
+    "vscode": "1.141.0",
+    "checks": [],
+    "limitations": [
+      "Disposable synthetic Git fixture and local API only; no deployed service, other OS or marketplace acceptance",
+      "Harness prefills the native password field and selects only its own fixture project. The human submits credentials and answers actual upload dialogs."
+    ],
+    "consent": [],
+    "errors": [],
+    "projectSelections": [],
+    "phase": "Connect: press Enter for both local URL defaults and the prefilled masked temporary token."
+  },
+  "earlier_attempts": [
+    "Editor exited before first report; user reported it closed on its own",
+    "Picker cancellation was initially mistaken for upload cancellation; that claim is withdrawn",
+    "A revoked token was correctly rejected",
+    "Installed VS Code DialogService rejects modal dialogs under extensionTestsPath; manual checks now use a separate normal development driver",
+    "The staged command returned staged content correctly; the old harness expected working content and was corrected",
+    "A later attempt expired while waiting for the token input; no full pass was recorded"
+  ],
+  "verified_separately": "Native connection succeeded in earlier attempts; complete source consent and result checks remain pending",
+  "follow_up": "release-vscode-interactive-2026-10-26.json"
+}

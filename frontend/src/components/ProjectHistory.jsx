@@ -156,7 +156,7 @@ export default function ProjectHistory({ onSignIn }) {
               {[
                 { label: 'All', val: '' },
                 { label: 'Succeeded', val: 'succeeded' },
-                { label: 'Partial Coverage', val: 'partial' },
+                { label: 'Partial results', val: 'partial' },
                 { label: 'Failed', val: 'failed' }
               ].map(item => (
                 <button
@@ -254,7 +254,7 @@ export default function ProjectHistory({ onSignIn }) {
                             </span>
                             {item.partial_results && (
                               <small style={{ display: 'block', color: 'var(--yellow)', fontSize: '11px' }}>
-                                Partial coverage
+                                Limited evidence · open details
                               </small>
                             )}
                           </td>

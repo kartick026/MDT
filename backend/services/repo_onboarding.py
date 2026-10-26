@@ -14,7 +14,7 @@ from core.config import settings
 from core.registry import RegistryManager, current_project_id
 from services.dependency_graph import DependencyGraph
 from services.git_analyzer import (
-    GitHubAPIClient, GitHubRateLimitError, GitAnalyzer, ASTAnalyzer, MAX_SOURCE_BYTES, MAX_TOTAL_SOURCE_BYTES, _safe_source_path,
+    GitHubAPIClient, GitHubRateLimitError, GitAnalyzer, MAX_SOURCE_BYTES, MAX_TOTAL_SOURCE_BYTES, _safe_source_path,
     extract_route_signatures, _EXT_TO_LANG,
     _parse_github_url,
     _find_git_dir,
@@ -25,6 +25,8 @@ from services.github_app import GitHubAppAuth
 from services.deployment_evidence import (compose_ports, compose_references, literal_endpoint, merge_source_calls,
                                         dotenv_literals, compose_default_config, compose_env_files)
 from services.aspire_discovery import discover_aspire
+from services.coverage_indicators import coverage_indicators, static_coverage_reasons
+from services.source_parser import parse_js_ts, parse_python
 
 logger = logging.getLogger(__name__)
 
@@ -327,6 +329,10 @@ class RepoOnboarder:
             if any(edge.get("evidence_kind") == "compose_startup_order" for edge in dependencies):
                 coverage["warnings"].append("compose_dependencies_are_startup_order_not_verified_calls")
             coverage["warnings"].append("static_topology_is_not_complete_runtime_communication")
+            coverage["indicators"] = coverage_indicators(coverage)
+            coverage["static_partial"] = bool(static_coverage_reasons(coverage))
+            # Backwards-compatible umbrella. New clients display the independently
+            # measured dimensions rather than treating this as a file-read ratio.
             coverage["partial"] = True
 
             # 6. Extract cross-service dependencies from static code analysis & validate connections
@@ -419,14 +425,26 @@ class RepoOnboarder:
                     logger.debug("Failed cleaning up temporary directory %s: %s", getattr(temp_dir_obj, 'name', 'unknown'), exc)
 
     async def _collect_service_sources(self, services, file_mappings, tree, get_content):
-        """Inspect up to 100 files/2 MiB across the project, not only service entrypoints."""
+        """Read a bounded, deterministic and service-fair source sample with omissions."""
         extensions = {".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".go", ".rs", ".java", ".cs", ".php", ".rb"}
         ignored = {"node_modules", ".git", "venv", ".venv", "dist", "build", "vendor", "__pycache__"}
         results = {service["name"]: {} for service in services}
         candidates = []
+        excluded_source_files = unmapped_source_files = invalid_paths = 0
+        excluded_reasons = {}
         for path in sorted(set(tree)):
-            path = _safe_source_path(path)
-            if Path(path).suffix.lower() not in extensions or set(path.split("/")) & ignored:
+            try:
+                path = _safe_source_path(path)
+            except ValueError:
+                invalid_paths += 1
+                continue
+            if Path(path).suffix.lower() not in extensions:
+                continue
+            generated = Path(path).name.lower().endswith(('.min.js', '.min.mjs', '.min.cjs'))
+            if set(path.split("/")) & ignored or generated:
+                excluded_source_files += 1
+                reason = 'minified_bundle' if generated else 'ignored_directory'
+                excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
                 continue
             prefixes = [(prefix, service) for prefix, service in file_mappings.items()
                         if not prefix or path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/")]
@@ -434,46 +452,82 @@ class RepoOnboarder:
                 _, service = max(prefixes, key=lambda match: len(match[0]))
                 if service in results:
                     candidates.append((service, path))
+                    continue
+            unmapped_source_files += 1
         # Round robin prevents one large frontend from consuming every file slot.
         # Each queue retains deterministic entrypoint-first ordering.
         queues = {service: [] for service in results}
         for service, path in candidates:
             queues[service].append(path)
+        entry_names = {Path(name).name.lower() for name in COMMON_ENTRY_NAMES}
         for files in queues.values():
-            files.sort(key=lambda path: (Path(path).name.lower() not in COMMON_ENTRY_NAMES, path))
+            files.sort(key=lambda path: (Path(path).name.lower() not in entry_names, path))
         candidates = [(service, files[index]) for index in range(max(map(len, queues.values()), default=0))
                       for service, files in sorted(queues.items()) if index < len(files)]
-        coverage = {"candidate_files": len(candidates), "files_read": 0, "bytes_read": 0,
+        max_files, max_bytes = settings.REPO_SOURCE_MAX_FILES, settings.REPO_SOURCE_MAX_TOTAL_BYTES
+        coverage = {"coverage_schema_version": 2,
+                    "candidate_files": len(candidates), "files_read": 0, "bytes_read": 0, "bytes_fetched": 0,
+                    "byte_budget_used": 0,
                     "files_candidates": len(candidates), "files_attempted": 0,
                     "warnings": [], "source": "static_source", "per_service": {}, "parsers": {},
+                    "parser_compatibility": {},
+                    "excluded_source_files": excluded_source_files, "unmapped_source_files": unmapped_source_files,
+                    "excluded_source_reasons": excluded_reasons,
+                    "invalid_tree_paths": invalid_paths, "scan_reason_counts": {},
+                    "scan_limits": {"max_files": max_files, "max_total_bytes": max_bytes, "max_file_bytes": MAX_SOURCE_BYTES},
                     "per_service_parsed": {service: 0 for service in results},
                     "per_service_candidates": {service: len(files) for service, files in queues.items()}}
-        for service, path in candidates[:100]:
-            if coverage["bytes_read"] >= MAX_TOTAL_SOURCE_BYTES:
+        service_languages = {service: set() for service in results}
+
+        def omitted(reason, count=1):
+            coverage["scan_reason_counts"][reason] = coverage["scan_reason_counts"].get(reason, 0) + count
+
+        if invalid_paths:
+            coverage["warnings"].append("unsafe_source_paths_excluded")
+        for index, (service, path) in enumerate(candidates):
+            if coverage["files_attempted"] >= max_files:
+                coverage["warnings"].append("source_file_limit_reached")
+                omitted("source_file_limit_reached", len(candidates) - index)
+                break
+            if coverage["byte_budget_used"] >= max_bytes:
                 coverage["warnings"].append("total_source_limit_reached")
+                omitted("total_source_limit_reached", len(candidates) - index)
                 break
             try:
                 coverage["files_attempted"] += 1
                 source = await get_content(path)
                 size = len(source.encode("utf-8"))
-                if size > MAX_SOURCE_BYTES or coverage["bytes_read"] + size > MAX_TOTAL_SOURCE_BYTES:
+                coverage["bytes_fetched"] += size
+                coverage["byte_budget_used"] += size
+                if size > MAX_SOURCE_BYTES:
                     coverage["warnings"].append(f"source_size_limit:{path}")
+                    omitted("source_size_limit")
                     continue
+                if coverage["byte_budget_used"] > max_bytes:
+                    coverage["warnings"].append("total_source_limit_reached")
+                    omitted("total_source_limit_reached", len(candidates) - index)
+                    break
                 # A tree-listed empty module is valid Python/JS source. Transport
                 # failures raise above; emptiness must not consume coverage as a failure.
                 results[service][path] = source
                 coverage["files_read"] += 1
                 coverage["bytes_read"] += size
                 language = _EXT_TO_LANG.get(Path(path).suffix.lower(), "unknown")
+                service_languages[service].add(language)
                 parser = "heuristic"
                 if language in {"javascript", "typescript"}:
-                    parsed = ASTAnalyzer().analyze(source, language)
+                    # ASTAnalyzer has an empty-content shortcut used by diffs.
+                    # A collected empty module is still valid syntax to parse.
+                    parsed = parse_js_ts(source, language)
                     parser = parsed.get("parser_coverage", "failed")
                     coverage["warnings"].extend(f"{warning}:{path}" for warning in parsed.get("parser_warnings", []))
+                    for compatibility in parsed.get("parser_compatibility", []):
+                        coverage["parser_compatibility"][compatibility] = coverage["parser_compatibility"].get(compatibility, 0) + 1
                 elif language == "python":
-                    import ast
                     try:
-                        ast.parse(source)
+                        parsed = parse_python(source)
+                        for compatibility in parsed.mdt_compatibility:
+                            coverage['parser_compatibility'][compatibility] = coverage['parser_compatibility'].get(compatibility, 0) + 1
                         parser = "ast"
                     except (SyntaxError, ValueError, RecursionError):
                         parser = "failed"
@@ -483,23 +537,38 @@ class RepoOnboarder:
                     coverage["per_service_parsed"][service] += 1
             except GitHubRateLimitError as exc:
                 coverage["warnings"].append(f"{exc.evidence}:{path}")
-            except Exception:
-                coverage["warnings"].append(f"source_unavailable:{path}")
-        if len(candidates) > 100:
-            coverage["warnings"].append("source_file_limit_reached")
+                omitted("github_rate_limit", len(candidates) - index)
+                # One upstream cooldown affects the remaining reads too; do not
+                # burn the whole scan budget issuing known-to-fail requests.
+                break
+            except Exception as exc:
+                if path in results[service]:
+                    coverage["parsers"]["failed"] = coverage["parsers"].get("failed", 0) + 1
+                    coverage["warnings"].append(f"source_parse_failed:{path}")
+                    continue
+                reason = "source_size_limit" if isinstance(exc, ValueError) and str(exc).startswith("Source exceeds") else "source_unavailable"
+                coverage["warnings"].append(f"{reason}:{path}")
+                omitted(reason)
+                # A failed read may have downloaded bytes before decoding or
+                # transport failed. Reserve its bounded per-file allowance so
+                # repeated unreadable blobs cannot bypass the aggregate budget.
+                # This is conservative budget accounting, not measured bytes.
+                coverage["byte_budget_used"] += MAX_SOURCE_BYTES
         coverage["per_service"] = {service: len(files) for service, files in results.items()}
         coverage["missing_source_services"] = [service["name"] for service in services
             if service.get("source_expected", service["name"] in file_mappings.values())
             and not results[service["name"]]]
         coverage["unsupported_contract_services"] = [service["name"] for service in services
             if service.get("source_expected", service["name"] in file_mappings.values())
-            and service.get("language") not in {"python", "javascript", "typescript"}]
+            and (service_languages[service["name"]] or {service.get("language", "unknown")})
+                - {"python", "javascript", "typescript"}]
         coverage["external_source_services"] = [service["name"] for service in services
             if service.get("node_type", "service") == "service" and not results[service["name"]]]
         if coverage["external_source_services"]:
             coverage["warnings"].append("application_source_unavailable_for_declared_services")
-        coverage["partial"] = (coverage["files_read"] < len(candidates) or bool(coverage["warnings"])
-            or bool(coverage["missing_source_services"]) or bool(coverage["unsupported_contract_services"]))
+        coverage["indicators"] = coverage_indicators(coverage)
+        coverage["static_partial"] = bool(static_coverage_reasons(coverage))
+        coverage["partial"] = coverage["static_partial"]
         return results, coverage
 
     @staticmethod

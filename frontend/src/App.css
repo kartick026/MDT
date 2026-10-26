@@ -1996,6 +1996,12 @@ summary:focus-visible {
 .evidence-summary { min-width: 0; overflow-wrap: anywhere; padding: 16px; border: 1px solid var(--border-md); border-left: 3px solid var(--cyan); border-radius: 8px; margin: 12px 0; font-size: 13px; line-height: 1.6; }
 .evidence-summary p { margin: 8px 0; }
 .evidence-summary ul, .workspace-findings { padding-left: 20px; }
+.coverage-indicators { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; margin: 12px 0; min-width: 0; }
+.coverage-indicator { min-width: 0; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-md); border-radius: 8px; background: rgba(255, 255, 255, 0.025); }
+.coverage-indicator h4 { margin: 0 0 6px; font-size: 13px; }
+.coverage-status { display: block; color: var(--cyan); font-size: 12px; }
+.coverage-value { display: block; margin: 7px 0; font-size: 14px; }
+.coverage-indicator p { margin: 5px 0; color: var(--text-dim); font-size: 12px; line-height: 1.5; }
 .workspace-findings li { margin: 14px 0; }
 .workspace-explanation { white-space: pre-wrap; }
 .mdt-dialog { color: var(--text); background: var(--bg-card); border: 1px solid var(--border-md); border-radius: 14px; padding: 28px; width: min(520px, calc(100vw - 32px)); margin: auto; max-height: 90vh; overflow: auto; }
@@ -2036,7 +2042,7 @@ summary:focus-visible {
 .drift-card details, .drift-card pre { min-width: 0; max-width: 100%; }
 .mdt-dialog p { margin: 16px 0; line-height: 1.6; }
 .mdt-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.skip-link { position: fixed; top: -80px; left: 16px; background: var(--bg-card); padding: 12px; z-index: 1000; }
+.skip-link { position: fixed; top: -80px; left: 16px; background: var(--bg-card); color: var(--cyan); padding: 12px; z-index: 1000; }
 .skip-link:focus { top: 10px; }
 .workspace a:not(.btn) { color: var(--cyan); text-underline-offset: 3px; }
 .workspace .project-nav a:not([aria-current]) { color: var(--text-dim); }

@@ -220,7 +220,7 @@ export default function Workspace({ onSignIn }) {
             <label>Project name<input className="form-input" value={name} maxLength={100} onChange={e => setName(e.target.value)} /></label>
             <label>Repository URL<input className="form-input" type="url" required placeholder="https://github.com/owner/repository" value={repoUrl} onChange={e => setRepoUrl(e.target.value)} /></label>
             <label>Branch<input className="form-input" required value={branch} onChange={e => setBranch(e.target.value)} /></label>
-            <p>Large or unsupported repositories may produce partial coverage.</p>
+            <p>Results report source scanning, parser support and runtime verification separately.</p>
             <button className="btn btn-primary" disabled={busy}>{busy ? 'Creating project…' : 'Create project'}</button>
           </form>
         </details>

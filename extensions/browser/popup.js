@@ -8,6 +8,15 @@ let pollTimer;
 let pollingFailures = 0;
 let generation = 0;
 let hasProjects = false;
+let permissionPending = false;
+let permissionHintTimer;
+
+function setPermissionPending(pending) {
+  permissionPending = pending;
+  element('connect-submit').disabled = pending;
+  element('cancel-connect').hidden = !pending;
+  if (!pending) clearTimeout(permissionHintTimer);
+}
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage({ connectionId, ...message });
@@ -90,6 +99,7 @@ async function restore(active, fillDefaults = false) {
 }
 element('connect-form').addEventListener('submit', async event => {
   event.preventDefault();
+  if (permissionPending) return;
   const active = ++generation;
   clearConnectionView();
   try {
@@ -98,8 +108,16 @@ element('connect-form').addEventListener('submit', async event => {
     const token = element('token').value;
     const url = new URL(baseUrl);
     const origin = `${url.protocol}//${url.hostname}/*`;
+    setPermissionPending(true);
+    status(`Waiting for browser permission for ${url.hostname}. Your token has not been sent.`);
+    permissionHintTimer = setTimeout(() => {
+      if (active === generation && permissionPending) {
+        showError(new Error('The browser has not returned a permission decision. If no prompt is visible, cancel this attempt, open MDT from the browser Extensions toolbar and try again.'));
+      }
+    }, 15000);
     const allowed = await chrome.permissions.request({ origins: [origin] });
     if (active !== generation) return;
+    setPermissionPending(false);
     if (!allowed) throw new Error('Permission for this MDT server was not granted.');
     status('Connecting…');
     const response = await send({ type: 'connect', baseUrl, webUrl, token });
@@ -113,9 +131,20 @@ element('connect-form').addEventListener('submit', async event => {
     if (hasProjects) status('Connected. Choose a matching project and analyze.');
   } catch (error) {
     if (active !== generation) return;
+    status('Connection was not completed.');
     try { await restore(active); } catch { /* Preserve the original connection error. */ }
     if (active === generation) showError(error);
+  } finally {
+    if (active === generation) setPermissionPending(false);
   }
+});
+element('cancel-connect').addEventListener('click', async () => {
+  if (!permissionPending) return;
+  const active = ++generation;
+  setPermissionPending(false);
+  element('token').value = '';
+  try { await restore(active); } catch { /* Cancellation must remain available offline. */ }
+  if (active === generation) status('Connection attempt cancelled. Any later permission response will not connect this attempt.');
 });
 element('analyze').addEventListener('click', async () => {
   const active = generation;

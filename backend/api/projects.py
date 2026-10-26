@@ -408,9 +408,21 @@ def get_job(job_id: str, user=Depends(get_current_user)):
     job = get_store().job(job_id, _owner(user))
     if not job:
         raise HTTPException(404, "Analysis not found")
-    if job.get("result"):
-        job["result"].pop("_snapshot", None)
+    _expose_captured_coverage(job)
     return job
+
+
+def _expose_captured_coverage(job):
+    """Expose the saved scan separately from changed-file extraction.
+
+    Old analyses already hold their immutable topology inside _snapshot. Read
+    that capture, never the project's latest import, and do not rewrite history.
+    """
+    result = job.get("result")
+    if result:
+        snapshot = result.pop("_snapshot", None)
+        if "topology_coverage" not in result and isinstance(snapshot, dict):
+            result["topology_coverage"] = snapshot.get("coverage", {})
 
 
 @router.delete("/jobs/{job_id}")
@@ -419,8 +431,7 @@ def cancel_job(job_id: str, user=Depends(get_current_user)):
     job = get_store().cancel(job_id, owner)
     if not job:
         raise HTTPException(404, "Analysis not found")
-    if job.get("result"):
-        job["result"].pop("_snapshot", None)
+    _expose_captured_coverage(job)
     return job
 
 
@@ -530,6 +541,7 @@ async def evaluate_job(job):
                 "architecture_smell_score": health["score"], "architecture_smells_count": health["total_smells"],
                 "architecture_smells_breakdown": breakdown_smells(smells),
                 "partial_results": partial, "warnings": warnings, "coverage": extraction,
+                "topology_coverage": snapshot.get("coverage", {}),
                 "policy_assessment": evaluate_policies(snapshot, job["payload"].get("policy", {}).get("rules", [])),
                 "evidence": {"mode": "deterministic_snapshot", "semantic_used": False, "detector_version": DETECTOR_VERSION,
                              "topology_source": project["snapshot"].get("project", {}).get("source"),

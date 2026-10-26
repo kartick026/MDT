@@ -84,6 +84,38 @@
     };
   }
 
+  function coverageSummary(result) {
+    const count = value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+    const first = (...values) => values.map(count).find(value => value !== null) ?? null;
+    const topologyLike = value => value && ['indicators', 'candidate_files', 'files_candidates', 'parsers'].some(key => Object.hasOwn(value, key));
+    const coverage = result.topology_coverage || result.evidence?.topology_coverage || result.snapshot?.coverage || (topologyLike(result.coverage) ? result.coverage : {}) || {};
+    const source = coverage.indicators?.source_scan || {};
+    const parser = coverage.indicators?.parser_support || {};
+    const read = first(source.read_files, coverage.files_read);
+    const attempted = first(source.attempted_files, coverage.files_attempted);
+    const eligible = first(source.eligible_files, coverage.candidate_files, coverage.files_candidates);
+    const parserRead = first(parser.read_files, read);
+    const hasModes = coverage.parsers && Object.keys(coverage.parsers).length > 0;
+    const parsed = first(parser.parsed_files, hasModes ? (count(coverage.parsers.ast) ?? 0) + (count(coverage.parsers.tree_sitter) ?? 0) : null);
+    const heuristic = first(parser.heuristic_files, hasModes ? count(coverage.parsers.heuristic ?? 0) : null);
+    const failed = first(parser.failed_files, hasModes ? count(coverage.parsers.failed ?? 0) : null);
+    const partial = first(parser.partial_files, hasModes ? count(coverage.parsers.partial ?? 0) : null);
+    const unclassified = first(parser.unclassified_files);
+    const scanInconsistent = (eligible !== null && read !== null && read > eligible) || (attempted !== null && read !== null && attempted < read)
+      || (attempted !== null && eligible !== null && attempted > eligible) || source.reasons?.includes('source_scan_counts_inconsistent');
+    const parserInconsistent = parser.reasons?.includes('parser_counts_inconsistent') || (hasModes && Object.values(coverage.parsers).some(value => count(value) === null))
+      || (parserRead !== null && ((read !== null && parserRead !== read)
+      || [parsed, heuristic, failed, partial, unclassified].reduce((sum, value) => sum + (value ?? 0), 0) > parserRead));
+    const demo = result.status === 'demo' || result.evidence?.mode === 'illustrative_demo';
+    const runtimeStatus = coverage.indicators?.runtime_verification?.status;
+    const noRuntime = runtimeStatus === 'not_measured' || (!runtimeStatus && (coverage.source === 'static_source' || result.architecture_health?.evidence?.runtime_traffic_measured === false || demo));
+    const sourceText = scanInconsistent ? 'Inconsistent recorded counts; completeness unavailable' : read !== null && eligible !== null ? `${read} / ${eligible} eligible mapped source files read` : 'Not recorded';
+    const parserText = parserInconsistent ? 'Inconsistent recorded counts; completeness unavailable' : parsed !== null && parserRead !== null ? `${parsed} / ${parserRead} read files syntax parsed` : 'Not recorded';
+    const breakdown = heuristic !== null ? ` (${heuristic} heuristic; ${failed ?? 'unknown'} failed; ${partial ?? 'unknown'} partial)` : '';
+    const recorded = !coverage.indicators && Object.keys(coverage).length > 0 ? '\nCounts come from the saved capture; re-import to apply scanner updates.' : '';
+    return `Source scan: ${sourceText}\nParser support: ${parserText}${breakdown}\nRuntime verification: ${noRuntime ? 'Not measured' : 'Not recorded'}\nFile counts do not establish complete architecture or runtime coverage.${recorded}${demo ? '\nIllustrative demo topology; no repository-wide source scan is claimed.' : ''}`;
+  }
+
   function resultSummary(envelope) {
     const result = envelope?.result || envelope || {};
     const format = value => ['number','string'].includes(typeof value) && String(value).trim() && Number.isFinite(Number(value)) ? Number(value).toFixed(3).replace(/\.?0+$/, '') : 'unavailable';
@@ -91,7 +123,7 @@
     const partial = result.partial_results || ['partial','insufficient_communication_evidence'].includes(health.assessment_status);
     const assessment = health.assessment_status ? `Architecture assessment: ${health.assessment_status.replaceAll('_',' ')}\n` : '';
     const interpretation = health.interpretation || 'Recorded findings only; zero does not establish a debt-free or safe architecture.';
-    return `Commit risk: ${format(result.risk_score)} / 100\nArchitectural debt: ${format(result.architecture_smell_score ?? health.score)} / 100\n${assessment}${interpretation}\nEvidence: ${result.evidence?.mode || 'not supplied'}\n${partial ? 'Partial coverage — review warnings.\n' : ''}${result.explanation || ''}`;
+    return `Commit risk: ${format(result.risk_score)} / 100\nArchitectural debt: ${format(result.architecture_smell_score ?? health.score)} / 100\n${assessment}${interpretation}\nEvidence: ${result.evidence?.mode || 'not supplied'}\n${coverageSummary(result)}\n${partial ? 'Limited evidence — review assessment warnings.\n' : ''}${result.explanation || ''}`;
   }
 
   function webLink(webUrl, projectId, jobId) {
@@ -104,5 +136,5 @@
     return error?.action ? `${message} ${error.action}` : message;
   }
 
-  return { createClient, validateServerUrl, parseGitHubUrl, analysisPayload, resultSummary, webLink, errorMessage, isTerminal: status => TERMINAL.has(status) };
+  return { createClient, validateServerUrl, parseGitHubUrl, analysisPayload, resultSummary, coverageSummary, webLink, errorMessage, isTerminal: status => TERMINAL.has(status) };
 });

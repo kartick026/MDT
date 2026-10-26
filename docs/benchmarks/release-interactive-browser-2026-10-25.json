@@ -1,0 +1,11 @@
+[
+  {
+    "browser": "Chrome",
+    "checks": [],
+    "limitations": [
+      "Local API only; no store install or public HTTPS/CORS acceptance"
+    ],
+    "version": "155.0.8059.85",
+    "error": "page.waitForFunction: Timeout 300000ms exceeded."
+  }
+]

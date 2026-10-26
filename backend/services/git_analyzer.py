@@ -35,7 +35,7 @@ import httpx
 from git import Repo, InvalidGitRepositoryError, GitCommandError, NULL_TREE
 
 from core.config import settings
-from services.source_parser import (extract_python_routes, parse_js_ts, semantic_comparison,
+from services.source_parser import (extract_python_routes, parse_python, parse_js_ts, semantic_comparison,
                                     PythonModelContext, compare_schema_models, compare_route_contracts)
 
 logger = logging.getLogger(__name__)
@@ -513,7 +513,7 @@ class ASTAnalyzer:
 
     def _parse_python(self, content: str) -> Dict[str, Any]:
         try:
-            tree = ast.parse(content)
+            tree = parse_python(content)
         except SyntaxError:
             return self._parse_generic(content, "python")
 
@@ -540,6 +540,7 @@ class ASTAnalyzer:
             "classes": list(dict.fromkeys(classes)),
             "imports": list(dict.fromkeys(imports)),
             "exports": [],
+            "parser_compatibility": tree.mdt_compatibility,
         }
 
     # ---- JavaScript / TypeScript ----
@@ -863,7 +864,7 @@ class GitAnalyzer:
             for name, source in (("old", old_content), ("new", new_content)):
                 if source:
                     try:
-                        ast.parse(source)
+                        parse_python(source)
                     except (SyntaxError, ValueError, RecursionError):
                         warnings.append(f"{name}_source_parse_failed")
                         parser_coverage = "failed"

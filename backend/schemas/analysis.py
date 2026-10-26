@@ -84,6 +84,7 @@ class AnalysisResponse(BaseModel):
     architecture_smells_count: int = 0
     architecture_smells_breakdown: Dict[str, int] = {}
     coverage: Dict[str, Any] = Field(default_factory=dict)
+    topology_coverage: Dict[str, Any] = Field(default_factory=dict)
     evidence: Dict[str, Any] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
     partial_results: bool = False

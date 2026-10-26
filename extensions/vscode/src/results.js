@@ -4,7 +4,7 @@ const number = value => ['number','string'].includes(typeof value) && String(val
 const label = value => String(value ?? 'Unavailable');
 const isPartial = result => result.partial_results || ['partial','insufficient_communication_evidence'].includes(result.architecture_health?.assessment_status);
 
-function resultTree(job) {
+function resultTree(job, coverageText = '') {
   if (!job) return [{ label: 'No analysis loaded', description: 'Run Analyze or Refresh Last Analysis', icon: 'info' }];
   const result = job.result;
   if (!result) return [{ label: `Analysis ${label(job.status)}`, description: job.stage || '', tooltip: label(job.error || job.stage || 'Waiting for the server'), icon: job.status === 'failed' ? 'error' : 'sync' }];
@@ -20,6 +20,7 @@ function resultTree(job) {
       { label: `Recorded detector: ${label(health.detector_version || evidence.detector_version)}` },
       { label: `Architecture evidence: ${JSON.stringify(health.evidence || {})}` },
       { label: `Mode: ${label(evidence.mode)}` },
+      ...(coverageText ? [{ label: 'Coverage indicators', icon: 'info', expanded: true, children: coverageText.split('\n').map(text => ({ label: text })) }] : []),
       { label: `Base: ${label(result.base_sha)}` },
       { label: `Head: ${label(result.commit_sha)}` },
       { label: `Snapshot: ${label(result.snapshot_version)}` },

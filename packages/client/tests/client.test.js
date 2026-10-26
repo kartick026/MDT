@@ -52,6 +52,28 @@ test('client summaries preserve insufficient architecture evidence and distingui
   assert.match(text,/Commit risk: unavailable/);
   assert.match(text,/Architectural debt: 0/);
   assert.match(text,/insufficient communication evidence/);
-  assert.match(text,/Partial coverage/);
+  assert.match(text,/Limited evidence/);
   assert.match(text,/zero does not establish/);
+});
+
+test('client summaries distinguish mapped scanning, parser support, and runtime verification', () => {
+  const text = resultSummary({ topology_coverage: { indicators: {
+    source_scan: { status:'complete', eligible_files:161, read_files:161 },
+    parser_support: { status:'partial', parsed_files:111, read_files:161, heuristic_files:48, failed_files:2, partial_files:0 },
+    runtime_verification: { status:'not_measured' },
+  } }, coverage: { status:'complete', total_files:2 } });
+  assert.match(text, /Source scan: 161 \/ 161 eligible mapped source files read/);
+  assert.match(text, /Parser support: 111 \/ 161 read files syntax parsed/);
+  assert.match(text, /48 heuristic; 2 failed/);
+  assert.match(text, /Runtime verification: Not measured/);
+  assert.doesNotMatch(text, /Full coverage/);
+  const missing = resultSummary({ coverage: { status:'complete', total_files:2 } });
+  for (const label of ['Source scan', 'Parser support', 'Runtime verification']) assert.ok(missing.includes(`${label}: Not recorded`));
+  const legacy = resultSummary({ coverage: { candidate_files:161, files_read:100, parsers:{ast:1,tree_sitter:52,heuristic:45,failed:2}, source:'static_source', partial:true } });
+  assert.match(legacy, /Source scan: 100 \/ 161/);
+  assert.match(legacy, /Parser support: 53 \/ 100/);
+  assert.match(legacy, /saved capture/);
+  const contradictory = resultSummary({ coverage: { candidate_files:2, files_read:3, parsers:{ast:3,failed:1} } });
+  assert.match(contradictory, /Source scan: Inconsistent recorded counts/);
+  assert.match(contradictory, /Parser support: Inconsistent recorded counts/);
 });

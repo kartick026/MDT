@@ -1,3 +1,5 @@
+import { coverageIndicators, topologyCoverage } from './coverage.js';
+
 export function numericScore(value) {
   if (!['number', 'string'].includes(typeof value) || (typeof value === 'string' && !value.trim())) return null;
   const numeric = Number(value);
@@ -59,9 +61,11 @@ export function previewChange(preview) {
 export function evidenceSummary(result = {}) {
   const evidence = result.evidence || result.provenance || {};
   const coverage = result.coverage || evidence.coverage || {};
+  const topology = topologyCoverage(result);
   const warnings = [...new Set([
     ...(Array.isArray(result.warnings) ? result.warnings : []),
     ...(Array.isArray(coverage.warnings) ? coverage.warnings : []),
+    ...(Array.isArray(topology.warnings) ? topology.warnings : []),
   ])];
   return {
     mode: evidence.mode || result.analysis_mode || result.mode || 'Evidence mode not supplied',
@@ -96,13 +100,14 @@ export function readableExport(result, format = 'md') {
       ['Static or modeled calls', architecture.evidence.static_or_modeled_calls ?? 'Not recorded'],
       ['Runtime traffic measured', architecture.evidence.runtime_traffic_measured === true ? 'Yes' : 'Not established'],
     ] : []),
-    ['Evidence mode', evidence.mode], ['Coverage', evidence.partial ? 'Partial' : 'See source evidence'],
+    ['Evidence mode', evidence.mode],
+    ...coverageIndicators(result).map(indicator => [indicator.title, `${indicator.label}: ${indicator.value}. ${indicator.notes.join(' ')}`]),
     ...(result.confidence_evidence?.kind === 'evidence_completeness' ? [
       ['Static evidence completeness', `${Math.round((result.confidence || 0) * 100)}% (not prediction accuracy)`],
       ['Assessment', String(result.assessment_status || 'unknown').replaceAll('_', ' ')],
     ] : []),
   ];
-  if (format === 'html') return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MDT analysis report</title><style>body{font:16px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 24px;color:#162333}dt{font-weight:bold}dd{margin:0 0 12px;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere}li{margin:12px 0}</style><h1>MDT analysis report</h1><p>Academic alpha. Scores are engineering indicators, not incident probabilities.</p><dl>${details.map(([key,value]) => `<dt>${key}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl><h2>Findings</h2><ul>${findings.map(f => `<li><strong>${escapeHtml(f.type || f.title || 'Finding')}</strong><p>${escapeHtml(f.description || f.message)}</p><p>${escapeHtml((f.services || []).join(', '))}</p></li>`).join('')}</ul><h2>Evidence and warnings</h2><pre>${escapeHtml(JSON.stringify({evidence: result.evidence, coverage: result.coverage, warnings: evidence.warnings}, null, 2))}</pre></html>`;
+  if (format === 'html') return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MDT analysis report</title><style>body{font:16px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 24px;color:#162333}dt{font-weight:bold}dd{margin:0 0 12px;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere}li{margin:12px 0}</style><h1>MDT analysis report</h1><p>Academic alpha. Scores are engineering indicators, not incident probabilities.</p><dl>${details.map(([key,value]) => `<dt>${key}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl><h2>Findings</h2><ul>${findings.map(f => `<li><strong>${escapeHtml(f.type || f.title || 'Finding')}</strong><p>${escapeHtml(f.description || f.message)}</p><p>${escapeHtml((f.services || []).join(', '))}</p></li>`).join('')}</ul><h2>Evidence and warnings</h2><pre>${escapeHtml(JSON.stringify({evidence: result.evidence, coverage: result.coverage, topology_coverage: topologyCoverage(result), warnings: evidence.warnings}, null, 2))}</pre></html>`;
   return `# MDT analysis report\n\nAcademic alpha. Scores are engineering indicators, not incident probabilities.\n\n${details.map(([key,value]) => `- **${key}:** ${markdownText(value)}`).join('\n')}\n\n## Findings\n\n${findings.map(f => `- **${markdownText(f.type || f.title || 'Finding')}:** ${markdownText(f.description || f.message || '')}\n  Services: ${markdownText((f.services || []).join(', '))}`).join('\n\n')}\n\n## Warnings\n\n${evidence.warnings.map(value => `- ${markdownText(value)}`).join('\n') || 'No additional warnings supplied. Review JSON source evidence for coverage.'}\n`;
 }
 

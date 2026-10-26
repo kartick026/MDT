@@ -1,4 +1,12 @@
-# Test case inventory — 23 October 2026
+# Test case inventory — 26 October 2026
+
+Current named inventory: **477 passed** — backend 414 (including all 12 database integrations on the Alpine runtime), frontend 23, shared client 8, browser extension 14 and VS Code unit 18. [All names and results](benchmarks/test-inventory-2026-10-25.csv), [release validation and limits](RELEASE_READINESS_2026-10-25.md). Separate real-host and accessibility checks are described in that report, not added to this named unit/integration total. These counts do not establish predictive accuracy.
+
+The 26 October human-operated Windows VS Code follow-up passed four additional host checks: credential input, denied upload, approved exact-source upload with actual result, and disconnect without further network access. [Native evidence](benchmarks/release-vscode-interactive-2026-10-26.json).
+
+## Historical inventory — 23–24 October
+
+> Historical named inventory below. The [24 October coverage verification](COVERAGE_IMPROVEMENTS_2026-10-24.md) supersedes these totals: 389 backend checks passed with 12 skipped in the full run, followed by 39 final scanner checks including one newly added case; current client suites passed 23/8/10/10. Do not add the overlapping scanner run to the full-suite count.
 
 Named automated checks: **400 total**. Backend: **355 passed** on 22 October (112.18s, including PostgreSQL/Neo4j); its source hashes remain unchanged. On 23 October, **20 targeted backend cases** were rerun and passed (included in the 355, not additional cases). Current client suites: **19 frontend, 7 shared client, 10 browser extension, 9 VS Code unit**, all rerun on 23 October. These counts do not measure predictive accuracy.
 

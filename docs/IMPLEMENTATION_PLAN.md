@@ -1,6 +1,6 @@
 # MDT implementation and public alpha plan
 
-Prepared 16 October 2026 for a zero budget academic release. The historical client status below is dated 18 October. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the current 19 October implementation and remaining work.
+Prepared 16 October 2026 for a zero budget academic release. The historical client status below is dated 18 October. See [25 October release preparation](RELEASE_READINESS_2026-10-25.md) and [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for current implementation and remaining work.
 
 This document preserves the original audit and target backlog. Baseline evidence, source line references and estimates below describe the 16 October review and may no longer match the modified checkout. Use [PUBLIC_ALPHA.md](PUBLIC_ALPHA.md) for current API behavior, limits, build/install commands and release gates. Local implementation is not evidence of cloud deployment, store publication or a completed research evaluation.
 

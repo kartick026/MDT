@@ -8,6 +8,8 @@ import hashlib
 import json
 import re
 import posixpath
+import io
+import tokenize
 from functools import lru_cache
 
 from tree_sitter import Language, Parser
@@ -17,6 +19,76 @@ import tree_sitter_typescript
 
 MAX_SYNTAX_NODES = 50000
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
+
+
+def parse_python(content):
+    """Bounded AST with a narrow PEP 758 bridge for older Python runtimes.
+
+    Only simple comma-separated exception names without an ``as`` clause are
+    normalized. Source is never executed or changed in the stored snapshot.
+    Other new syntax and malformed headers remain errors. Restore AST columns
+    after inserting the equivalent tuple parentheses; line numbers never move.
+    """
+    if len(content.encode('utf-8')) > 256 * 1024:
+        raise ValueError('source_exceeds_parser_limit')
+    compatibility = []
+    try:
+        tree = ast.parse(content)
+    except SyntaxError as original:
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(content).readline))
+        except (tokenize.TokenError, IndentationError):
+            raise original
+        if len(tokens) > MAX_SYNTAX_NODES:
+            raise ValueError('syntax_node_limit_reached')
+        lines = content.splitlines(keepends=True)
+        edits = {}
+        for i, token in enumerate(tokens):
+            if token.type != tokenize.NAME or token.string != 'except':
+                continue
+            header = []
+            for part in tokens[i + 1:]:
+                if part.start[0] != token.start[0] or part.type in {tokenize.NEWLINE, tokenize.COMMENT}:
+                    break
+                if part.string == ':':
+                    break
+                header.append(part)
+            else:
+                continue
+            if part.string != ':' or not header:
+                continue
+            if header[0].string == '*':
+                header = header[1:]
+            expression = ''.join(t.string for t in header)
+            # Do not accept Python 2's ``except Error, error as value`` or
+            # expressions whose precedence needs the newer grammar to resolve.
+            name = r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*'
+            if not re.fullmatch(rf'{name}(?:,{name})+', expression):
+                continue
+            if any(t.type == tokenize.NAME and t.string in {'as', 'lambda', 'if', 'else'} for t in header):
+                continue
+            row = token.start[0] - 1
+            edits.setdefault(row, []).extend([(header[0].start[1], '('), (part.start[1], ')')])
+        if not edits:
+            raise original
+        normalized = list(lines)
+        positions = {}
+        for row, inserts in edits.items():
+            positions[row + 1] = [len(lines[row][:col].encode('utf-8')) + n
+                                  for n, (col, _) in enumerate(sorted(inserts))]
+            for col, value in sorted(inserts, reverse=True):
+                normalized[row] = normalized[row][:col] + value + normalized[row][col:]
+        tree = ast.parse(''.join(normalized))  # Still reject every unrelated syntax error.
+        for node in ast.walk(tree):
+            for line_attr, col_attr in [('lineno', 'col_offset'), ('end_lineno', 'end_col_offset')]:
+                row, col = getattr(node, line_attr, None), getattr(node, col_attr, None)
+                if row in positions and col is not None:
+                    setattr(node, col_attr, col - sum(p < col for p in positions[row]))
+        compatibility = ['python_unparenthesized_except']
+    if sum(1 for _ in ast.walk(tree)) > MAX_SYNTAX_NODES:
+        raise ValueError('syntax_node_limit_reached')
+    tree.mdt_compatibility = compatibility
+    return tree
 
 
 def semantic_comparison(before, after, language, *, complete=True, structural_change=False):
@@ -31,7 +103,7 @@ def semantic_comparison(before, after, language, *, complete=True, structural_ch
     try:
         if language == "python":
             def fingerprint(source):
-                tree = ast.parse(source)
+                tree = parse_python(source)
                 if sum(1 for _ in ast.walk(tree)) > MAX_SYNTAX_NODES:
                     raise ValueError("syntax_node_limit")
                 return ast.dump(tree, include_attributes=False)
@@ -39,10 +111,8 @@ def semantic_comparison(before, after, language, *, complete=True, structural_ch
         elif language in {"javascript", "typescript"}:
             def fingerprint(source):
                 encoded = source.encode()
-                tree = Parser(_language(language)).parse(encoded)
-                if language == "typescript" and tree.root_node.has_error:
-                    tree = Parser(_language("tsx")).parse(encoded)
-                if tree.root_node.has_error:
+                tree, _, _, syntax_supported = _parse_js_ts_tree(encoded, language)
+                if not syntax_supported:
                     raise ValueError("invalid_syntax")
                 pending, parts, count = [tree.root_node], [], 0
                 while pending:
@@ -119,7 +189,7 @@ class PythonModelContext:
             if total > 2 * 1024 * 1024:
                 break
             try:
-                tree = ast.parse(source)
+                tree = parse_python(source)
                 if sum(1 for _ in ast.walk(tree)) > MAX_SYNTAX_NODES:
                     continue
             except (SyntaxError, ValueError, RecursionError):
@@ -333,7 +403,7 @@ def extract_python_routes(content, *, file_path="source.py", context=None):
     fully resolved OpenAPI schemas, inherited fields or mounted router prefixes.
     """
     try:
-        tree = ast.parse(content)
+        tree = parse_python(content)
     except (SyntaxError, ValueError, RecursionError):
         return []
     context = context or PythonModelContext({file_path: content})
@@ -393,21 +463,108 @@ def _language(name):
     return Language(factory())
 
 
+def _generic_template_recovery(node):
+    """Recognize one upstream TS grammar gap, never arbitrary missing syntax.
+
+    TypeScript permits tag<Type>`template` (since 2.9), but the pinned grammar
+    sometimes recovers it as tag<Type>!`template` with a zero-width missing !.
+    See tree-sitter/tree-sitter-typescript#341. Keep the original source/tree:
+    inserting or stripping text would lose byte positions and change evidence.
+    """
+    if not (node.is_missing and node.type == "!" and node.start_byte == node.end_byte):
+        return False
+    function = node.parent
+    if not function or function.type != "non_null_expression":
+        return False
+    expressions = [child for child in function.named_children if child.type != "comment"]
+    if len(expressions) != 1 or expressions[0].type != "instantiation_expression":
+        return False
+    instantiation = expressions[0]
+    type_arguments = instantiation.child_by_field_name("type_arguments")
+    if (not type_arguments or type_arguments.has_error
+            or instantiation.end_byte > node.start_byte
+            or function.end_byte != node.start_byte
+            or any(child != instantiation and child != node and child.type != "comment"
+                   for child in function.children)):
+        return False
+    call = function.parent
+    if not call or call.type != "call_expression" or call.child_by_field_name("function") != function:
+        return False
+    template = call.child_by_field_name("arguments")
+    if not template or template.type != "template_string" or template.start_byte < node.end_byte:
+        return False
+    # An unparenthesized optional chain cannot be a tagged-template receiver.
+    # Restrict this accommodation to the observed identifier/member tags, with
+    # structurally valid type arguments; leave other recovered forms unknown.
+    tag = instantiation.named_children[0]
+    while tag.type == "member_expression":
+        if tag.child_by_field_name("optional_chain") or any(c.type == "optional_chain" for c in tag.children):
+            return False
+        tag = tag.child_by_field_name("object")
+        if tag is None:
+            return False
+    return tag.type == "identifier" and not instantiation.has_error
+
+
+def _jsx_attribute_literal(node, encoded):
+    if node.type != 'string' or not node.parent or node.parent.type != 'jsx_attribute':
+        return False
+    raw = encoded[node.start_byte:node.end_byte]
+    return len(raw) >= 2 and raw[:1] in {b'"', b"'"} and raw[-1:] == raw[:1] and raw[:1] not in raw[1:-1]
+
+
+def _supported_js_ts_tree(tree, grammar, encoded):
+    """Validate every error-bearing node, within the existing traversal bound."""
+    if not tree.root_node.has_error:
+        return True, []
+    pending, count, recovered = [tree.root_node], 0, set()
+    while pending:
+        node = pending.pop()
+        count += 1
+        if count > MAX_SYNTAX_NODES:
+            return False, []
+        if node.has_error and _jsx_attribute_literal(node, encoded):
+            # JSX quoted attributes are literal text, not JS expressions. The
+            # pinned grammar incorrectly recovers bare ampersands as code.
+            if b'&' not in encoded[node.start_byte:node.end_byte]:
+                return False, []
+            recovered.add('jsx_quoted_attribute_ampersand')
+            continue
+        if node.type == "ERROR":
+            return False, []
+        if node.is_missing:
+            if grammar not in {"typescript", "tsx"} or not _generic_template_recovery(node):
+                return False, []
+            recovered.add('typescript_generic_tagged_template')
+        pending.extend(reversed(node.children))
+    return bool(recovered), sorted(recovered)
+
+
+def _parse_js_ts_tree(encoded, language):
+    """Share strict parsing and the bounded TS compatibility path with comparison."""
+    grammars = ("typescript", "tsx") if language == "typescript" else (language,)
+    for grammar in grammars:
+        tree = Parser(_language(grammar)).parse(encoded)
+        supported, compatibility = _supported_js_ts_tree(tree, grammar, encoded)
+        if supported:
+            return tree, grammar, compatibility, True
+    return tree, grammar, [], False
+
+
 def parse_js_ts(content, language):
     """Return deterministic metadata plus explicit syntax/coverage limitations."""
     encoded = content.encode("utf-8")
     result = {"language": language, "functions": [], "classes": [], "imports": [],
               "exports": [], "routes": [], "parser_coverage": "tree_sitter",
-              "parser_warnings": [], "contract_coverage": "literal_method_path_only"}
+              "parser_warnings": [], "parser_compatibility": [],
+              "contract_coverage": "literal_method_path_only"}
     if len(encoded) > 256 * 1024:
         result.update(parser_coverage="failed", parser_warnings=["source_exceeds_parser_limit"])
         return result
-    tree = Parser(_language(language)).parse(encoded)
-    if language == "typescript" and tree.root_node.has_error:
-        tsx_tree = Parser(_language("tsx")).parse(encoded)
-        if not tsx_tree.root_node.has_error:
-            tree = tsx_tree
-    if tree.root_node.has_error:
+    tree, grammar, compatibility, syntax_supported = _parse_js_ts_tree(encoded, language)
+    result["parser_grammar"] = grammar
+    result["parser_compatibility"] = compatibility
+    if not syntax_supported:
         result["parser_coverage"] = "failed"
         result["parser_warnings"].append("source_parse_failed")
 
@@ -429,6 +586,8 @@ def parse_js_ts(content, language):
     while pending and len(nodes) < MAX_SYNTAX_NODES:
         node = pending.pop()
         nodes.append(node)
+        if _jsx_attribute_literal(node, encoded):
+            continue  # Never extract fake calls from a literal attribute value.
         pending.extend(reversed(node.named_children))
     if pending:
         result["parser_coverage"] = "partial"

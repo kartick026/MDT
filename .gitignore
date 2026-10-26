@@ -70,6 +70,7 @@ backend/chroma_db/
 backend/data/
 *.sqlite3
 scratch/
+release-config.local.json
 
 # Testing & browser artifacts
 .playwright-mcp/

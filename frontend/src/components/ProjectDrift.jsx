@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getDrift, getSnapshots, setBaseline } from '../api';
 import { formatScore } from '../utils/analysis';
 import EvidenceDetails from './EvidenceDetails';
+import CoverageIndicators from './CoverageIndicators';
 
 export default function ProjectDrift({ projectId }) {
   const [data, setData] = useState(null);
@@ -164,6 +165,16 @@ export default function ProjectDrift({ projectId }) {
               <p key={index}>{warning}</p>
             ))}
           </aside>
+
+          <details className="evidence-summary" open>
+            <summary>Coverage recorded for each capture</summary>
+            {[['Baseline', base], ['Target', target]].map(([label, version]) => (
+              <section key={label} aria-label={`${label} captured coverage`}>
+                <h3>{label} capture</h3>
+                <CoverageIndicators result={{ topology_coverage: data?.snapshots.find(snapshot => snapshot.snapshot_version === version)?.coverage || {} }} label={`${label} coverage indicators`} />
+              </section>
+            ))}
+          </details>
 
           {/* Structured Drift Diff Grid */}
           <div className="drift-grid">

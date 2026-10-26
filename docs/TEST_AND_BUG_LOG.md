@@ -1,4 +1,56 @@
-# Tests and bug log — 22 October 2026
+# Tests and bug log — 26 October 2026
+
+## Native Windows acceptance completed — 26 October 2026
+
+The corrected human-operated run passed all four checks: native connection with no token in settings; Cancel without an upload; exactly one approved upload with verified mode-specific source and the actual server result; and disconnect followed by an Analyze command rejected before network access. The server returned a partial result with risk 5/100, and the extension retained that evidence warning. These four native checks are separate from the 477 named automated checks.
+
+The editor exited normally. Backend logs confirm HTTP 204 for deletion of the disposable project and logout; its temporary profile was removed. The native-consent release flag is now true. Previous failures and timeouts remain recorded below and in [the full evidence](benchmarks/release-vscode-interactive-2026-10-26.json). Public services, another OS and deployed vscode.dev still need acceptance.
+
+## Native terminal-state follow-up — 26 October 2026
+
+Native connection and upload cancellation passed. The next approved synthetic upload reached the local API and the extension displayed the actual `partial` result: risk 5/100, insufficient evidence, with the evidence warning retained. The test observer incorrectly recognized only `succeeded`, `failed` and `cancelled`, so it remained waiting after the product had completed. This was another harness defect, not a failed analysis or a reason to relabel coverage.
+
+The observer now uses the shared client's terminal classifier, requires a real result, preserves partial-result flags, and rejects failed/cancelled outcomes. It records dialog choices and request progress immediately, then waits for the view to consume the actual result. Two new regressions pass; the VS Code suite is 18/18 and the combined named inventory is **477**. This incomplete attempt was followed by the successful four-check native run recorded above. [Follow-up evidence](benchmarks/release-vscode-interactive-2026-10-26.json).
+
+## Native VS Code harness correction — 25 October 2026
+
+The first interactive editor attempt exited before producing a report. A retry established native connection, but no upload was observed. That retry's initial cancellation claim is withdrawn: the harness had not verified that a source-upload dialog was actually reached. Later instrumentation recorded cancellation of a project picker instead. Another attempt correctly rejected a revoked token supplied at the native input.
+
+The decisive log error was `DialogService: refused to show dialog in tests`. The installed VS Code source confirms that extension-development mode with an extension-tests location suppresses native modal dialogs. The manual harness now uses a separate disposable development driver without `--extensionTestsPath`. It selects only its own synthetic fixture project, prefills a temporary masked token requiring human submission, observes actual upload-dialog decisions, and separates Cancel and approval checks with an explicit continuation. Partial reports and a zero editor exit code never count as a completed pass. Updates are disabled only in the disposable profile; source is checked before forwarding to its test project. Native acceptance remains pending until all four checks finish.
+
+A later screenshot exposed another harness error: it expected working-tree text when the selected command correctly collected staged text. Assertions now use the actual selected mode, and the run accepts the two required human choices in either order. The failed assertion prevented that attempt from forwarding source. The inactivity deadline now resets at each input/dialog step; an attempt that expired while still waiting for the token is retained as incomplete evidence. Neither issue is counted as a product source-collection failure.
+
+## Browser permission follow-up — 25 October 2026
+
+Fixed a blank pending-permission state, duplicate connection submissions, and stale "Connecting" status after connection failure. The popup now shows the requested host and a Cancel control immediately, explains recovery after 15 seconds, clears the token on cancellation, and ignores a later permission result for a cancelled attempt. Four new regressions pass; browser unit tests now total 14 and the combined named inventory is **475**.
+
+Actual headed Chrome and Edge both passed origin grant/denial and authenticated connection to the local API, with four projects returned. Token input clearing, persistent-storage exclusion, popup reload, actual service-worker restart, server logout revocation (401) and disconnect/reload also pass. Test sessions were revoked and windows closed. An intended Edge denial initially returned grant; a fresh profile verified denial separately. The user confirmed Chrome's prompt eventually appeared, but the earlier invisible-prompt cause is not proven. Pending timeout/cancellation is covered by unit tests, not represented as a completed native manual check.
+
+The diagnostic harness now distinguishes pending permission from denial and handles HTTP 204 logout without attempting JSON parsing. Browser ZIP, package hash and named inventory were refreshed. [Current evidence and remaining gates](RELEASE_READINESS_2026-10-25.md), [native permission/session outcomes](benchmarks/release-permission-workflows-2026-10-25.json).
+
+## Release completion follow-up — 25 October 2026
+
+Replaced the hosted Debian runtime with a multi-stage Python 3.11/Alpine 3.24 image. Current backend and frontend scans have zero package findings; prior Debian findings are retained in the evidence. Native-library imports and all 414 backend tests passed on Alpine, including the 12 external database checks (91.87s, no skips, one existing TestClient/httpx deprecation warning).
+
+Added six desktop regression cases covering Restricted Mode, denied/approved source consent, connection changes during confirmation, credential expiry and cancellation. VS Code unit tests now total 16; the combined named inventory is 471. A separate actual VS Code Restricted Mode profile also passes four checks. The first native browser permission attempt hit a test-harness 30-second timeout; it was corrected to five minutes. A failed/incomplete interactive attempt is not a passing permission check.
+
+CI now provisions both test databases and builds/scans both release images. Its configuration parses locally; remote CI remains unrun without an authorized push. Native credential/consent and deployed service acceptance, plus undecided release metadata, remain explicit gates. See [current evidence](RELEASE_READINESS_2026-10-25.md).
+
+## Release preparation — 25 October 2026
+
+Fixed valid Python 3.14 multi-exception syntax rejected by the older runtime, a bounded quoted-JSX-attribute parser failure, and minified bundles being included in eligible source sampling. Ten pinned repository imports were replayed: parser failures cleared in the affected fixtures while topology/debt stayed unchanged. Unsupported evidence remains disclosed.
+
+Fixed keyboard access to the scrollable graph connection-details region and contrast of the focused skip link. Twelve automated accessibility page/viewport combinations pass. Updated vulnerable VS Code packaging dependencies and frontend OS packages; hosted backend build tools were removed. The backend still has 49 high, 85 medium, 126 low and 5 unknown package findings with no fixed versions listed, so security clearance remains pending.
+
+All **465 named checks passed**, including the previously skipped 12 database tests. Real Chrome/Edge loaded the extension; VS Code desktop/web hosts passed 5/4 checks. Native permission, consent and deployed workflows remain acceptance work. Scanner load and fresh PostgreSQL restore checks passed. Local ZIP/VSIX/web bundles and their hashes were refreshed. The extra hosted-mode container smoke was rejected by automatic approval review with only “blocked by policy”; it did not run.
+
+See [full evidence, initial failures and remaining gates](RELEASE_READINESS_2026-10-25.md) and the [named inventory](benchmarks/test-inventory-2026-10-25.csv). Nothing was pushed or published.
+
+## Separate coverage indicators and scanning — 24 October 2026
+
+[Implementation, measured results, regressions and remaining limits](COVERAGE_IMPROVEMENTS_2026-10-24.md). Source scan, parser support and runtime verification are now distinct in the website, reports and extension summaries. The ten pinned repositories were replayed: OpenTelemetry source reads increased from 100 to 161 and eShop from 100 to 276. Four valid TypeScript generic-template failures were fixed; unsupported evidence remains explicit. A fresh website import verified the counts, and old saved analysis/export counts stayed unchanged after re-import.
+
+389 backend tests passed with 12 external database tests skipped; the final scanner refinement passed 39 relevant tests (overlapping the full run). Frontend/shared-client/browser/VS Code suites passed 23/8/10/10. Builds, lint, demo consistency, backend readiness, Nginx, and responsive coverage-card checks passed. The detailed report records the initial test-fixture failure, Windows async-test stall, and remaining parser/language limitations. Local services are updated; nothing was pushed or published.
 
 ## Shared layout follow-up — 23 October 2026
 

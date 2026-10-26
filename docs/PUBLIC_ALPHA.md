@@ -1,6 +1,6 @@
 # MDT academic alpha: implementation and release runbook
 
-Updated 20 October 2026. The detailed report-to-code audit and phased backlog are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). This document describes the implemented alpha, not every future item in that plan. No cloud account, GitHub push, or store publication is performed by these files.
+Updated 25 October 2026. The detailed report-to-code audit and phased backlog are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Current checks, package hashes and unresolved security/acceptance requirements are in [RELEASE_READINESS_2026-10-25.md](RELEASE_READINESS_2026-10-25.md). This document describes the implemented alpha, not every future item in that plan. No cloud account, GitHub push, or store publication is performed by these files.
 
 ## Delivered architecture
 
@@ -15,13 +15,13 @@ The default preview copies a versioned snapshot, applies explicit edits and runs
 | Area | Implemented behavior | Interpretation / remaining limit |
 | --- | --- | --- |
 | Extraction | Exact base/head content; renames, deletions, initial commits, bounded cached GitHub reads; real staged/index/working snapshots | Python AST and bounded JS/TS/TSX Tree-sitter; other languages/frameworks retain explicit coverage limits |
-| Onboarding | Reads multiple nested source files per service; preserves Compose edges; records immutable revision and coverage | At most 100 source files / 2 MiB; incomplete coverage stays visible |
+| Onboarding | Samples eligible source fairly across services; preserves Compose edges; records immutable revision, exclusions and source/parser/runtime indicators | Default 500 eligible files / 8 MiB total / 256 KiB per file; incomplete and heuristic coverage stays visible |
 | Scoring | Distinct-neighbour topology counts, API contract method/path evidence, evidence-aware results | Risk remains a weighted engineering indicator, not a calibrated probability |
 | Retrieval | Revision/provider/dimension isolation, chronology filters, lexical fallback with zero semantic modifier | Optional local research feature; hosted/scoped jobs do not use it |
 | Preview | Shared deterministic detector, immutable snapshots, explicit graph edits, real transaction rollback tests | Better debt scores do not prove preserved business functionality |
 | Storage | SQLite locally; PostgreSQL remotely; full results, owned projects and leased jobs | Single-instance academic service; no availability SLA |
 | Security | Current-account role validation, one-hour tokens, logout/refresh revocation, invitation-only hosted analysts, request/source/job limits | Web tokens remain XSS-readable sessionStorage; no claim of HttpOnly-cookie authentication |
-| Clients | Projects/History/Account web UI, measured fixture previews, browser ZIP and dual-entry VS Code VSIX with findings tree | Five desktop and four actual VS Code web-worker checks pass; broader consent/credential testing, Chrome/Edge checks, deployed vscode.dev acceptance and store approval remain pending |
+| Clients | Projects/History/Account web UI, measured fixture previews, browser ZIP and dual-entry VS Code VSIX with findings tree | Five desktop, four web-worker, four Restricted Mode and four native credential/consent/result/disconnect checks pass in actual VS Code. Chrome/Edge native permission and local session checks pass. Deployed workflows, another OS and store approval remain pending |
 
 Revise the paper's experiment section after rerunning the final implementation: replace old test counts; distinguish illustrative topology history from observed traffic; publish the actual dataset, labels, failure cases, parser coverage, hardware and latency percentiles. Do not describe current confidence values as validated prediction accuracy. Keep deployment risk and architectural debt as separate quantities. The original Word report is preserved.
 
@@ -34,10 +34,13 @@ Revise the paper's experiment section after rerunning the final implementation: 
 - `GET /v1/jobs/{id}` returns queued/running/succeeded/partial/failed/cancelled plus the full saved result. `DELETE` cancels. `/v1/analyses/{id}` is an alias. `/v1/analyses/{id}/previews` uses the saved analysis snapshot.
 - Supply `Idempotency-Key` when retrying submissions. A changed body with the same key returns 409. Deleting a project does not reset daily quotas.
 - Defaults: 5 projects/account, 2 active jobs/account, 30 jobs/day/account, 180-second job timeout, 30-day result retention; 5 MiB HTTP body, 2 MiB extracted source and 100 files; preview limits 500 nodes / 5,000 edges / 100 edits, bounded cycle enumeration to 8 nodes.
+- Repository onboarding has its own defaults: 500 eligible source files / 8 MiB total, with the same 256 KiB per-file cap. It reports excluded minified bundles, unmapped source, parser outcomes and exhaustion separately. These import limits do not raise the commit/change-extraction limits above.
 - The worker renews leases and recovers interrupted jobs with bounded retries. Cancellation/deletion/lease replacement prevents stale workers from publishing. Raw submitted source is removed from the job payload at termination; results retain findings, paths, contracts, topology and provenance. Failed repeated interruptions also erase queued source.
 - Anonymous GitHub API quotas are shared by the host's outbound IP. A real public-repository smoke test hit that limit during a multi-file commit analysis: import succeeded and analysis returned explicit partial coverage. Keep beta usage small; do not interpret missing source as a clean result. Per-user GitHub App credentials and bulk source retrieval remain follow-on work.
 
 ## Zero-cost hosting choice
+
+Before deployment, complete the [release gates](RELEASE_READINESS_2026-10-25.md). Hosting accounts, publisher, support and license are undecided. Copy [the metadata template](../release-config.example.json) to `release-config.local.json` when those decisions are made; `python scripts/release_preflight.py --config release-config.local.json` checks recorded readiness without publishing. Use [the hosted environment template](../backend/hosted.env.example) for private deployment secrets and complete [the privacy draft](PRIVACY_RELEASE_TEMPLATE.md) with actual operating details.
 
 Use Cloudflare Pages Free for the UI, Render Free for the single API process, and Supabase Free PostgreSQL for durable state. Keep paid model providers disabled. This is a limited academic alpha, not an always-on production commitment.
 
@@ -66,7 +69,7 @@ python -m venv .venv-alpha
 .\.venv-alpha\Scripts\python.exe scripts/test_isolated.py -q
 ```
 
-The runner copies only source/test files into a temporary directory and excludes real environment files and runtime data. PostgreSQL tests use `TEST_DATABASE_URL` and create/drop only their own generated schema. Neo4j rollback integration tests require explicit `MDT_LIVE_NEO4J_URI` and `MDT_LIVE_NEO4J_PASSWORD` (see the test file). The CI workflow is configured to run backend tests and client tests/builds; it does not run real browser/editor extension hosts, package the VSIX, or certify cross-client parity. Adding it locally does not run GitHub Actions until a user-authorized push.
+The runner copies only source/test files into a temporary directory and excludes real environment files and runtime data. PostgreSQL tests use `TEST_DATABASE_URL` and create/drop only their own generated schema. Neo4j rollback integration tests require explicit `MDT_LIVE_NEO4J_URI` and `MDT_LIVE_NEO4J_PASSWORD` (see the test file). CI now provisions both databases, runs backend/client checks and builds/scans both release images; it does not run real browser/editor extension hosts, package the VSIX, or certify cross-client parity. Adding it locally does not run GitHub Actions until a user-authorized push.
 
 ## Build and install the clients locally
 
@@ -112,7 +115,7 @@ The VS Code browser entry provides **MDT: Analyze Repository Revision (Browser)*
 
 On 20 October 2026, local validation passed: frontend 8 tests, shared SDK 6 tests, browser 10 tests and VS Code 8 tests, plus 5 desktop and 4 web-worker checks inside VS Code 1.141.0. The full backend suite passed 276 tests, including nine PostgreSQL and three Neo4j integrations. Frontend lint and production builds pass. Chrome popup/worker tests use simulated hosts; the actual editor checks cover activation, commands, findings views, configuration and desktop staged/working source collection. Updated packages and detailed scope are recorded in [VALIDATION.md](VALIDATION.md).
 
-**Interactive Chrome/Edge acceptance and broader VS Code consent/credential workflows remain pending.** Before distributing to testers, use clean browser profiles and a trusted editor workspace to verify connection and permission denial, wrong-project rejection, import readiness, upload consent, cancellation, popup/worker/editor restart, expired-token recovery, logout revocation and links to the saved web analysis. Confirm Restricted Mode prevents source collection. Repeat desktop verification on Windows and at least one other platform. Compare full findings and scores across clients for identical immutable input, snapshot and engine configuration. A successful web workflow does not certify the extensions. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and [OPERATIONS.md](OPERATIONS.md) for current features and the tested recovery procedure.
+**Local Chrome/Edge permission/session acceptance and native Windows VS Code credential/upload-consent acceptance pass.** The 25 October browser run verifies permission grant/denial, authenticated connection, popup/worker restart, server logout revocation and disconnect. Actual VS Code Restricted Mode prevents source collection. The 26 October native run verifies human credential submission, Cancel without upload, an exact approved source upload with the real result, and disconnect without further network access. Before distributing to testers, verify wrong-project rejection, import readiness, upload consent, cancellation, editor restart, expired-token recovery and links to saved web analyses against the deployed API. Repeat desktop verification on at least one other platform. Compare full findings and scores across clients for identical immutable input, snapshot and engine configuration. A successful web workflow does not certify the extensions. See [release evidence](RELEASE_READINESS_2026-10-25.md), [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and [OPERATIONS.md](OPERATIONS.md).
 
 JSON/Markdown/HTML export, evidence labels, project/job links, session isolation, recorded fixture previews, finding review labels and the editor findings tree/status bar are implemented. Dedicated extension credentials, store listings and deployed browser-editor acceptance remain release work.
 

@@ -1,12 +1,14 @@
 import { evidenceSummary, architectureSummary } from '../utils/analysis';
+import CoverageIndicators from './CoverageIndicators';
 
 export default function EvidenceSummary({ result }) {
   const evidence = evidenceSummary(result);
   const architecture = architectureSummary(result);
   return (
     <aside className="evidence-summary" aria-label="Analysis evidence">
-      <strong>{evidence.partial ? 'Partial analysis — review coverage before relying on this result' : 'Analysis evidence'}</strong>
-      <p>Mode: {evidence.mode}. Parser coverage: {evidence.parser}.</p>
+      <strong>Analysis evidence</strong>
+      <p>Mode: {evidence.mode}.</p>
+      <CoverageIndicators result={result} />
       <p><strong>{architecture.label}.</strong> {architecture.interpretation}</p>
       {Object.keys(architecture.evidence).length > 0 && <p>
         Startup relations: {architecture.evidence.startup_relations ?? 'not recorded'} · Configuration references: {architecture.evidence.configuration_relations ?? 'not recorded'} · Static/modeled calls: {architecture.evidence.static_or_modeled_calls ?? 'not recorded'}.

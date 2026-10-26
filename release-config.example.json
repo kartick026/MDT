@@ -1,0 +1,16 @@
+{
+  "web_url": null,
+  "api_url": null,
+  "privacy_url": null,
+  "publisher_id": null,
+  "support_contact": null,
+  "license_spdx": null,
+  "contributors_approved_license": false,
+  "public_https_cors_verified": false,
+  "hosted_restart_restore_verified": false,
+  "chrome_edge_permission_workflows_verified": false,
+  "vscode_restricted_mode_verified": false,
+  "vscode_native_upload_consent_verified": false,
+  "deployed_vscode_dev_verified": false,
+  "container_findings_reviewed": false
+}

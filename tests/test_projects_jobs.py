@@ -120,6 +120,31 @@ def test_leases_restart_cancellation_and_fencing(isolate_durable_store):
     assert store.job(ident, "owner")["result"] is None
 
 
+def test_saved_analysis_exposes_its_own_scan_without_rewriting_history(client, isolate_durable_store):
+    store = isolate_durable_store
+    project = make_project(client)
+    project = store.get("project", project["id"], "admin")
+    captured = {"candidate_files": 161, "files_read": 100, "parsers": {"tree_sitter": 52},
+                "source": "static_source", "warnings": ["source_file_limit_reached"]}
+    extraction = {"status": "complete", "files_analyzed": 1}
+    ident = store.enqueue("admin", project["id"], {})
+    job = store.claim()
+    saved = {"kind": "analysis", "coverage": extraction,
+             "snapshot_version": "historical-scan", "_snapshot": {**project["snapshot"], "coverage": captured}}
+    assert store.finish(job, saved)
+    # A subsequent import must not make an old scan look complete.
+    project["snapshot"]["coverage"] = {"candidate_files": 161, "files_read": 161}
+    store.put("project", project["id"], "admin", project)
+    response = client.get(f"/v1/jobs/{ident}", headers=headers())
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["topology_coverage"] == captured
+    assert result["coverage"] == extraction
+    assert "_snapshot" not in result
+    assert "topology_coverage" not in store.job(ident, "admin")["result"]
+    assert client.get(f"/v1/jobs/{ident}", headers=headers("unknown")).status_code == 401
+
+
 def test_quota_delete_and_bounded_input(client, isolate_durable_store, monkeypatch):
     store = isolate_durable_store
     monkeypatch.setattr(settings, "MAX_ACTIVE_JOBS_PER_USER", 1)

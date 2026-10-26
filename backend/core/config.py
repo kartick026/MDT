@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     MAX_JOBS_PER_DAY: int = 30
     JOB_TIMEOUT_SECONDS: int = 180
     JOB_RETENTION_DAYS: int = 30
+    # Repository imports stay bounded; coverage records the actual scan budgets.
+    REPO_SOURCE_MAX_FILES: int = Field(default=500, ge=1, le=5000)
+    REPO_SOURCE_MAX_TOTAL_BYTES: int = Field(default=8 * 1024 * 1024, ge=256 * 1024, le=64 * 1024 * 1024)
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "text"  # "text" or "json"
     ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"]

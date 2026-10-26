@@ -1,5 +1,7 @@
 # Alpha operations and recovery
 
+Latest local recovery check: on 25 October, a disposable PostgreSQL 17 database was dumped and restored into a different empty database. Streamed hashes matched four records, one job and one schema-version row. This is data recovery evidence; hosted post-restore UI/restart acceptance is still pending. See [release readiness](RELEASE_READINESS_2026-10-25.md).
+
 Keep the application and database in the same region where possible. The deployment configuration remains local until an owner chooses the actual hosting accounts, URLs and secrets. Use the release steps in [PUBLIC_ALPHA.md](PUBLIC_ALPHA.md); do not treat a successful local container as a public deployment.
 
 ## Health and smoke checks

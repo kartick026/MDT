@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { formatScore, scoreDelta, evidenceSummary, analysisExport, readableExport, readRoute, routeHash, graphEditLabel, previewChange, architectureSummary, jobResult } from '../src/utils/analysis.js';
 import { clearAnalysisSession, attachSession, rejectsCurrentSession } from '../src/utils/session.js';
 import { AxiosHeaders } from 'axios';
+import { coverageIndicators, topologyCoverage } from '../src/utils/coverage.js';
 
 test('debt precision survives formatting and export', () => {
   const scores = [86.936, 85.372, 83.384, 80.769, 77.178];
@@ -69,6 +70,77 @@ test('missing evidence never becomes a semantic or complete claim', () => {
   assert.equal(evidenceSummary({ coverage: { partial: true } }).partial, true);
   assert.equal(evidenceSummary({ assessment_status: 'insufficient_evidence' }).partial, true);
   assert.match(readableExport({ confidence: 0, confidence_evidence: {kind:'evidence_completeness'}, assessment_status:'insufficient_evidence' }), /not prediction accuracy/);
+});
+
+test('coverage separates a completed mapped scan from parser gaps and unmeasured runtime', () => {
+  const result = { topology_coverage: { indicators: {
+    source_scan: { status: 'complete', eligible_files: 161, read_files: 161, attempted_files: 161, unmapped_source_files: 2, external_source_services: ['external'] },
+    parser_support: { status: 'partial', parsed_files: 111, read_files: 161, heuristic_files: 48, failed_files: 2, partial_files: 0, unclassified_files: 0, unsupported_contract_services: ['go-service'] },
+    runtime_verification: { status: 'not_measured' },
+  } }, coverage: { status: 'complete', total_files: 2 }, partial_results: true };
+  const [source, parser, runtime] = coverageIndicators(result);
+  assert.equal(source.status, 'complete');
+  assert.match(source.value, /161 \/ 161/);
+  assert.ok(source.notes.some(note => note.includes('2 source files outside')));
+  assert.ok(source.notes.some(note => note.includes('1 declared services')));
+  assert.equal(parser.status, 'partial');
+  assert.match(parser.value, /111 \/ 161/);
+  assert.ok(parser.notes.some(note => note.includes('48 heuristic · 2 failed')));
+  assert.equal(runtime.label, 'Not measured');
+  for (const format of ['html', 'md']) {
+    const exported = readableExport(result, format);
+    for (const title of ['Source scan', 'Parser support', 'Runtime verification']) assert.ok(exported.includes(title));
+    assert.ok(!exported.includes('Full coverage'));
+  }
+});
+
+test('saved legacy coverage derives separate counts without rewriting the record or trusting umbrella partial', () => {
+  const coverage = { candidate_files: 161, files_read: 100, files_attempted: 100, source: 'static_source', partial: true,
+    parsers: { ast: 1, tree_sitter: 52, heuristic: 45, failed: 2 } };
+  const before = JSON.stringify(coverage);
+  const [source, parser, runtime] = coverageIndicators({ coverage });
+  assert.equal(source.label, 'Incomplete scan');
+  assert.equal(source.value, '100 / 161 eligible files read');
+  assert.equal(parser.value, '53 / 100 read files syntax parsed');
+  assert.equal(runtime.status, 'not_measured');
+  assert.equal(source.recorded, true);
+  assert.equal(JSON.stringify(coverage), before);
+  assert.equal(coverageIndicators({ coverage: { ...coverage, candidate_files: 100 } })[0].status, 'complete');
+});
+
+test('missing or changed-file coverage is never shown as a complete repository scan', () => {
+  const result = { coverage: { status: 'complete', total_files: 2, complete_files: 2 } };
+  assert.deepEqual(topologyCoverage(result), {});
+  for (const indicator of coverageIndicators(result)) assert.equal(indicator.label, 'Not recorded');
+  const [empty] = coverageIndicators({ coverage: { candidate_files: 0, files_read: 0 } });
+  assert.equal(empty.label, 'No eligible files');
+  assert.equal(empty.status, 'unavailable');
+  const [demoSource, , demoRuntime] = coverageIndicators({ evidence: { mode: 'illustrative_demo' } });
+  assert.equal(demoSource.value, 'Not recorded');
+  assert.ok(demoSource.notes.some(note => note.startsWith('Illustrative demo')));
+  assert.equal(demoRuntime.label, 'Not measured');
+  const [nested] = coverageIndicators({ ...result, evidence: { topology_coverage: { candidate_files: 5, files_read: 4 } } });
+  assert.equal(nested.value, '4 / 5 eligible files read');
+});
+
+test('coverage status cannot override missing or contradictory recorded counters', () => {
+  for (const coverage of [
+    { candidate_files: 2, files_read: 3, parsers: { ast: 3, failed: 1 } },
+    { candidate_files: 3, files_read: 3, files_attempted: 2, parsers: { ast: 4 } },
+  ]) {
+    const [source, parser] = coverageIndicators({ topology_coverage: coverage });
+    assert.equal(source.label, 'Inconsistent counts');
+    assert.equal(parser.label, 'Inconsistent counts');
+    assert.equal(source.status, 'unavailable');
+    assert.equal(parser.status, 'unavailable');
+  }
+  const [source, parser] = coverageIndicators({ topology_coverage: { indicators: {
+    source_scan: { status: 'complete' }, parser_support: { status: 'supported' },
+  } } });
+  assert.equal(source.label, 'Not recorded');
+  assert.equal(parser.label, 'Not recorded');
+  const emptyParsers = coverageIndicators({ coverage: { candidate_files: 3, files_read: 3, parsers: {} } });
+  assert.equal(emptyParsers[1].value, 'Not recorded');
 });
 
 test('links preserve project and job without allowing unknown tabs', () => {

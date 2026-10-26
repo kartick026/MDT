@@ -1,5 +1,6 @@
 """Observable analysis coverage. These ratios are not predictive confidence."""
 from services.dependency_graph import _infer_service_from_path
+from services.coverage_indicators import coverage_indicators, static_coverage_reasons
 
 
 def assess_evidence(changes, snapshot):
@@ -33,7 +34,11 @@ def assess_evidence(changes, snapshot):
         reasons.append("topology_source_coverage_unavailable")
     elif any(value < 1 for value in service_ratios.values()):
         reasons.append("affected_service_source_coverage_incomplete")
-    if coverage.get("partial") or coverage.get("warnings"):
+    if coverage.get("coverage_schema_version", 0) >= 2:
+        reasons.extend(static_coverage_reasons(coverage))
+    elif coverage.get("partial") or coverage.get("warnings"):
+        # Historical captures lack the dimensions needed to separate the old
+        # umbrella flag safely. Preserve their recorded uncertainty.
         reasons.append("topology_coverage_partial")
     source_ratio = min(complete, understood) / total if total else 0.0
     mapping_ratio = mapped / len(effective) if effective else 1.0
@@ -58,5 +63,6 @@ def assess_evidence(changes, snapshot):
         "semantically_compared_files": understood, "mapped_effective_files": mapped,
         "affected_service_source_ratios": service_ratios,
         "unresolved_contract_models": unresolved,
+        "topology_indicators": coverage_indicators(coverage),
         "reasons": reasons,
     }

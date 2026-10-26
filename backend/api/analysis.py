@@ -239,6 +239,7 @@ async def analyze_impact(
             "architecture_smells_count": architecture_smells_count,
             "architecture_smells_breakdown": architecture_smells_breakdown,
             "coverage": getattr(git_analyzer, "last_extraction", {}),
+            "topology_coverage": RegistryManager.load().get("coverage", {}),
             "partial_results": getattr(git_analyzer, "last_extraction", {}).get("status") == "partial" or result.assessment_status in {"insufficient_evidence", "partial"},
             "warnings": getattr(git_analyzer, "last_extraction", {}).get("warnings", []) + result.confidence_evidence.get("reasons", []),
             "evidence": {"mode": "local_analysis", "confidence_kind": "evidence_completeness", "confidence_calibrated": False,

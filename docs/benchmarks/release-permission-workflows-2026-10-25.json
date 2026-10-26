@@ -1,0 +1,80 @@
+{
+  "date": "2026-10-25",
+  "scope": "Native optional-host permission outcomes and local authenticated session lifecycle in unmodified MV3 extension pages, loaded through CDP in disposable headed Chrome/Edge profiles. No permission APIs mocked or auto-approved.",
+  "user_report": "No permission prompt is visible",
+  "hosts": [
+    {
+      "browser": "Chrome",
+      "version": "155.0.8059.85",
+      "permission": {
+        "initial": "pending; waiting message and Cancel control visible",
+        "later": "Native localhost permission grant confirmed by user; browser origin grant verified",
+        "origins": [
+          "http://localhost/*"
+        ],
+        "denial": {
+          "error": "Permission for this MDT server was not granted.",
+          "status": "Connection was not completed.",
+          "origins": [],
+          "sessionEmpty": true,
+          "userConfirmed": true
+        }
+      },
+      "checks": [
+        "connects to actual local API and loads four projects",
+        "token input clears after connection",
+        "credential absent from persistent local storage",
+        "popup reload resumes authenticated session",
+        "actual service-worker stop and restart resumes session",
+        "server-revoked token rejected with HTTP 401",
+        "disconnect removes session; popup reload remains disconnected",
+        "native permission denied by user; no origin grant or credential persisted"
+      ],
+      "limitations": [
+        "No public HTTPS/CORS or store installation tested"
+      ]
+    },
+    {
+      "browser": "Edge",
+      "version": "155.0.4283.62",
+      "permission": {
+        "initial": "pending; waiting message and Cancel control visible",
+        "later": "localhost permission grant verified through Chrome-compatible permissions API and actual authenticated API connection",
+        "origins": [
+          "http://localhost/*"
+        ],
+        "denialAttempt": "127.0.0.1 request returned grant, so denial was not observed",
+        "denial": {
+          "error": "Permission for this MDT server was not granted.",
+          "status": "Connection was not completed.",
+          "origins": [],
+          "sessionEmpty": true
+        }
+      },
+      "checks": [
+        "connects to actual local API and loads four projects",
+        "token input clears after connection",
+        "credential absent from persistent local storage",
+        "popup reload resumes authenticated session",
+        "actual service-worker stop and restart resumes session",
+        "server-revoked token rejected with HTTP 401",
+        "disconnect removes session; popup reload remains disconnected",
+        "native permission request denied; no origin grant or credential persisted"
+      ],
+      "limitations": [
+        "No public HTTPS/CORS or store installation tested"
+      ]
+    }
+  ],
+  "uiRegression": {
+    "unitChecks": 4,
+    "description": "Pending status and duplicate guard; cancellation ignores a later grant; granted connect clears token; API rejection restores controls. Actual hosts also verified waiting controls and error status.",
+    "pendingTimeoutHint": "Covered by unit test; native host requests resolved before the timeout/cancel path was completed."
+  },
+  "harnessFindings": [
+    "Initial 30-second wait incorrectly configured; later five-minute blind wait did not establish prompt visibility",
+    "Logout returned HTTP 204; diagnostic helper incorrectly attempted JSON parsing, fixed; revocation subsequently verified as 401",
+    "An intended Edge denial returned a grant; repeated in fresh profile and denial verified"
+  ],
+  "summary": "Both browsers passed origin grant/denial and local authenticated connection, token input clearing, persistent-storage exclusion, popup/worker recovery, server logout rejection and disconnect. This is not store-install or public-host acceptance."
+}

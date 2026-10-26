@@ -453,7 +453,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
       )}
 
       {/* Relation details can wrap instead of overflowing narrow viewports. */}
-      <div className="graph-context" style={{
+      <div className="graph-context" role="region" aria-label="Connection details" tabIndex={0} style={{
         background: hoveredEdge
           ? (hoveredEdge.has_bug ? 'rgba(255,45,85,0.15)' : 'rgba(0, 212, 255, 0.1)')
           : 'rgba(255, 255, 255, 0.02)',
