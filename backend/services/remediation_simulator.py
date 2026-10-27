@@ -214,7 +214,11 @@ def _find_best_remediation_target(exclude_service: str) -> str:
 def generate_edits_for_smells(smells: List[Dict[str, Any]]) -> List[GraphEdit]:
     """Suggest explicit hypothetical changes; detection decides their effects."""
     data = registry_snapshot().to_data()
-    deps, names, edits = data["dependencies"], {s["name"] for s in data["services"]}, []
+    from domain.relations import is_startup
+    # Runtime/topology findings exclude deployment ordering. Rerouting startup
+    # declarations as well both obscures the proposal and changes unrelated config.
+    deps = [edge for edge in data["dependencies"] if not is_startup(edge)]
+    names, edits = {s["name"] for s in data["services"]}, []
 
     def new_name(base):
         name, i = base, 2
@@ -324,6 +328,17 @@ class RemediationSimulator:
         introduced = [f for f in after_findings if f["id"] not in before_ids]
         unchanged = [f for f in after_findings if f["id"] in before_ids]
         measurable = measurable or bool(resolved or introduced)
+        raw_reduction = before_health["raw_score"] - after_health["raw_score"]
+        if raw_reduction == 0 and (resolved or introduced):
+            message = "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+        score_explanation = []
+        for kind, key in SMELL_KEYS.items():
+            removed_count = sum(f["type"] == kind for f in resolved)
+            added_count = sum(f["type"] == kind for f in introduced)
+            if removed_count or added_count:
+                score_explanation.append({"type": kind, "weight": SMELL_WEIGHTS[key],
+                    "resolved": removed_count, "introduced": added_count,
+                    "raw_debt_reduction": (removed_count - added_count) * SMELL_WEIGHTS[key]})
         commit_risk = None
         if baseline_risk_score is not None:
             if not math.isfinite(baseline_risk_score) or not 0 <= baseline_risk_score <= 100:
@@ -333,8 +348,10 @@ class RemediationSimulator:
                            "message": "Commit risk is supplied context, not recomputed by this graph preview."}
         return {
             "before": before_health, "after": after_health,
-            "delta": {"score_reduction": reduction, "raw_debt_reduction": before_health["raw_score"] - after_health["raw_score"],
+            "delta": {"score_reduction": reduction, "raw_debt_reduction": raw_reduction,
                       "smells_resolved": len(resolved), "smells_introduced": len(introduced), "measurable_change": measurable, "message": message},
+            "outcome": "improved" if raw_reduction > 0 else "worse" if raw_reduction < 0 else "unchanged",
+            "score_explanation": score_explanation,
             "findings": {"resolved": resolved, "introduced": introduced, "unchanged": unchanged},
             "removed_dependencies": removed, "commit_risk": commit_risk, "sandbox": True,
             "measurable_change": measurable, "snapshot_version": before.version, "preview_snapshot_version": after.version,

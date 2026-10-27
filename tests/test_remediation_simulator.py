@@ -210,3 +210,44 @@ async def test_live_transaction_rolls_back_after_failure_in_detector():
 async def test_transaction_mode_requires_live_connection():
     with pytest.raises(ValueError, match="live Neo4j"):
         await preview(make_graph(), [], evaluation_mode="neo4j_transaction")
+
+
+@pytest.mark.asyncio
+async def test_equal_weight_replacement_finding_has_explanation_not_no_change_message():
+    graph = make_graph()
+    baseline = [{"id": "old", "type": "God / Bottleneck Service", "services": ["hub"]}]
+    changed = [{"id": "new", "type": "God / Bottleneck Service", "services": ["hub_facade"]}]
+    # Isolate explanation logic from detector thresholds; the real-graph test below
+    # separately verifies proposal construction against mixed relation evidence.
+    with patch("services.remediation_simulator.detect_smells", side_effect=[baseline, changed]):
+        result = await preview(graph, [])
+    assert result["delta"]["score_reduction"] == 0
+    assert result["outcome"] == "unchanged"
+    assert result["measurable_change"] is True
+    assert "weighted total is unchanged" in result["delta"]["message"]
+    assert result["score_explanation"] == [{"type": "God / Bottleneck Service", "weight": 20,
+        "resolved": 1, "introduced": 1, "raw_debt_reduction": 0}]
+
+
+def test_bottleneck_proposal_preserves_startup_order_and_distinct_call_endpoints():
+    data = make_graph(("a", "b", "c", "d", "hub"), (("a", "hub"), ("b", "hub"), ("c", "hub"), ("d", "hub"))).to_data()
+    data["dependencies"].extend([
+        {"from": "a", "to": "hub", "type": "startup", "endpoint": ""},
+        {"from": "a", "to": "hub", "type": "http", "endpoint": "/second"},
+    ])
+    graph = GraphSnapshot.from_data(data)
+    finding = {"type": "God / Bottleneck Service", "services": ["hub"]}
+    with patch("services.remediation_simulator.registry_snapshot", return_value=graph):
+        edits = generate_edits_for_smells([finding])
+    assert not any(edit.dependency_type == "startup" for edit in edits)
+    after, removed = apply_snapshot_edits(graph, edits)
+    assert len(removed) == 5
+    assert any(e["type"] == "startup" and e["from"] == "a" and e["to"] == "hub" for e in after.to_data()["dependencies"])
+    assert {e.endpoint for e in edits if e.action == "add_edge" and e.from_service == "a"} == {"", "/second"}
+
+
+@pytest.mark.asyncio
+async def test_score_explanation_reconciles_with_actual_before_after_debt():
+    result = await preview(make_graph(), [GraphEdit(action="remove_edge", from_service="b", to_service="a")])
+    assert result["outcome"] == "improved"
+    assert sum(row["raw_debt_reduction"] for row in result["score_explanation"]) == result["delta"]["raw_debt_reduction"]

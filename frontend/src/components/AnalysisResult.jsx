@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getFindingReviews, previewAnalysis } from '../api';
-import { downloadAnalysis, formatScore, routeHash, graphEditLabel, previewChange, architectureSummary } from '../utils/analysis';
+import { downloadAnalysis, formatScore, routeHash, architectureSummary } from '../utils/analysis';
 import EvidenceSummary from './EvidenceSummary';
 import FindingReview from './FindingReview';
 import EvidenceDetails from './EvidenceDetails';
+import CounterfactualPanel, { ProposedChange } from './RemediationPreview';
 
 const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 const severityClass = s => {
@@ -14,82 +15,6 @@ const severityClass = s => {
   if (key === 'low') return 'severity-low';
   return 'severity-info';
 };
-
-/**
- * Reusable Counterfactual Simulation Panel.
- * Appears immediately below the preview edits button in both finding cards and recommendation cards.
- */
-function CounterfactualPanel({ previewData, isLoading, error }) {
-  if (isLoading) {
-    return (
-      <div className="inline-counterfactual-container">
-        <div className="counterfactual-loading">
-          <span className="spinner-sm" />
-          <span>Re-evaluating graph topology with proposed counterfactual edits…</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="inline-counterfactual-container">
-        <div className="form-error inline-error" role="alert">
-          {String(error)}
-        </div>
-      </div>
-    );
-  }
-
-  if (!previewData) return null;
-  const change = previewChange(previewData);
-
-  return (
-    <div className="inline-counterfactual-container">
-      <div className="counterfactual-panel">
-        <div className="counterfactual-header">
-          <div className="counterfactual-badge">
-            <span className="pulse-dot green" />
-            <strong>Counterfactual Architecture Preview</strong>
-          </div>
-          <span className="counterfactual-mode-tag">Measured snapshot simulation</span>
-        </div>
-
-        <div className="counterfactual-scores">
-          <div className="counterfactual-score-card before">
-            <span className="cf-label">Before Debt</span>
-            <span className="cf-val">{formatScore(previewData.before?.score)}</span>
-            <small className="cf-sub">Current State</small>
-          </div>
-          <div className="counterfactual-arrow">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-          <div className="counterfactual-score-card after">
-            <span className="cf-label">Simulated Debt</span>
-            <span className="cf-val">{formatScore(previewData.after?.score)}</span>
-            <small className="cf-sub">With Proposed Edits</small>
-          </div>
-          <div className="counterfactual-score-card reduction">
-            <span className="cf-label">Debt Change</span>
-            <span className={`cf-val ${change.improved ? 'highlight-green' : ''}`}>
-              {change.text}
-            </span>
-            <small className="cf-sub">{change.label}</small>
-          </div>
-        </div>
-
-        <p>{previewData.delta?.smells_resolved ?? 0} findings resolved · {previewData.delta?.smells_introduced ?? 0} introduced.</p>
-        {!!previewData.warnings?.length && <ul>{previewData.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
-
-        <p className="counterfactual-disclaimer">
-          These scores are recomputed on a copy of the captured topology. No source files are modified. Lower debt does not establish preserved functionality or runtime reliability.
-        </p>
-
-        <EvidenceDetails label="Inspect full counterfactual graph payload" value={previewData} />
-      </div>
-    </div>
-  );
-}
 
 export default function AnalysisResult({ result, demo = false, view = 'summary' }) {
   const [query, setQuery] = useState('');
@@ -217,7 +142,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
     const services = finding.services || [];
     return suggestedFixes.find(fix => {
       if (typeof fix === 'string') return false;
-      if (fix.finding_ids?.includes(finding.id)) return true;
+      if (finding.id && (fix.finding_id === finding.id || fix.finding_ids?.includes(finding.id))) return true;
       if (fix.matchKeywords && fix.matchKeywords.some(kw => text.includes(kw))) {
         if (fix.matchServices && fix.matchServices.length > 0) {
           return fix.matchServices.some(s => services.includes(s));
@@ -253,7 +178,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
         setPreviewMap(prev => ({ ...prev, [key]: data }));
       }
     } catch (err) {
-      if (err.code !== 'ERR_CANCELED') setFixError(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : err.message || 'Counterfactual simulation failed');
+      if (err.code !== 'ERR_CANCELED') setFixError(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : err.message || 'Simulation failed');
     } finally {
       setLoadingFixKey(null);
     }
@@ -368,7 +293,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
               }}
             >
               <span className="action-pill-icon">⚡</span>
-              <span className="action-pill-text">Explore {suggestedFixes.length} Counterfactual Previews</span>
+              <span className="action-pill-text">Explore {suggestedFixes.length} possible changes</span>
               <span className="action-pill-count">{suggestedFixes.length}</span>
             </button>
           )}
@@ -453,8 +378,8 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
           <section id="summary-recommendations" className="recommendations-section">
             <div className="recommendations-header-row">
               <div>
-                <h3 className="recommendations-title">⚡ High-Impact Architectural Recommendations</h3>
-                <p className="text-dim">Simulate counterfactual graph topology mutations directly beneath each recommendation.</p>
+                <h3 className="recommendations-title">⚡ Possible architecture changes</h3>
+                <p className="text-dim">Explore a design option, check its result, then decide whether to implement it.</p>
               </div>
               <span className="recommendation-badge-count">{suggestedFixes.length} available</span>
             </div>
@@ -470,33 +395,9 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                     <div className="recommendation-header">
                       <div className="recommendation-icon">💡</div>
                       <div className="recommendation-content">
-                        <div className="recommendation-title-row">
-                          <h4 className="recommendation-title">
-                            {typeof fix === 'string' ? fix : fix.title || 'Architectural Recommendation'}
-                          </h4>
-                        </div>
-                        <p className="recommendation-desc">
-                          {typeof fix === 'string' ? '' : fix.text || fix.description}
-                        </p>
+                        <ProposedChange fix={fix} findings={findings} />
 
-                        {/* Proposed edits preview pills */}
-                        {fix.edits && fix.edits.length > 0 && (
-                          <div className="recommendation-edits-summary">
-                            <span className="edits-badge">
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                              {fix.edits.length} proposed graph edit{fix.edits.length > 1 ? 's' : ''}
-                            </span>
-                            <div className="edits-list">
-                              {fix.edits.map((e, ei) => (
-                                <span key={ei} className="edit-pill">
-                                  {graphEditLabel(e)}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Button triggering counterfactual preview */}
+                      {/* Button triggering counterfactual preview */}
                         {!!fix.edits?.length && (
                           <div className="recommendation-actions">
                             <button
@@ -506,11 +407,11 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                               onClick={() => handleTogglePreview(fix, fixKey)}
                             >
                               {isLoading ? (
-                                <><span className="spinner-xs" /> Simulating counterfactual…</>
+                                <><span className="spinner-xs" /> Checking proposed change…</>
                               ) : isActive ? (
-                                '✕ Close Counterfactual'
+                                'Close simulation'
                               ) : (
-                                '⚡ Preview Graph Edits & Impact'
+                                'Test this change'
                               )}
                             </button>
                           </div>
@@ -549,15 +450,15 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
       <div className="findings-header">
         <div className="findings-header-text">
           <div className="summary-title-row">
-            <h2>Findings & Counterfactuals</h2>
+            <h2>Findings & possible changes</h2>
             <span className="findings-count-badge">{findings.length} findings</span>
             {suggestedFixes.length > 0 && (
               <span className="badge badge-warning" style={{ fontSize: '11px', padding: '2px 8px' }}>
-                ⚡ {suggestedFixes.length} counterfactual fixes
+                ⚡ {suggestedFixes.length} possible changes
               </span>
             )}
           </div>
-          <p className="text-dim">Inspect architectural smells, preview remediations inline inside cards, or switch directly to counterfactual simulations.</p>
+          <p className="text-dim">Review findings and explore possible changes. Each simulation explains its result and the next step.</p>
         </div>
         <div className="export-controls">
           <select className="form-select" aria-label="Export format" value={format} onChange={e => setFormat(e.target.value)}>
@@ -591,7 +492,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
           onClick={() => setFindingsSubView('counterfactual')}
         >
           <span className="subtab-icon">⚡</span>
-          <span>Architectural Recommendations & Counterfactuals</span>
+          <span>Explore possible changes</span>
           <span className="subtab-count highlight">{suggestedFixes.length}</span>
         </button>
       </div>
@@ -601,8 +502,8 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
         <section className="recommendations-section" style={{ marginTop: '4px' }}>
           <div className="recommendations-header-row">
             <div>
-              <h3 className="recommendations-title">⚡ High-Impact Architectural Recommendations</h3>
-              <p className="text-dim">Simulate counterfactual graph topology mutations directly beneath each recommendation card.</p>
+              <h3 className="recommendations-title">⚡ Possible architecture changes</h3>
+              <p className="text-dim">These are proposals to test. A simulation can show improvement, no benefit, or a worse result.</p>
             </div>
             <button
               type="button"
@@ -625,31 +526,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                   <div className="recommendation-header">
                     <div className="recommendation-icon">💡</div>
                     <div className="recommendation-content">
-                      <div className="recommendation-title-row">
-                        <h4 className="recommendation-title">
-                          {typeof fix === 'string' ? fix : fix.title || 'Architectural Recommendation'}
-                        </h4>
-                      </div>
-                      <p className="recommendation-desc">
-                        {typeof fix === 'string' ? '' : fix.text || fix.description}
-                      </p>
-
-                      {/* Proposed edits preview tags */}
-                      {fix.edits && fix.edits.length > 0 && (
-                        <div className="recommendation-edits-summary">
-                          <span className="edits-badge">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            {fix.edits.length} proposed graph edit{fix.edits.length > 1 ? 's' : ''}
-                          </span>
-                          <div className="edits-list">
-                            {fix.edits.map((e, ei) => (
-                              <span key={ei} className="edit-pill">
-                                {graphEditLabel(e)}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      <ProposedChange fix={fix} findings={findings} />
 
                       {/* Button triggering counterfactual preview */}
                       {!!fix.edits?.length && (
@@ -661,11 +538,11 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                             onClick={() => handleTogglePreview(fix, fixKey)}
                           >
                             {isLoading ? (
-                              <><span className="spinner-xs" /> Simulating counterfactual…</>
+                              <><span className="spinner-xs" /> Checking proposed change…</>
                             ) : isActive ? (
-                              '✕ Close Counterfactual'
+                              'Close simulation'
                             ) : (
-                              '⚡ Preview Graph Edits & Impact'
+                              'Test this change'
                             )}
                           </button>
                         </div>
@@ -812,9 +689,9 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                   type="button"
                   className="btn-counterfactual-quickpill"
                   onClick={() => setFindingsSubView('counterfactual')}
-                  title="Switch to Recommendations & Counterfactuals view"
+                  title="Explore possible architecture changes"
                 >
-                  ⚡ {suggestedFixes.length} Counterfactual Previews Available →
+                  ⚡ {suggestedFixes.length} possible changes to explore →
                 </button>
               )}
               <button
@@ -863,7 +740,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                       <h3 className="finding-title">{f.type || f.title || 'Finding'}</h3>
 
                       {matchingFix && (
-                        <span className="badge-fix-available" title="Proposed graph remediation & counterfactual preview available">
+                        <span className="badge-fix-available" title="A possible change is available to test">
                           ⚡ Fix Available
                         </span>
                       )}
@@ -947,27 +824,9 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                       {matchingFix && (
                         <div className="finding-remediation-box">
                           <div className="remediation-header-row">
-                            <span className="remediation-badge">⚡ Recommended Architectural Remediation</span>
+                            <span className="remediation-badge">⚡ Possible change to explore</span>
                           </div>
-                          <h4 className="remediation-title">{matchingFix.title}</h4>
-                          <p className="remediation-desc">{matchingFix.description}</p>
-
-                          {/* Proposed preview edits */}
-                          {matchingFix.edits && matchingFix.edits.length > 0 && (
-                            <div className="remediation-preview-edits">
-                              <span className="edits-badge">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                {matchingFix.edits.length} proposed graph edit{matchingFix.edits.length > 1 ? 's' : ''}
-                              </span>
-                              <div className="edits-list">
-                                {matchingFix.edits.map((e, ei) => (
-                                  <span key={ei} className="edit-pill">
-                                    {graphEditLabel(e)}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                          <ProposedChange fix={matchingFix} findings={findings} />
 
                           {/* Button triggering counterfactual preview */}
                           <div className="remediation-action-row">
@@ -978,11 +837,11 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                               onClick={() => handleTogglePreview(matchingFix, fixKey)}
                             >
                               {isFixLoading ? (
-                                <><span className="spinner-xs" /> Simulating counterfactual…</>
+                                <><span className="spinner-xs" /> Checking proposed change…</>
                               ) : isFixActive ? (
-                                '✕ Close Counterfactual'
+                                'Close simulation'
                               ) : (
-                                '⚡ Preview Graph Edits & Counterfactual Impact'
+                                'Test this change'
                               )}
                             </button>
                           </div>

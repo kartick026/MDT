@@ -362,6 +362,7 @@ Respond as a JSON array of objects, each with "text" (string) and
             kind = smell.get("type", "")
             edits = generate_edits_for_smells([smell])
             results.append({
+                "title": f"Explore {kind.lower()} in {', '.join(smell.get('services', []))}",
                 "text": descriptions.get(kind, "Review the finding and validate a concrete remediation design."),
                 "edits": [edit.model_dump(exclude_none=True) for edit in edits],
                 "finding_id": smell.get("id"),
