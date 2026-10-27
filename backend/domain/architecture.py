@@ -77,6 +77,13 @@ class GraphSnapshot:
                     "has_circuit_breaker": item.get("has_circuit_breaker", None if imported else False),
                     "resilient": item.get("resilient", None if imported else False),
                 }
+                # A missing declaration is evidence, distinct from an ordinary
+                # external resource or an unmeasured runtime health status.
+                if item.get("is_broken") is True:
+                    services[name]["is_broken"] = True
+                    for key in ("resolution_reason", "resolution_source"):
+                        if isinstance(item.get(key), str):
+                            services[name][key] = item[key]
                 # Contract-only changes must produce a distinct snapshot version.
                 # Omit absent contracts so existing graph-only fixtures stay stable.
                 if "api_endpoints" in item or "endpoints" in item:
@@ -89,7 +96,7 @@ class GraphSnapshot:
             kind = str(item.get("type") or "http").lower()
             endpoint = str(item.get("endpoint") or "")
             edge = {"from": src, "to": dst, "type": kind, "endpoint": endpoint}
-            for key in ("evidence_kind", "source_file", "source_line", "environment_variable", "method"):
+            for key in ("evidence_kind", "source_file", "source_line", "environment_variable", "method", "has_bug", "resolution_reason"):
                 if item.get(key) is not None:
                     edge[key] = copy.deepcopy(item[key])
             key = (src, dst, kind, endpoint, str(item.get("method") or ""))
@@ -145,10 +152,17 @@ def snapshot_from_transaction(tx, context: GraphSnapshot | None = None) -> Graph
           {from: a.name, to: b.name, type: r.type, endpoint: r.endpoint,
            evidence_kind: r.evidence_kind, source_file: r.source_file,
            source_line: r.source_line, environment_variable: r.environment_variable,
-           method: r.method} END) AS dependencies
+           method: r.method, has_bug: r.has_bug, resolution_reason: r.resolution_reason} END) AS dependencies
     """).single()
     data = context.to_data() if context else {}
+    captured = {node["name"]: node for node in data.get("services", [])}
     data["services"] = record["services"] if record else []
+    # Declaration-resolution evidence belongs to the capture; legacy Neo4j
+    # projections may not store it. Preview edits cannot change these fields.
+    for node in data["services"]:
+        for key in ("is_broken", "resolution_reason", "resolution_source"):
+            if key not in node and key in captured.get(node["name"], {}):
+                node[key] = captured[node["name"]][key]
     data["dependencies"] = record["dependencies"] if record else []
     return GraphSnapshot.from_data(data, source="neo4j_transaction")
 

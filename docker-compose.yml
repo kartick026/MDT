@@ -19,6 +19,8 @@ services:
       - CHROMADB_HOST=chroma
       - CHROMADB_PORT=8000  # Internal container port on chroma service (exposed to host as 8005)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # Optional local development quota; hosted defaults remain unchanged.
+      - MAX_PROJECTS_PER_USER=${MDT_LOCAL_MAX_PROJECTS_PER_USER:-5}
     depends_on:
       neo4j:
         condition: service_healthy

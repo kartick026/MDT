@@ -76,3 +76,6 @@ release-config.local.json
 .playwright-mcp/
 /screenshot_*.png
 /fresh_screenshot_*.png
+.impeccable/
+.kiro/
+

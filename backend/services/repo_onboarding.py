@@ -339,11 +339,18 @@ class RepoOnboarder:
             dependencies = merge_source_calls(services, service_files, dependencies, ConnectionValidator)
 
             connection_bugs = ConnectionValidator.validate_topology(services, service_files)
+            from services.connection_validator import ConnectionBug
+            for edge in dependencies:
+                if edge.get("has_bug") and edge.get("evidence_kind") == "compose_startup_order":
+                    connection_bugs.append(ConnectionBug(source_service=edge["from"], target_service=edge["to"],
+                        target_url=edge["to"], bug_type="UNDEFINED_COMPOSE_SERVICE", severity="HIGH",
+                        description=edge["resolution_reason"], file_path=edge["source_file"], line_number=0,
+                        suggestion="Correct depends_on to a declared service name, or supply the missing service in the deployment configuration."))
 
             # 7. Extract static endpoints & calculate baseline architectural risk scores
             for svc in services:
                 sname = svc["name"]
-                svc["is_external"] = False
+                svc["is_external"] = svc.get("node_type") == "external"
 
                 # Extract exposed endpoints from entrypoint code
                 svc_routes = []
@@ -810,28 +817,23 @@ class RepoOnboarder:
                 "source_expected": build_info is not None,
             })
 
-            # Parse dependencies (depends_on)
+            # Undefined targets are part of the captured problem. Keep them as
+            # unresolved nodes rather than silently deleting the invalid link.
             deps = sconfig.get("depends_on", [])
-            if isinstance(deps, list):
-                for dep in deps:
-                    if dep in compose_services:
-                        dependencies.append({
-                            "from": sname,
-                            "to": dep,
-                            "type": "startup",
-                            "endpoint": "",
-                            "evidence_kind": "compose_startup_order"
-                        })
-            elif isinstance(deps, dict):
-                for dep in deps.keys():
-                    if dep in compose_services:
-                        dependencies.append({
-                            "from": sname,
-                            "to": dep,
-                            "type": "startup",
-                            "endpoint": "",
-                            "evidence_kind": "compose_startup_order"
-                        })
+            for dep in deps if isinstance(deps, (list, dict)) else []:
+                if not isinstance(dep, str) or not dep.strip():
+                    continue
+                edge = {"from": sname, "to": dep, "type": "startup", "endpoint": "",
+                        "evidence_kind": "compose_startup_order", "source_file": source_file}
+                if dep not in compose_services:
+                    reason = f"{sname} requires '{dep}', but that service is not declared in {source_file}. Check the selected Compose files and overrides."
+                    edge.update(has_bug=True, resolution_reason=reason)
+                    if not any(service["name"] == dep for service in services):
+                        services.append({"name": dep, "node_type": "external", "is_external": True,
+                            "is_broken": True, "resolution_reason": f"Not declared in {source_file}.",
+                            "resolution_source": source_file, "source_expected": False,
+                            "discovery_kind": "compose_unresolved", "port": None, "url": None})
+                dependencies.append(edge)
 
         dependencies.extend(compose_references(compose_services, source_file))
         names = {service["name"] for service in services}

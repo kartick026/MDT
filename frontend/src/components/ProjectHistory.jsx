@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { listAnalyses, listProjects } from '../api';
 import { useAuth } from '../context/useAuth';
 import { formatScore, scoreDelta, readRoute, routeHash } from '../utils/analysis';
+import CustomSelect from './CustomSelect';
+
 
 const formatDate = value => {
   if (!value) return 'Unknown date';
@@ -115,8 +117,9 @@ export default function ProjectHistory({ onSignIn }) {
 
               <label>
                 Project
-                <select
+                <CustomSelect
                   className="form-select"
+                  aria-label="Project"
                   value={projectId}
                   onChange={e => { setProjectId(e.target.value); setOffset(0); setSelected([]); }}
                 >
@@ -124,13 +127,14 @@ export default function ProjectHistory({ onSignIn }) {
                   {projects.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
-                </select>
+                </CustomSelect>
               </label>
 
               <label>
                 Status
-                <select
+                <CustomSelect
                   className="form-select"
+                  aria-label="Status"
                   value={status}
                   onChange={e => { setStatus(e.target.value); setOffset(0); }}
                 >
@@ -138,7 +142,7 @@ export default function ProjectHistory({ onSignIn }) {
                   {['succeeded', 'partial', 'running', 'queued', 'failed', 'cancelled'].map(val => (
                     <option key={val} value={val}>{val[0].toUpperCase() + val.slice(1)}</option>
                   ))}
-                </select>
+                </CustomSelect>
               </label>
 
               <button
@@ -186,7 +190,7 @@ export default function ProjectHistory({ onSignIn }) {
                 flexWrap: 'wrap',
                 gap: '8px'
               }}>
-                <span style={{ fontSize: '13px', color: '#fff' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text)' }}>
                   {selected.length === 1
                     ? '📌 1 analysis selected. Select 1 more to compare.'
                     : '✓ 2 analyses selected for side-by-side comparison.'}
@@ -340,7 +344,7 @@ export default function ProjectHistory({ onSignIn }) {
                       </div>
                     ))}
 
-                    <div className="score-card" style={{ borderLeft: '3px solid var(--cyan)', background: 'rgba(0, 212, 255, 0.04)' }}>
+                    <div className="score-card" style={{ borderLeft: '1px solid var(--border-md)', background: 'var(--cyan-dim)' }}>
                       <span className="score-label">Debt Score Delta (B − A)</span>
                       <strong className="score-value" style={{ color: debtDelta == null ? 'var(--text-dim)' : debtDelta < 0 ? 'var(--green)' : debtDelta > 0 ? 'var(--orange)' : 'var(--text)' }}>
                         {debtDelta == null ? 'Unavailable' : `${formatScore(debtDelta)} pts`}

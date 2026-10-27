@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../context/useAuth';
 import { refreshToken } from '../api';
 import { routeHash } from '../utils/analysis';
+import { Check, Copy, History, Network, RotateCw, Zap } from 'lucide-react';
 
 export function SignInForm({ onSuccess }) {
   const { login, register } = useAuth();
@@ -40,7 +41,7 @@ export function SignInForm({ onSuccess }) {
           className="preset-pill-btn"
           onClick={() => { setUsername('admin'); setPassword('admin123'); }}
         >
-          ⚡ Fill Admin (admin / admin123)
+          <Zap size={14} aria-hidden="true" /> Fill Admin (admin / admin123)
         </button>
       </div>}
 
@@ -145,8 +146,8 @@ export default function AuthPage({ onNavigateTab }) {
               width: '44px',
               height: '44px',
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, var(--cyan), var(--purple))',
-              color: '#000',
+              background: 'var(--cyan-dim)',
+              color: 'var(--cyan)',
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
@@ -158,7 +159,7 @@ export default function AuthPage({ onNavigateTab }) {
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <strong style={{ fontSize: '16px', color: '#fff' }}>{user.username}</strong>
+                <strong style={{ fontSize: '16px', color: 'var(--text)' }}>{user.username}</strong>
                 <span className="badge badge-info" style={{ fontSize: '10px', textTransform: 'uppercase' }}>
                   {user.role || 'User'}
                 </span>
@@ -179,7 +180,7 @@ export default function AuthPage({ onNavigateTab }) {
               className="btn btn-ghost"
               onClick={copyToken}
             >
-              {copiedToken ? '✓ Token copied!' : '📋 Copy session token'}
+              {copiedToken ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}{copiedToken ? 'Token copied' : 'Copy session token'}
             </button>
             <button
               type="button"
@@ -187,7 +188,7 @@ export default function AuthPage({ onNavigateTab }) {
               disabled={busy}
               onClick={extend}
             >
-              {busy ? 'Renewing…' : '🔄 Renew session'}
+              <RotateCw size={15} aria-hidden="true" />{busy ? 'Renewing…' : 'Renew session'}
             </button>
             <button
               type="button"
@@ -219,14 +220,14 @@ export default function AuthPage({ onNavigateTab }) {
               className="action-pill"
               style={{ justifyContent: 'center', padding: '12px' }}
             >
-              ✨ Explore Reference Demo
+              <Network size={16} aria-hidden="true" />Explore reference demo
             </a>
             <a
               href={routeHash('history')}
               className="action-pill"
               style={{ justifyContent: 'center', padding: '12px' }}
             >
-              📜 View Analysis History
+              <History size={16} aria-hidden="true" />View analysis history
             </a>
           </div>
         </div>

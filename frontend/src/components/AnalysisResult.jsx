@@ -5,6 +5,9 @@ import EvidenceSummary from './EvidenceSummary';
 import FindingReview from './FindingReview';
 import EvidenceDetails from './EvidenceDetails';
 import CounterfactualPanel, { ProposedChange } from './RemediationPreview';
+import CustomSelect from './CustomSelect';
+import { Check, Copy, FlaskConical, Lightbulb, Network, ScanSearch } from 'lucide-react';
+
 
 const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 const severityClass = s => {
@@ -248,17 +251,17 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                   title="Copy commit SHA"
                 >
                   <code>{result.commit_sha.slice(0, 10)}</code>
-                  <span>{copiedMeta ? '✓ Copied' : '📋'}</span>
+                  {copiedMeta ? <><Check size={14} aria-hidden="true" />Copied</> : <Copy size={14} aria-label="Copy commit SHA" />}
                 </button>
               )}
             </div>
           </div>
           <div className="export-controls">
-            <select className="form-select" aria-label="Export format" value={format} onChange={e => setFormat(e.target.value)}>
+            <CustomSelect className="form-select" aria-label="Export format" value={format} onChange={e => setFormat(e.target.value)}>
               <option value="md">Markdown (.md)</option>
               <option value="html">HTML Report</option>
               <option value="json">JSON Data</option>
-            </select>
+            </CustomSelect>
             <button className="btn btn-ghost" onClick={() => downloadAnalysis(result, format)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Export report
@@ -272,7 +275,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
             href={routeHash('projects', { projectId: demo ? 'demo' : result.project_id || '', jobId: result.analysis_id || result.id || '', view: 'findings' })}
             className="action-pill primary"
           >
-            <span className="action-pill-icon">🔍</span>
+            <ScanSearch size={16} aria-hidden="true" />
             <span className="action-pill-text"><strong>Review {findings.length} Findings</strong></span>
             <span className="action-pill-count">{findings.length}</span>
           </a>
@@ -280,7 +283,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
             href={routeHash('projects', { projectId: demo ? 'demo' : result.project_id || '', jobId: result.analysis_id || result.id || '', view: 'graph' })}
             className="action-pill"
           >
-            <span className="action-pill-icon">🕸</span>
+            <Network size={16} aria-hidden="true" />
             <span className="action-pill-text">Inspect Dependency Topology</span>
           </a>
           {suggestedFixes.length > 0 && (
@@ -292,7 +295,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                 el?.scrollIntoView({ behavior: 'smooth' });
               }}
             >
-              <span className="action-pill-icon">⚡</span>
+              <FlaskConical size={16} aria-hidden="true" />
               <span className="action-pill-text">Explore {suggestedFixes.length} possible changes</span>
               <span className="action-pill-count">{suggestedFixes.length}</span>
             </button>
@@ -302,7 +305,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
               href={routeHash('projects', { projectId: result.project_id || '', view: 'analyze' })}
               className="action-pill"
             >
-              <span className="action-pill-icon">⚡</span>
+              <ScanSearch size={16} aria-hidden="true" />
               <span className="action-pill-text">Run Change Analysis</span>
             </a>
           )}
@@ -378,7 +381,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
           <section id="summary-recommendations" className="recommendations-section">
             <div className="recommendations-header-row">
               <div>
-                <h3 className="recommendations-title">⚡ Possible architecture changes</h3>
+                <h3 className="recommendations-title">Possible architecture changes</h3>
                 <p className="text-dim">Explore a design option, check its result, then decide whether to implement it.</p>
               </div>
               <span className="recommendation-badge-count">{suggestedFixes.length} available</span>
@@ -393,7 +396,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                 return (
                   <div key={index} className={`recommendation-card ${isActive ? 'active-fix' : ''}`}>
                     <div className="recommendation-header">
-                      <div className="recommendation-icon">💡</div>
+                      <div className="recommendation-icon"><Lightbulb size={19} aria-hidden="true" /></div>
                       <div className="recommendation-content">
                         <ProposedChange fix={fix} findings={findings} />
 
@@ -454,18 +457,18 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
             <span className="findings-count-badge">{findings.length} findings</span>
             {suggestedFixes.length > 0 && (
               <span className="badge badge-warning" style={{ fontSize: '11px', padding: '2px 8px' }}>
-                ⚡ {suggestedFixes.length} possible changes
+                <FlaskConical size={15} aria-hidden="true" />{suggestedFixes.length} possible changes
               </span>
             )}
           </div>
           <p className="text-dim">Review findings and explore possible changes. Each simulation explains its result and the next step.</p>
         </div>
         <div className="export-controls">
-          <select className="form-select" aria-label="Export format" value={format} onChange={e => setFormat(e.target.value)}>
+          <CustomSelect className="form-select" aria-label="Export format" value={format} onChange={e => setFormat(e.target.value)}>
             <option value="md">Markdown (.md)</option>
             <option value="html">HTML Report</option>
             <option value="json">JSON Data</option>
-          </select>
+          </CustomSelect>
           <button className="btn btn-ghost" onClick={() => downloadAnalysis(result, format)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export report
@@ -473,7 +476,10 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
         </div>
       </div>
 
-      <EvidenceSummary result={result} />
+      <details className="evidence-disclosure">
+        <summary>Analysis evidence and coverage <span>{demo ? 'Recorded example' : 'Captured evidence'}</span></summary>
+        <EvidenceSummary result={result} />
+      </details>
       {!findings.length && <p role="status">No findings were supported by this captured evidence. Review coverage above; this does not establish a safe architecture.</p>}
       {/* Top Sub-Tab Switcher: Fixes the issue of counterfactual being stuck at the bottom! */}
       <div className="findings-subtabs">
@@ -482,7 +488,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
           className={`findings-subtab-btn ${findingsSubView === 'findings' ? 'active' : ''}`}
           onClick={() => setFindingsSubView('findings')}
         >
-          <span className="subtab-icon">🔍</span>
+          <ScanSearch size={16} aria-hidden="true" />
           <span>All Findings</span>
           <span className="subtab-count">{findings.length}</span>
         </button>
@@ -491,7 +497,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
           className={`findings-subtab-btn ${findingsSubView === 'counterfactual' ? 'active' : ''}`}
           onClick={() => setFindingsSubView('counterfactual')}
         >
-          <span className="subtab-icon">⚡</span>
+          <FlaskConical size={16} aria-hidden="true" />
           <span>Explore possible changes</span>
           <span className="subtab-count highlight">{suggestedFixes.length}</span>
         </button>
@@ -502,7 +508,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
         <section className="recommendations-section" style={{ marginTop: '4px' }}>
           <div className="recommendations-header-row">
             <div>
-              <h3 className="recommendations-title">⚡ Possible architecture changes</h3>
+              <h3 className="recommendations-title">Possible architecture changes</h3>
               <p className="text-dim">These are proposals to test. A simulation can show improvement, no benefit, or a worse result.</p>
             </div>
             <button
@@ -524,7 +530,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
               return (
                 <div key={index} className={`recommendation-card ${isActive ? 'active-fix' : ''}`}>
                   <div className="recommendation-header">
-                    <div className="recommendation-icon">💡</div>
+                    <div className="recommendation-icon"><Lightbulb size={19} aria-hidden="true" /></div>
                     <div className="recommendation-content">
                       <ProposedChange fix={fix} findings={findings} />
 
@@ -618,32 +624,32 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
             {/* Severity filter */}
             <label className="severity-filter-label">
               Severity
-              <select className="form-select" value={severity} onChange={e => { setSeverity(e.target.value); setPage(0); }}>
+              <CustomSelect className="form-select" aria-label="Severity" value={severity} onChange={e => { setSeverity(e.target.value); setPage(0); }}>
                 <option value="">All severities</option>
                 {severities.map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
-              </select>
+              </CustomSelect>
             </label>
 
             {/* Service filter */}
             {allServices.length > 0 && (
               <label className="severity-filter-label">
                 Service
-                <select className="form-select" value={serviceFilter} onChange={e => { setServiceFilter(e.target.value); setPage(0); }}>
+                <CustomSelect className="form-select" aria-label="Service" value={serviceFilter} onChange={e => { setServiceFilter(e.target.value); setPage(0); }}>
                   <option value="">All services ({allServices.length})</option>
                   {allServices.map(svc => <option key={svc} value={svc}>{svc}</option>)}
-                </select>
+                </CustomSelect>
               </label>
             )}
 
             {/* Sort selector */}
             <label className="severity-filter-label">
               Sort by
-              <select className="form-select" value={sortBy} onChange={e => { setSortBy(e.target.value); setPage(0); }}>
+              <CustomSelect className="form-select" aria-label="Sort by" value={sortBy} onChange={e => { setSortBy(e.target.value); setPage(0); }}>
                 <option value="severity-desc">Severity (High to Low)</option>
                 <option value="severity-asc">Severity (Low to High)</option>
                 <option value="title-asc">Finding Title (A-Z)</option>
                 <option value="service-asc">Primary Service (A-Z)</option>
-              </select>
+              </CustomSelect>
             </label>
           </div>
 
@@ -691,7 +697,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                   onClick={() => setFindingsSubView('counterfactual')}
                   title="Explore possible architecture changes"
                 >
-                  ⚡ {suggestedFixes.length} possible changes to explore →
+                  <FlaskConical size={15} aria-hidden="true" />{suggestedFixes.length} possible changes to explore →
                 </button>
               )}
               <button
@@ -741,7 +747,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
 
                       {matchingFix && (
                         <span className="badge-fix-available" title="A possible change is available to test">
-                          ⚡ Fix Available
+                          <Lightbulb size={12} aria-hidden="true" /> Possible change
                         </span>
                       )}
 
@@ -752,7 +758,7 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                           onClick={e => copyFindingMarkdown(f, e)}
                           title="Copy finding summary as Markdown"
                         >
-                          {isCopied ? '✓ Copied' : '📋 Copy'}
+                          {isCopied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{isCopied ? 'Copied' : 'Copy'}
                         </button>
                         <button
                           type="button"
@@ -824,7 +830,6 @@ export default function AnalysisResult({ result, demo = false, view = 'summary' 
                       {matchingFix && (
                         <div className="finding-remediation-box">
                           <div className="remediation-header-row">
-                            <span className="remediation-badge">⚡ Possible change to explore</span>
                           </div>
                           <ProposedChange fix={matchingFix} findings={findings} />
 

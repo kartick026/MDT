@@ -4,6 +4,9 @@ import { useAuth } from '../context/useAuth';
 import { PROJECT_VIEWS, readRoute, routeHash, formatScore, jobResult } from '../utils/analysis';
 import AnalysisResult from './AnalysisResult';
 import EvidenceSummary from './EvidenceSummary';
+import CustomSelect from './CustomSelect';
+import { ArrowLeft, ArrowRight, Check, ClipboardCheck, FileSearch, FolderGit2, GitCompareArrows, LayoutDashboard, Network, Play, Plus, ScanSearch, Share2, ShieldCheck } from 'lucide-react';
+
 
 const Graph = lazy(() => import('./DependencyGraph'));
 const Drift = lazy(() => import('./ProjectDrift'));
@@ -133,9 +136,9 @@ export default function Workspace({ onSignIn }) {
     <header className="workspace-heading">
       <div>
         {!directory && (
-          <div className="project-switcher-wrap" style={{ margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <a href={routeHash('projects')}>← All projects</a>
-            <select
+          <div className="project-switcher-wrap">
+            <a href={routeHash('projects')}><ArrowLeft size={15} aria-hidden="true" /> All projects</a>
+            <CustomSelect
               className="project-switcher-select"
               value={demoMode ? 'demo' : route.projectId}
               onChange={e => {
@@ -144,24 +147,24 @@ export default function Workspace({ onSignIn }) {
               }}
               aria-label="Switch project"
             >
-              <option value="demo">✨ Explore Demo</option>
+              <option value="demo">Reference demo</option>
               {projects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
-            </select>
+            </CustomSelect>
           </div>
         )}
-        <h1 className="page-title">{directory ? 'Your architecture, in context' : demoMode ? 'MDT reference architecture' : project?.name || 'Project'}</h1>
+        <h1 className="page-title">{directory ? 'Your projects' : demoMode ? 'MDT reference architecture' : project?.name || 'Project'}</h1>
         <p className="page-sub">{directory ? 'Choose a project, review a change, then inspect its evidence.' : demoMode ? 'Recorded public example · illustrative fixture, not live observations' : project ? `${project.repo_url} · ${project.branch}` : 'Loading project context…'}</p>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="workspace-heading-actions">
         <button
           type="button"
           className="btn-copy-chip"
           onClick={handleCopyLink}
           title="Copy link to current view"
         >
-          <span>{copiedLink ? '✓ Link copied' : '🔗 Share link'}</span>
+          {copiedLink ? <Check size={15} aria-hidden="true" /> : <Share2 size={15} aria-hidden="true" />}<span>{copiedLink ? 'Link copied' : 'Copy link'}</span>
         </button>
         <span className="badge badge-info">Academic alpha</span>
       </div>
@@ -180,13 +183,28 @@ export default function Workspace({ onSignIn }) {
           {projectSearch && <button type="button" className="btn-clear-search" aria-label="Clear project filter" onClick={() => setProjectSearch('')}>✕</button>}
         </div>
       )}
-      <div className="project-grid">
+      <div className={`project-grid${!isAuthenticated ? ' project-grid-welcome' : ''}`}>
         <article className="card workspace-account demo-project">
-          <span className="badge badge-info">Public example</span>
-          <h2>Explore a recorded analysis</h2>
-          <p>Follow dependencies across the reference microservices, inspect architectural findings and export the evidence.</p>
-          <a className="btn btn-primary" href={routeHash('projects',{projectId:'demo'})}>Explore demo</a>
+          <div className="demo-project-copy">
+            <span className="demo-symbol" aria-hidden="true"><Network size={29} /></span>
+            <h2>Your architecture,<br />in context.</h2>
+            <p>Start with a recorded example. Follow service dependencies, understand the findings, and see the evidence behind each result.</p>
+            <a className="btn btn-primary" href={routeHash('projects',{projectId:'demo'})}><Play size={16} aria-hidden="true" />Explore demo<ArrowRight size={17} aria-hidden="true" /></a>
+            <span className="demo-disclosure">Recorded public example · No account needed</span>
+          </div>
+          <div className="demo-path" aria-label="Architecture review workflow">
+            <div><span className="path-icon"><FolderGit2 size={20} aria-hidden="true" /></span><span><strong>Choose a project</strong><small>Start with its captured architecture</small></span></div>
+            <div><span className="path-icon"><Network size={20} aria-hidden="true" /></span><span><strong>Follow the connections</strong><small>Explore services and dependencies</small></span></div>
+            <div><span className="path-icon"><ClipboardCheck size={20} aria-hidden="true" /></span><span><strong>Review the evidence</strong><small>Inspect findings and possible changes</small></span></div>
+          </div>
         </article>
+        {!isAuthenticated && <section className="card workspace-account repository-entry">
+          <span className="repository-symbol" aria-hidden="true"><FolderGit2 size={26} /></span>
+          <h2>Bring your repository</h2>
+          <p>Save your projects and review code changes in your own workspace.</p>
+          <button className="btn btn-secondary" onClick={onSignIn}><Plus size={17} aria-hidden="true" />Sign in to add a project<ArrowRight size={17} aria-hidden="true" /></button>
+          <p className="repository-note"><ShieldCheck size={16} aria-hidden="true" />Invited accounts only. Source is read within bounded limits and is never executed.</p>
+        </section>}
         {visibleProjects.map(item => (
           <article className="card workspace-account" key={item.id}>
             <h2>{item.name}</h2>
@@ -197,13 +215,7 @@ export default function Workspace({ onSignIn }) {
         ))}
       </div>
       {loading && <p role="status">Loading your projects…</p>}
-      {!isAuthenticated ? (
-        <section className="card workspace-account">
-          <h2>Analyze your repository</h2>
-          <p>Sign in with an invited account to save projects and review changes. Source is read within bounded limits and is never executed.</p>
-          <button className="btn btn-ghost" onClick={onSignIn}>Sign in</button>
-        </section>
-      ) : (
+      {isAuthenticated && (
         <details className="card workspace-account">
           <summary>Add a public GitHub repository</summary>
           <form className="workspace-form" onSubmit={add}>
@@ -214,7 +226,7 @@ export default function Workspace({ onSignIn }) {
                 className="preset-pill-btn"
                 onClick={() => { setName('MDT Reference'); setRepoUrl('https://github.com/kartick026/MDT'); setBranch('main'); }}
               >
-                ⚡ Fill MDT repository
+                <FolderGit2 size={14} aria-hidden="true" /> Fill MDT repository
               </button>
             </div>
             <label>Project name<input className="form-input" value={name} maxLength={100} onChange={e => setName(e.target.value)} /></label>
@@ -225,6 +237,17 @@ export default function Workspace({ onSignIn }) {
           </form>
         </details>
       )}
+      <section className="review-guide" aria-labelledby="review-guide-title">
+        <div className="review-guide-heading"><h2 id="review-guide-title">A simple path to a clearer system</h2><p>Explore the recorded demo, one view at a time.</p></div>
+        <div className="review-guide-links">
+          {[
+            ['summary', LayoutDashboard, 'Start with the overview', 'Review recorded scores and evidence coverage.'],
+            ['graph', Network, 'Connect the dots', 'Trace what each service depends on.'],
+            ['findings', FileSearch, 'Understand the findings', 'Inspect the details and test possible changes.'],
+          ].map(([target, Icon, title, description]) => <a key={target} href={routeHash('projects', {projectId: 'demo', view: target})}><Icon size={21} aria-hidden="true" /><span><strong>{title}</strong><small>{description}</small></span><ArrowRight size={17} aria-hidden="true" /></a>)}
+        </div>
+      </section>
+      <p className="workspace-footnote"><ShieldCheck size={16} aria-hidden="true" />Evidence first. Recorded examples and modeled changes are always labeled.</p>
     </> : !demoMode && !isAuthenticated ? (
       <section className="card workspace-account">
         <h2>Sign in to open this project</h2>
@@ -235,12 +258,12 @@ export default function Workspace({ onSignIn }) {
       <>
         <nav className="project-nav" aria-label="Project views">
         {PROJECT_VIEWS.filter(v => !demoMode || !['analyze','drift'].includes(v)).map(v => {
-          const icon = v === 'summary' ? '📊' : v === 'graph' ? '🕸' : v === 'findings' ? '🔍' : v === 'drift' ? '🔀' : '⚡';
+          const Icon = {summary: LayoutDashboard, graph: Network, findings: ScanSearch, drift: GitCompareArrows, analyze: FileSearch}[v];
           const findingsCount = (result?.findings || result?.architecture_smells || result?.smells || []).length;
           const nodesCount = graph?.nodes?.length || graph?.services?.length;
           return (
             <a key={v} aria-current={view === v ? 'page' : undefined} href={routeHash('projects',{...route,view:v})}>
-              <span style={{ marginRight: '6px' }}>{icon}</span>
+              <Icon size={17} aria-hidden="true" />
               {v[0].toUpperCase() + v.slice(1)}
               {v === 'findings' && Boolean(findingsCount) && (
                 <span className="subtab-count highlight" style={{ marginLeft: '6px' }}>{findingsCount}</span>
@@ -255,7 +278,7 @@ export default function Workspace({ onSignIn }) {
       {job && <section className="job-progress" aria-live="polite"><span><strong>{job.status}</strong> · {job.stage || 'Analysis'}{job.error && ` · ${typeof job.error === 'string' ? job.error : JSON.stringify(job.error)}`}</span>{!TERMINAL.has(job.status) && <button className="btn btn-ghost" onClick={async () => { try { setJob(await cancelAnalysisJob(route.jobId)); } catch (err) { setError(message(err)); } }}>Cancel job</button>}<button className="btn btn-ghost" onClick={() => setRetry(v => v + 1)}>Refresh</button></section>}
       {!job && route.jobId && <p role="status">Loading saved analysis…</p>}
       {view === 'summary' && <>
-        {result ? <AnalysisResult key={route.jobId || 'demo'} result={result} demo={demoMode} /> : <section className="card workspace-account"><h2>Project summary</h2><p>{project?.ready ? `${project.snapshot?.services?.length || 0} modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.` : 'Architecture import has not completed. Open History to find its job, or Analyze to retry the import.'}</p>{job?.result?.kind === 'import' && <><p>Architectural debt: <strong>{formatScore(job.result.architecture_health?.score)}/100</strong> · {(job.result.smells || []).length} static findings. Commit risk has not been assessed.</p><EvidenceSummary result={job.result} /></>}</section>}
+        {result ? <AnalysisResult key={route.jobId || 'demo'} result={result} demo={demoMode} /> : demoMode ? <section className="card workspace-account"><h2>Recorded analysis</h2><p role="status">{error ? 'The recorded analysis could not be loaded. Use Refresh above to try again.' : 'Loading the recorded analysis…'}</p></section> : <section className="card workspace-account"><h2>Project summary</h2><p>{project?.ready ? `${project.snapshot?.services?.length || 0} modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.` : 'Architecture import has not completed. Open History to find its job, or Analyze to retry the import.'}</p>{job?.result?.kind === 'import' && <><p>Architectural debt: <strong>{formatScore(job.result.architecture_health?.score)}/100</strong> · {(job.result.smells || []).length} static findings. Commit risk has not been assessed.</p><EvidenceSummary result={job.result} /></>}</section>}
         {demo?.recorded_fallback && demoMode && <p className="text-dim">Bundled recorded example; live API unavailable.</p>}
         {!demoMode && project && <details className="card workspace-account" onToggle={event => setSettingsOpen(event.currentTarget.open)}><summary>Project settings</summary>{settingsOpen && <><p>Project ID: <code>{project.id}</code></p><p>Use this ID in the CLI hook or extension to keep analyses scoped to this project.</p><Suspense fallback={<p role="status">Loading dependency rules…</p>}><Policies project={project} /></Suspense>{confirmDelete ? <><p>Delete this project and all its saved data permanently?</p><div className="workspace-actions"><button className="btn btn-ghost" disabled={busy} onClick={remove}>Confirm deletion</button><button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>Keep project</button></div></> : <button className="btn btn-ghost" onClick={() => setConfirmDelete(true)}>Delete project and data</button>}</>}</details>}
       </>}

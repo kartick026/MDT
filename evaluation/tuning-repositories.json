@@ -12,6 +12,7 @@
     "dotnet/eShop",
     "saleor/saleor-platform",
     "expressjs/express",
-    "fastapi/fastapi"
+    "fastapi/fastapi",
+    "SMEWebify/WebErpMesv2"
   ]
 }

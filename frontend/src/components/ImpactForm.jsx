@@ -37,7 +37,7 @@ function ScoreGauge({ score, level, size = 120 }) {
   return (
     <div className="gauge-wrap" style={{ width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={strokeWidth} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border-md)" strokeWidth={strokeWidth} />
         <circle
           cx={cx} cy={cy} r={r} fill="none"
           stroke={color} strokeWidth={strokeWidth}
@@ -47,7 +47,7 @@ function ScoreGauge({ score, level, size = 120 }) {
           transform={`rotate(-90 ${cx} ${cy})`}
           style={{ transition: 'stroke-dashoffset .9s cubic-bezier(0.16,1,.3,1), stroke .4s' }}
         />
-        <text x={cx} y={cy - (size > 100 ? 4 : 2)} textAnchor="middle" fill="white" fontSize={scoreFontSize} fontWeight="700" fontFamily="'JetBrains Mono', monospace">{formatScore(score)}</text>
+        <text x={cx} y={cy - (size > 100 ? 4 : 2)} textAnchor="middle" fill="var(--text)" fontSize={scoreFontSize} fontWeight="700" fontFamily="'JetBrains Mono', monospace">{formatScore(score)}</text>
         <text x={cx} y={cy + (size > 100 ? 14 : 11)} textAnchor="middle" fill={color} fontSize={labelFontSize} fontFamily="Inter,sans-serif" fontWeight="600" style={{textTransform:'uppercase'}}>{level}</text>
       </svg>
     </div>

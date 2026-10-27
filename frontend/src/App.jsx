@@ -4,7 +4,9 @@ import { ToastProvider } from './components/Toast';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
 import { readRoute, routeHash } from './utils/analysis';
+import { ArrowUpRight, FolderOpen, History as HistoryIcon, Layers3, Network, UserRound } from 'lucide-react';
 import './App.css';
+import './Neumorphic.css';
 
 const Workspace = lazy(() => import('./components/Workspace'));
 const History = lazy(() => import('./components/ProjectHistory'));
@@ -21,15 +23,20 @@ function MainDashboard() {
     window.addEventListener('hashchange', update);
     return () => window.removeEventListener('hashchange', update);
   }, []);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [route.tab, route.projectId, route.view]);
   const navigate = tab => { location.hash = routeHash(tab, route); };
   return <div className="app-shell">
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to content</a>
     <header className="app-header">
-      <a className="app-brand" href={routeHash('projects')}>MDT <span>Architecture review</span></a>
+      <a className="app-brand" href={routeHash('projects')} aria-label="MDT projects"><span className="brand-mark"><Layers3 size={25} aria-hidden="true" /></span><span className="brand-wordmark">MDT<small>Architecture review</small></span></a>
       <nav className="primary-nav" aria-label="Main navigation">
-        {['projects', 'history', 'account'].map(tab => <a key={tab} aria-current={route.tab === tab ? 'page' : undefined} href={routeHash(tab, route)}>{tab[0].toUpperCase() + tab.slice(1)}</a>)}
+        {[['projects', FolderOpen, 'Projects'], ['history', HistoryIcon, 'History'], ['account', UserRound, 'Account']].map(([tab, Icon, label]) => <a key={tab} aria-current={route.tab === tab ? 'page' : undefined} href={tab === 'projects' ? routeHash('projects') : routeHash(tab, route)}><Icon size={19} aria-hidden="true" />{label}</a>)}
       </nav>
-      <span className="session-label">{isAuthenticated ? user.username : 'Public demo'}</span>
+      <a className="sidebar-demo" href={routeHash('projects', {projectId: 'demo'})}><Network size={19} aria-hidden="true" /><span>Explore demo</span><ArrowUpRight size={16} aria-hidden="true" /></a>
+      <div className="sidebar-note"><p>A clearer view of<br />your architecture.</p><small>Trace dependencies.<br />Review the evidence.</small></div>
+      <a className="session-label" href={routeHash('account', route)}><span className="session-avatar"><UserRound size={18} aria-hidden="true" /></span><span>{isAuthenticated ? user.username : 'Guest workspace'}<small>{isAuthenticated ? 'Manage your account' : 'Sign in to save projects'}</small></span></a>
     </header>
     <main id="main-content" className="content" tabIndex={-1}>
       <ErrorBoundary key={route.tab}><Suspense fallback={<p role="status">Loading view…</p>}>

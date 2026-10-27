@@ -167,7 +167,9 @@ def _demo_snapshot():
     # not a fifth deployed member of the four-service fleet.
     for service in data["services"]:
         if service["name"] == "inventory-service":
-            service.update(node_type="external", is_external=True)
+            service.update(node_type="external", is_external=True,
+                resolution_reason="Illustrative broken dependency: order-service references inventory-service, which is absent from the demo deployment.",
+                resolution_source="illustrative_fixture")
     data.update(copy.deepcopy(LOCAL_DEMO_SMELL_HISTORY))
     return data
 

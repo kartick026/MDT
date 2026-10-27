@@ -1,31 +1,35 @@
 import { useEffect, useState, useMemo, useRef, useCallback, memo } from 'react';
 import { getGraph } from '../api';
+import { AlertTriangle, Info, Tags } from 'lucide-react';
+import CustomSelect from './CustomSelect';
+
 
 const RISK_COLOR = {
-  LOW:      '#00ff88',
-  MEDIUM:   '#fbbf24',
-  HIGH:     '#f97316',
-  CRITICAL: '#ff2d55',
-  UNKNOWN:  '#3a3f5c',
+  LOW:      '#236848',
+  MEDIUM:   '#815a10',
+  HIGH:     '#9b4b19',
+  CRITICAL: '#ac3449',
+  UNKNOWN:  '#586875',
 };
 
 import { NODE_W, NODE_H, edgeLabel, fitGraph } from '../utils/graphLayout';
 import { startLayout } from '../utils/graphLayoutClient';
 import { groupRelations, relationDescription } from '../utils/graphRelations';
+import { snapshotGraph } from '../utils/graphData';
 
 const EdgeCurve = memo(function EdgeCurve({
   edge, edgeIndex, edgeGeo, hasBug, isDimmed, isHighlighted, isHovered, onHover, onLeave, onInspect
 }) {
   const { path, start, end, tangentAngle } = edgeGeo;
 
-  let strokeColor = hasBug ? '#ff2d55' : 'rgba(0, 212, 255, 0.45)';
+  let strokeColor = hasBug ? '#ac3449' : 'rgba(23, 107, 104, 0.55)';
   let strokeWidth = hasBug ? '2.4' : '1.8';
-  let arrowColor  = hasBug ? '#ff2d55' : '#00d4ff';
+  let arrowColor  = hasBug ? '#ac3449' : '#176b68';
 
   if (isHighlighted || isHovered) {
-    strokeColor = hasBug ? '#ff2d55' : '#00f0ff';
+    strokeColor = hasBug ? '#ac3449' : '#176b68';
     strokeWidth = '2.8';
-    arrowColor  = hasBug ? '#ff2d55' : '#00f0ff';
+    arrowColor  = hasBug ? '#ac3449' : '#176b68';
   }
 
   // Directional aerodynamic chevron arrowhead (sharp tip + recessed notch)
@@ -82,7 +86,7 @@ const EdgeCurve = memo(function EdgeCurve({
       />
 
       {/* Clearance makes crossings distinct from actual junctions. */}
-      <path d={path} fill="none" stroke="#080c19" strokeWidth="7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
+      <path d={path} fill="none" stroke="#e2e9ee" strokeWidth="7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
       {/* Visual Relation Path with directional animated dashes strictly toward Head */}
       <path
         d={path}
@@ -99,7 +103,7 @@ const EdgeCurve = memo(function EdgeCurve({
 
       {/* TAIL: Unmistakable Concentric Caller Socket Port */}
       <g className="edge-tail" pointerEvents="none" transform={`translate(${start.x}, ${start.y})`}>
-        <circle r="5.5" fill="#080b18" stroke={strokeColor} strokeWidth="1.8" />
+        <circle r="5.5" fill="#e2e9ee" stroke={strokeColor} strokeWidth="1.8" />
         <circle r="2.2" fill={arrowColor} />
       </g>
 
@@ -146,7 +150,7 @@ const EdgeBadge = memo(function EdgeBadge({
         <g transform={`translate(${badgePoint.x}, ${badgePoint.y})`}>
           <rect
             x="-50" y="-11" width="100" height="21" rx="10"
-            fill="#ff2d55"
+            fill="#ac3449"
             stroke="#ffffff"
             strokeWidth="1"
             style={{ filter: 'drop-shadow(0 0 10px rgba(255,45,85,0.7))' }}
@@ -166,17 +170,17 @@ const EdgeBadge = memo(function EdgeBadge({
             <rect
               x={-endpoint.length * 3.4 - 10} y="-10"
               width={endpoint.length * 6.8 + 20} height="20" rx="6"
-              fill="#0a0e1e"
-              stroke={isHovered ? "#00f0ff" : "rgba(0,212,255,0.5)"}
+              fill="#edf1f4"
+              stroke={isHovered ? "#176b68" : "rgba(23,107,104,0.5)"}
               strokeWidth={isHovered ? "1.5" : "1"}
               style={{
-                filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.85))',
+                filter: 'drop-shadow(0 2px 3px rgba(80,97,110,0.15))',
                 transition: 'all 0.15s ease'
               }}
             />
             <text
               x="0" y="3.5" textAnchor="middle"
-              fill={isHovered ? "#ffffff" : "#00d4ff"} fontSize="9.5" fontWeight="600"
+              fill="var(--cyan)" fontSize="9.5" fontWeight="600"
               fontFamily="'JetBrains Mono',monospace"
             >
               {endpoint}
@@ -212,7 +216,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
 
   useEffect(() => {
     if (snapshot) {
-      setData({ nodes: (snapshot.services || []).map(service => ({ ...service, id: service.name, label: service.name, risk_level: 'UNKNOWN', type: service.node_type || 'service' })), edges: snapshot.dependencies || [] });
+      setData(snapshotGraph(snapshot));
       setLoading(false);
       setError(null);
       setSelected(null);
@@ -292,7 +296,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
   const viewBox = `0 0 ${maxX} ${maxY}`;
 
   if (loading) return <div className="state-loading"><div className="spinner" /><span>Loading topology graph…</span></div>;
-  if (error || layoutError) return <div className="state-error" role="alert"><span>⚠</span><span>{error || layoutError}</span></div>;
+  if (error || layoutError) return <div className="state-error" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{error || layoutError}</span></div>;
 
   if (!nodes.length) {
     return (
@@ -327,7 +331,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
         </div>
 
         {/* Toolbar controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div className="graph-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={()=>setExpanded(value=>!value)}>{expanded ? 'Close expanded graph' : 'Expand graph'}</button>
           {/* Search */}
           <input
@@ -342,16 +346,16 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
               background: 'rgba(255,255,255,0.05)',
               border: '1px solid rgba(255,255,255,0.12)',
               borderRadius: '6px',
-              color: '#fff',
+              color: 'var(--text)',
               outline: 'none',
               width: '130px'
             }}
           />
 
           {/* Toggle Endpoints */}
-          <select className="form-select" aria-label="Graph detail" value={relationView} onChange={event => setRelationView(event.target.value)} style={{width:'auto',padding:'5px 8px',fontSize:12}}>
+          <CustomSelect className="form-select" aria-label="Graph detail" value={relationView} onChange={event => setRelationView(event.target.value)} style={{width:'auto',fontSize:12}}>
             <option value="connections">Service connections</option><option value="relations">Individual relations</option>
-          </select>
+          </CustomSelect>
           <button
             onClick={() => setShowEnd(prev => !prev)}
             title="Toggle endpoint route labels on all relation curves"
@@ -367,35 +371,35 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
               transition: 'all 0.2s',
             }}
           >
-            {showEndpoints ? '🏷 Endpoints: ON' : '🏷 Endpoints: OFF'}
+            <Tags size={13} aria-hidden="true" /> {showEndpoints ? 'Endpoints: ON' : 'Endpoints: OFF'}
           </button>
 
-          <select className="form-select" aria-label="Graph direction" value={direction} onChange={e=>setDirection(e.target.value)} style={{width:'auto',padding:'5px 8px',fontSize:12}}>
+          <CustomSelect className="form-select" aria-label="Graph direction" value={direction} onChange={e=>setDirection(e.target.value)} style={{width:'auto',fontSize:12}}>
             <option value="DOWN">Top to bottom</option><option value="RIGHT">Left to right</option>
-          </select>
+          </CustomSelect>
           {/* Zoom controls */}
           <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)' }}>
             <button
               onClick={() => setZoom(z => Math.max(0.1, (z ?? fittedScale) - 0.15))}
               title="Zoom out"
-              style={{ background: 'none', border: 'none', color: '#fff', padding: '5px 9px', cursor: 'pointer', fontSize: '13px' }}
+              style={{ background: 'none', border: 'none', color: 'var(--text)', padding: '5px 9px', cursor: 'pointer', fontSize: '13px' }}
             >
               −
             </button>
-            <span style={{ fontSize: '11px', color: '#a0a5b8', padding: '5px 2px', minWidth: '38px', textAlign: 'center', userSelect: 'none' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-dim)', padding: '5px 2px', minWidth: '38px', textAlign: 'center', userSelect: 'none' }}>
               {Math.round(scale * 100)}%
             </span>
             <button
               onClick={() => setZoom(z => Math.min(2, (z ?? fittedScale) + 0.15))}
               title="Zoom in"
-              style={{ background: 'none', border: 'none', color: '#fff', padding: '5px 9px', cursor: 'pointer', fontSize: '13px' }}
+              style={{ background: 'none', border: 'none', color: 'var(--text)', padding: '5px 9px', cursor: 'pointer', fontSize: '13px' }}
             >
               +
             </button>
             <button
               onClick={resetView}
               title="Fit graph to view" aria-label="Fit graph to view"
-              style={{ background: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)', color: '#00d4ff', padding: '5px 9px', cursor: 'pointer', fontSize: '11px' }}
+              style={{ background: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)', color: '#176b68', padding: '5px 9px', cursor: 'pointer', fontSize: '11px' }}
             >
               Fit
             </button>
@@ -413,7 +417,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
           padding: '8px 14px',
           marginBottom: '12px',
           fontSize: '12px',
-          color: '#e2e8f0',
+          color: 'var(--text)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -423,8 +427,8 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
           <div>
             <strong>{activeSelected?.label || selectedNode}</strong>
             {activeSelected?.is_broken ? (
-              <span style={{ color: '#ff2d55', fontWeight: 700, marginLeft: '8px' }}>
-                ⚠ UNRESOLVED BROKEN LINK NODE (Dead Host / Connection Refused)
+              <span style={{ color: '#ac3449', fontWeight: 700, marginLeft: '8px' }}>
+                ⚠ BROKEN LINK · unresolved dependency target
               </span>
             ) : (
               <span style={{ color: 'var(--cyan)', marginLeft: '8px' }}>
@@ -432,6 +436,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
               </span>
             )}
           </div>
+          {activeSelected?.resolution_reason && <p style={{flexBasis:'100%',margin:0}}>{activeSelected.resolution_reason}</p>}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {findingsHref && <a
               href={findingsHref}
@@ -444,7 +449,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
             <button
               onClick={() => setSelected(null)}
               className="btn btn-ghost"
-              style={{ padding: '2px 8px', fontSize: '11px', color: '#00d4ff' }}
+              style={{ padding: '2px 8px', fontSize: '11px', color: '#176b68' }}
             >
               Clear Highlight ✕
             </button>
@@ -458,14 +463,14 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
           ? (hoveredEdge.has_bug ? 'rgba(255,45,85,0.15)' : 'rgba(0, 212, 255, 0.1)')
           : 'rgba(255, 255, 255, 0.02)',
         border: `1px solid ${hoveredEdge
-          ? (hoveredEdge.has_bug ? '#ff2d55' : 'rgba(0, 212, 255, 0.3)')
+          ? (hoveredEdge.has_bug ? '#ac3449' : 'rgba(0, 212, 255, 0.3)')
           : 'rgba(255, 255, 255, 0.06)'}`,
         borderRadius: '6px',
         padding: '8px 14px',
         marginBottom: '10px',
         fontSize: '11.5px',
         fontFamily: "'JetBrains Mono', monospace",
-        color: '#ffffff',
+        color: 'var(--text)',
         display: 'flex',
         alignItems: 'center',
         flexWrap: 'wrap',
@@ -477,19 +482,19 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
           <>
             <span style={{ color: 'var(--text-dim)' }}>RELATION:</span>
             <strong>{hoveredEdge.from}</strong>
-            <span style={{ color: hoveredEdge.has_bug ? '#ff2d55' : 'var(--cyan)' }}>
+            <span style={{ color: hoveredEdge.has_bug ? '#ac3449' : 'var(--cyan)' }}>
               ──({relationDescription(hoveredEdge)})──►
             </span>
             <strong>{hoveredEdge.to}</strong>
             {hoveredEdge.has_bug && (
-              <span style={{ color: '#ff2d55', fontWeight: 700, marginLeft: 'auto' }}>
-                ⚠ DEAD HOST / UNRESOLVED
+              <span style={{ color: '#ac3449', fontWeight: 700, marginLeft: 'auto' }}>
+                ⚠ UNRESOLVED DEPENDENCY
               </span>
             )}
           </>
         ) : (
           <span style={{ color: 'var(--text-faint)', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>💡</span> Hover a connection to identify it. Select it to inspect its recorded relations, or select a service to highlight its neighbors.
+            <Info size={15} aria-hidden="true" /> Hover a connection to identify it. Select it to inspect its recorded relations, or select a service to highlight its neighbors.
           </span>
         )}
       </div>
@@ -500,7 +505,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
         overflow: 'auto',
         borderRadius: '10px',
         border: '1px solid rgba(255,255,255,0.08)',
-        background: 'radial-gradient(ellipse at 50% 30%, #0c1022 0%, #050711 100%)',
+        background: 'var(--bg-card2)',
         position: 'relative'
       }}>
         <div className="graph-stage" style={{width:maxX*scale,height:maxY*scale,visibility:viewport.width&&viewport.height?'visible':'hidden'}}>
@@ -516,13 +521,13 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                 <feDropShadow dx="0" dy="4" stdDeviation="6" floodOpacity="0.35" />
               </filter>
               <filter id="brokenGlow" x="-30%" y="-30%" width="160%" height="160%">
-                <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="#ff2d55" floodOpacity="0.55" />
+                <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="#ac3449" floodOpacity="0.55" />
               </filter>
             </defs>
 
             {/* Subtle Grid Pattern Background */}
             <pattern id="graphGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.022)" strokeWidth="1" />
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(80,97,110,0.09)" strokeWidth="1" />
             </pattern>
             <rect width={maxX} height={maxY} fill="url(#graphGrid)" />
 
@@ -561,9 +566,9 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                 const pos       = POS[node.id];
                 const riskLevel = (node.risk_level || 'UNKNOWN').toUpperCase();
                 const isBroken  = Boolean(node.is_broken || node.status === 'offline');
-                const color     = isBroken ? '#ff2d55' : (RISK_COLOR[riskLevel] || RISK_COLOR.UNKNOWN);
+                const color     = isBroken ? '#ac3449' : (RISK_COLOR[riskLevel] || RISK_COLOR.UNKNOWN);
                 const analyzed  = riskLevel !== 'UNKNOWN';
-                const statusColor = isBroken ? '#ff2d55' : node.status === 'healthy' ? RISK_COLOR.LOW : RISK_COLOR.UNKNOWN;
+                const statusColor = isBroken ? '#ac3449' : node.status === 'healthy' ? RISK_COLOR.LOW : RISK_COLOR.UNKNOWN;
                 if (!pos) return null;
 
                 const isMatchesSearch = !searchQuery || node.id.toLowerCase().includes(searchQuery.toLowerCase());
@@ -610,8 +615,8 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                       width={nodeW}
                       height={nodeH}
                       rx="12"
-                      fill={isBroken ? "rgba(26, 8, 14, 0.96)" : "rgba(11, 15, 30, 0.95)"}
-                      stroke={isSelected ? '#00d4ff' : color}
+                      fill={isBroken ? "#f1dce0" : "#edf1f4"}
+                      stroke={isSelected ? '#176b68' : color}
                       strokeWidth={isSelected ? 2.5 : (isBroken ? 2 : 1.5)}
                       strokeDasharray={isBroken ? "5 4" : "none"}
                     />
@@ -619,7 +624,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                     {/* Left Accent Color Bar */}
                     <rect
                       x="2" y="6"
-                      width="4.5" height={nodeH - 12}
+                      width="1" height={nodeH - 12}
                       rx="2"
                       fill={color}
                     />
@@ -627,7 +632,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                     {/* Node Title */}
                     <text
                       x={nodeW / 2 + 1} y="24" textAnchor="middle"
-                      fill="#ffffff" fontSize={titleFontSize} fontWeight="600"
+                      fill="var(--text)" fontSize={titleFontSize} fontWeight="600"
                       fontFamily="'JetBrains Mono',monospace"
                       style={{ letterSpacing: titleLen > 24 ? '-0.3px' : 'normal' }}
                     >
@@ -638,10 +643,10 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                     {isBroken ? (
                       <text
                         x={nodeW / 2 + 1} y="43" textAnchor="middle"
-                        fill="#ff2d55" fontSize="10" fontWeight="700"
+                        fill="#ac3449" fontSize="10" fontWeight="700"
                         fontFamily="'JetBrains Mono',monospace"
                       >
-                        {snapshot ? 'EXTERNAL / UNRESOLVED' : '⚠ BROKEN LINK'}
+                        BROKEN LINK · UNRESOLVED
                       </text>
                     ) : (
                       <text
@@ -660,7 +665,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                       cx={nodeW - 12} cy="14" r="3.5"
                       fill={statusColor}
                       style={{
-                        filter: `drop-shadow(0 0 3px ${statusColor})`,
+                        filter: 'none',
                       }}
                     />
                   </g>
@@ -703,6 +708,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
         <ol>{(inspectedEdge.relations || [inspectedEdge]).map((edge, index) => <li key={index}>
           <code>{relationDescription(edge)}</code>
           <small>{edge.evidence_kind ? edge.evidence_kind.replaceAll('_', ' ') : illustrative ? 'Illustrative modeled relation' : 'Evidence kind not recorded'}{edge.source_file && ` · ${edge.source_file}${edge.source_line ? `:${edge.source_line}` : ''}`}{edge.environment_variable && ` · ${edge.environment_variable}`}</small>
+          {edge.resolution_reason && <p>{edge.resolution_reason}</p>}
         </li>)}</ol>
       </section>}
 
@@ -710,7 +716,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
       <div className="graph-legend" style={{ marginTop: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--text-dim)' }}>
-            <span className="legend-dot" style={{ background: '#3a3f5c', border: '1px solid rgba(255,255,255,0.2)' }} />
+            <span className="legend-dot" style={{ background: '#586875', border: '1px solid rgba(255,255,255,0.2)' }} />
             UNANALYZED
           </span>
           {Object.entries(RISK_COLOR)
@@ -723,7 +729,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
             ))}
           <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--red)', fontWeight: '700' }}>
             <span style={{ width: 14, height: 2, background: 'var(--red)', display: 'inline-block' }} />
-            ⚠ Broken Link Node / Dead Host
+            ⚠ Broken link / unresolved target
           </span>
         </div>
 
@@ -731,12 +737,12 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', fontSize: '11px', color: 'var(--text-dim)' }}>
           <span>Relation Guide:</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text)' }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', border: '1.8px solid #00d4ff', background: '#080b18', display: 'inline-block' }} />
+            <span style={{ width: 9, height: 9, borderRadius: '50%', border: '1.8px solid #176b68', background: '#e2e9ee', display: 'inline-block' }} />
             Tail (Caller)
           </span>
           <span style={{ color: 'var(--cyan)' }}>────────►</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text)' }}>
-            <span style={{ width: 0, height: 0, borderTop: '4px solid transparent', borderBottom: '4px solid transparent', borderLeft: '8px solid #00d4ff', display: 'inline-block' }} />
+            <span style={{ width: 0, height: 0, borderTop: '4px solid transparent', borderBottom: '4px solid transparent', borderLeft: '8px solid #176b68', display: 'inline-block' }} />
             Head (Callee)
           </span>
         </div>

@@ -326,7 +326,7 @@ class DependencyGraph:
             dep_type=dependency_type,
             endpoint=endpoint,
             evidence={key: value for key, value in (evidence or {}).items()
-                      if key in {"evidence_kind", "source_file", "source_line", "environment_variable", "method"}},
+                      if key in {"evidence_kind", "source_file", "source_line", "environment_variable", "method", "has_bug", "resolution_reason"}},
             ts=_now_iso(),
         )
 

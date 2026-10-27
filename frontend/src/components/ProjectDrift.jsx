@@ -3,6 +3,8 @@ import { getDrift, getSnapshots, setBaseline } from '../api';
 import { formatScore } from '../utils/analysis';
 import EvidenceDetails from './EvidenceDetails';
 import CoverageIndicators from './CoverageIndicators';
+import CustomSelect from './CustomSelect';
+
 
 export default function ProjectDrift({ projectId }) {
   const [data, setData] = useState(null);
@@ -75,7 +77,7 @@ export default function ProjectDrift({ projectId }) {
           <div className="filter-row" style={{ marginTop: '12px' }}>
             <label>
               Baseline Snapshot
-              <select className="form-select" value={base} onChange={e => setBase(e.target.value)}>
+              <CustomSelect className="form-select" value={base} onChange={e => setBase(e.target.value)}>
                 {data.snapshots.map(snapshot => (
                   <option key={snapshot.snapshot_version} value={snapshot.snapshot_version}>
                     {snapshot.revision?.slice(0, 10) || snapshot.snapshot_version.slice(0, 10)}
@@ -83,19 +85,19 @@ export default function ProjectDrift({ projectId }) {
                     {snapshot.snapshot_version === data.baseline_version ? ' (Current Baseline)' : ''}
                   </option>
                 ))}
-              </select>
+              </CustomSelect>
             </label>
 
             <label>
               Target Snapshot
-              <select className="form-select" value={target} onChange={e => setTarget(e.target.value)}>
+              <CustomSelect className="form-select" value={target} onChange={e => setTarget(e.target.value)}>
                 {data.snapshots.map(snapshot => (
                   <option key={snapshot.snapshot_version} value={snapshot.snapshot_version}>
                     {snapshot.revision?.slice(0, 10) || snapshot.snapshot_version.slice(0, 10)}
                     {snapshot.captured_at ? ` · ${new Date(snapshot.captured_at * 1000).toLocaleString()}` : ''}
                   </option>
                 ))}
-              </select>
+              </CustomSelect>
             </label>
           </div>
 
