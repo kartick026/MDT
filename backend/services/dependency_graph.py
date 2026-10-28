@@ -26,24 +26,43 @@ from typing import Any, Dict, List, Optional
 
 from core.config import settings
 from core.database import get_neo4j_driver
+from core.utils import now_iso
 
 logger = logging.getLogger(__name__)
 
 from core.registry import RegistryManager
+from domain.relations import is_startup, dependency_depth
 
 def _get_known_services(): return RegistryManager.get_services()
 def _get_known_dependencies(): return RegistryManager.get_dependencies()
 def _get_file_service_map(): return RegistryManager.get_file_mappings()
 
+# Public accessors and backwards-compatibility aliases
+get_known_services = _get_known_services
+get_known_dependencies = _get_known_dependencies
+get_file_service_map = _get_file_service_map
+
+def __getattr__(name: str):
+    if name == "KNOWN_SERVICES":
+        return _get_known_services()
+    if name == "KNOWN_DEPENDENCIES":
+        return _get_known_dependencies()
+    if name == "FILE_SERVICE_MAP":
+        return _get_file_service_map()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_iso()
 
 
 def _infer_service_from_path(file_path: str) -> Optional[str]:
-    """Return the owning service name for a file path, or None."""
-    for prefix, service in _get_file_service_map().items():
-        if file_path.replace("\\", "/").startswith(prefix):
+    """Use the most specific directory mapping, on path-segment boundaries."""
+    normalized = file_path.replace("\\", "/").removeprefix("./").strip("/")
+    mappings = [(prefix.replace("\\", "/").removeprefix("./").strip("/"), service)
+                for prefix, service in _get_file_service_map().items()]
+    for prefix, service in sorted(mappings, key=lambda item: len(item[0]), reverse=True):
+        if not prefix or prefix == "." or normalized == prefix or normalized.startswith(prefix + "/"):
             return service
     return None
 
@@ -57,16 +76,27 @@ async def _run_query(driver, query: str, **params) -> List[Dict[str, Any]]:
     Execute a Cypher query and return list of record dicts.
     Handles both AsyncDriver (neo4j ≥ 5 async) and sync Driver.
     """
+    from core.registry import current_project_id
+    if current_project_id() is not None:
+        return []
     if driver is None:
         return []
+
+    from core.database import MockNeo4jDriver
+    if isinstance(driver, MockNeo4jDriver) or getattr(driver, "is_mock", False):
+        refreshed = get_neo4j_driver()
+        if refreshed and not isinstance(refreshed, MockNeo4jDriver) and not getattr(refreshed, "is_mock", False):
+            driver = refreshed
+        else:
+            return []
 
     # Try async driver first (neo4j.AsyncGraphDatabase.driver)
     try:
         async with driver.session() as session:
             result = await session.run(query, **params)
             return await result.data()
-    except TypeError:
-        pass
+    except TypeError as type_exc:
+        logger.debug("Async Neo4j session unsupported, falling back to sync executor: %s", type_exc)
 
     # Fallback: sync driver — run in thread executor
     def _sync():
@@ -92,7 +122,17 @@ class DependencyGraph:
 
     def _refresh_driver(self):
         """Re-fetch driver in case it connected after this object was created."""
-        if self.driver is None:
+        from core.database import MockNeo4jDriver
+        from core.registry import current_project_id
+        if current_project_id() is not None:
+            self.driver = MockNeo4jDriver()
+            return
+        if (
+            self.driver is None
+            or isinstance(self.driver, MockNeo4jDriver)
+            or getattr(self.driver, "is_mock", False)
+            or getattr(self.driver, "_closed", False)
+        ):
             self.driver = get_neo4j_driver()
 
     # ------------------------------------------------------------------ #
@@ -124,8 +164,29 @@ class DependencyGraph:
             except Exception as exc:
                 logger.debug("Schema statement skipped: %s", exc)
 
+        # Ensure any internal microservices erroneously flagged as external are cleaned up
+        try:
+            await _run_query(
+                self.driver,
+                """
+                MATCH (s:Service)
+                WHERE s.is_external = true AND NOT s.name STARTS WITH 'external-'
+                SET s.is_external = false
+                """
+            )
+        except Exception as exc:
+            logger.debug("is_external cleanup skipped: %s", exc)
+
         logger.info("Neo4j schema initialised")
         await self.seed_known_services()
+
+    async def clear_graph(self):
+        """Delete all nodes and relationships."""
+        self._refresh_driver()
+        if not self.driver:
+            return
+        await _run_query(self.driver, "MATCH (n) DETACH DELETE n")
+        logger.info("Graph cleared")
 
     async def seed_known_services(self):
         """
@@ -146,6 +207,8 @@ class DependencyGraph:
                     s.url         = $url,
                     s.language    = $language,
                     s.description = $description,
+                    s.has_circuit_breaker = coalesce(s.has_circuit_breaker, false),
+                    s.resilient   = coalesce(s.resilient, false),
                     s.updated_at  = $ts
                 """,
                 name=svc["name"],
@@ -156,16 +219,18 @@ class DependencyGraph:
                 ts=_now_iso(),
             )
 
-        # Upsert dependency edges
+        # Remove stale dependency edges before re-seeding to keep graph in sync with registry
+        await _run_query(self.driver, "MATCH (s:Service)-[r:DEPENDS_ON]->() DELETE r")
+
+        # Upsert dependency edges (using MERGE for target so database nodes like local-demo-postgres are linked)
         for dep in _get_known_dependencies():
             await _run_query(
                 self.driver,
                 """
-                MATCH (from:Service {name: $from_name})
-                MATCH (to:Service   {name: $to_name})
-                MERGE (from)-[r:DEPENDS_ON {type: $dep_type}]->(to)
-                SET r.endpoint   = $endpoint,
-                    r.updated_at = $ts
+                MERGE (from:Service {name: $from_name})
+                MERGE (to:Service   {name: $to_name})
+                MERGE (from)-[r:DEPENDS_ON {type: $dep_type, endpoint: $endpoint}]->(to)
+                SET r.updated_at = $ts
                 """,
                 from_name=dep["from"],
                 to_name=dep["to"],
@@ -176,6 +241,47 @@ class DependencyGraph:
 
         logger.info("Graph seeded with %d services and %d dependency edges",
                     len(_get_known_services()), len(_get_known_dependencies()))
+
+    async def seed_demo_history(self, history: Dict[str, Any]):
+        """Seed historical snapshots for local demo drift smell detection."""
+        self._refresh_driver()
+        if not self.driver or not history:
+            return
+
+        for snap in history.get("dependency_snapshots", []):
+            try:
+                await _run_query(
+                    self.driver,
+                    """
+                    MERGE (snapshot:DependencySnapshot {signature: $signature})
+                    ON CREATE SET snapshot.edges = $edges, snapshot.created_at = $created_at
+                    """,
+                    signature=snap["signature"],
+                    edges=snap.get("edges", []),
+                    created_at=snap.get("created_at", _now_iso()),
+                )
+            except Exception as exc:
+                logger.debug("DependencySnapshot seed error: %s", exc)
+
+        for snap in history.get("api_snapshots", []):
+            try:
+                await _run_query(
+                    self.driver,
+                    """
+                    MERGE (snapshot:ApiSnapshot {service: $service, signature: $signature})
+                    ON CREATE SET snapshot.endpoints = $endpoints, snapshot.created_at = $created_at
+                    """,
+                    service=snap["service"],
+                    signature=snap["signature"],
+                    endpoints=snap.get("endpoints", []),
+                    created_at=snap.get("created_at", _now_iso()),
+                )
+            except Exception as exc:
+                logger.debug("ApiSnapshot seed error: %s", exc)
+
+        logger.info("Demo smell history seeded (%d dep snapshots, %d api snapshots)",
+                    len(history.get("dependency_snapshots", [])),
+                    len(history.get("api_snapshots", [])))
 
     # ------------------------------------------------------------------ #
     #  Service node operations
@@ -201,6 +307,7 @@ class DependencyGraph:
         to_service: str,
         dependency_type: str = "http",
         endpoint: str = "",
+        evidence: Optional[Dict[str, Any]] = None,
     ):
         """Create or update a DEPENDS_ON edge."""
         self._refresh_driver()
@@ -209,15 +316,17 @@ class DependencyGraph:
         await _run_query(
             self.driver,
             """
-            MATCH (from:Service {name: $from_name})
-            MATCH (to:Service   {name: $to_name})
-            MERGE (from)-[r:DEPENDS_ON {type: $dep_type}]->(to)
-            SET r.endpoint = $endpoint, r.updated_at = $ts
+            MERGE (from:Service {name: $from_name})
+            MERGE (to:Service   {name: $to_name})
+            MERGE (from)-[r:DEPENDS_ON {type: $dep_type, endpoint: $endpoint}]->(to)
+            SET r.updated_at = $ts, r += $evidence
             """,
             from_name=from_service,
             to_name=to_service,
             dep_type=dependency_type,
             endpoint=endpoint,
+            evidence={key: value for key, value in (evidence or {}).items()
+                      if key in {"evidence_kind", "source_file", "source_line", "environment_variable", "method", "has_bug", "resolution_reason"}},
             ts=_now_iso(),
         )
 
@@ -256,9 +365,15 @@ class DependencyGraph:
         Fall-through strategy:
           1. Look up the file in Neo4j → find owning service → find dependants
           2. Infer owning service from path prefix (no Neo4j lookup)
-          3. Return all 4 services as a safe maximum (Neo4j unavailable)
+          3. Leave ownership unresolved when neither source establishes it
         """
         self._refresh_driver()
+
+        # A scoped project owns its captured graph; the shared database is disabled
+        # for it. Resolve from that same snapshot before attempting Neo4j.
+        if RegistryManager.get_services():
+            owner = _infer_service_from_path(file_path)
+            return self._get_dependants_from_static_map(owner) if owner else []
 
         if self.driver:
             # Step 1 — graph-aware traversal
@@ -280,13 +395,14 @@ class DependencyGraph:
         if owner:
             return self._get_dependants_from_static_map(owner)
 
-        # Step 3 — safe maximum fallback
-        logger.debug("Cannot determine service for %s — returning all services", file_path)
-        return [s["name"] for s in _get_known_services()]
+        # Unknown ownership is incomplete evidence, not proof that every service
+        # changed. The analysis evidence layer reports the missing mapping.
+        logger.debug("Cannot determine service for %s", file_path)
+        return []
 
     def _get_dependants_from_static_map(self, service_name: str) -> List[str]:
         """
-        Using the hardcoded _get_known_dependencies(), return the given service
+        Using the captured project dependencies, return the given service
         plus every service that transitively depends on it.
         """
         affected = {service_name}
@@ -294,7 +410,7 @@ class DependencyGraph:
         while changed:
             changed = False
             for dep in _get_known_dependencies():
-                if dep["to"] in affected and dep["from"] not in affected:
+                if not is_startup(dep) and dep["to"] in affected and dep["from"] not in affected:
                     affected.add(dep["from"])
                     changed = True
         return list(affected)
@@ -307,13 +423,19 @@ class DependencyGraph:
         Each dict: {from, to, type, endpoint}
         """
         self._refresh_driver()
+        try:
+            depth_val = depth if isinstance(depth, int) else int(depth)
+            depth_int = depth_val if 1 <= depth_val <= 10 else 4
+        except (ValueError, TypeError):
+            depth_int = 4
+
         if not self.driver:
             return self._static_dependency_chain(service_name)
 
         records = await _run_query(
             self.driver,
             f"""
-            MATCH (s:Service {{name: $name}})-[r:DEPENDS_ON*1..{depth}]->(dep:Service)
+            MATCH (s:Service {{name: $name}})-[r:DEPENDS_ON*1..{depth_int}]->(dep:Service)
             UNWIND r AS rel
             WITH startNode(rel) AS from_node, endNode(rel) AS to_node, rel
             RETURN from_node.name AS from,
@@ -334,11 +456,39 @@ class DependencyGraph:
             if d["from"] == service_name
         ]
 
+    async def purge_unregistered_services(self, active_names: List[str]):
+        """Remove any Service nodes in Neo4j that are not in the active registry."""
+        self._refresh_driver()
+        if not self.driver or not active_names:
+            return
+        from core.registry import RegistryManager
+        deps = RegistryManager.get_dependencies()
+        dep_targets = [d["to"] for d in deps if d.get("to")] + [d["from"] for d in deps if d.get("from")]
+        full_active = list(set(active_names + dep_targets))
+        await _run_query(
+            self.driver,
+            """
+            MATCH (s:Service)
+            WHERE NOT (s.name IN $active)
+              AND NOT toLower(s.name) CONTAINS 'postgres'
+              AND NOT toLower(s.name) CONTAINS 'database'
+              AND NOT toLower(s.name) CONTAINS 'db'
+            DETACH DELETE s
+            """,
+            active=full_active,
+        )
+
     async def get_all_services(self) -> List[Dict[str, Any]]:
         """Return all Service nodes from the graph."""
         self._refresh_driver()
         if not self.driver:
             return _get_known_services()
+
+        from core.registry import RegistryManager
+        reg_services = RegistryManager.get_services()
+        if reg_services:
+            active_names = [s["name"] for s in reg_services]
+            await self.purge_unregistered_services(active_names)
 
         records = await _run_query(
             self.driver,
@@ -366,20 +516,22 @@ class DependencyGraph:
 
     async def get_dependency_depth(self, service_name: str) -> int:
         """
-        Return the maximum dependency depth for a service.
+        Return maximum shortest-path distance in the captured graph, up to eight hops.
         Used by ImpactEngine to score depth-based risk.
         """
         self._refresh_driver()
+        if RegistryManager.get_services():
+            return dependency_depth(service_name, _get_known_dependencies())
         if not self.driver:
-            # Static calculation
-            chain = self._static_dependency_chain(service_name)
-            return len(chain)
+            return dependency_depth(service_name, _get_known_dependencies())
 
         records = await _run_query(
             self.driver,
             """
-            MATCH (s:Service {name: $name})-[:DEPENDS_ON*]->(dep:Service)
-            RETURN count(DISTINCT dep) AS depth
+            MATCH (s:Service {name: $name}), (dep:Service) WHERE s <> dep
+            OPTIONAL MATCH p = shortestPath((s)-[:DEPENDS_ON*1..8]->(dep))
+            WHERE all(r IN relationships(p) WHERE coalesce(r.type, 'http') <> 'startup')
+            RETURN coalesce(max(length(p)), 0) AS depth
             """,
             name=service_name,
         )
@@ -392,6 +544,8 @@ class DependencyGraph:
         risk_score: float,
         severity: str,
         changed_files: List[str],
+        repo_url: Optional[str] = None,
+        branch_ref: Optional[str] = None,
     ):
         """
         Persist one analysis event linked to every affected service.
@@ -406,6 +560,8 @@ class DependencyGraph:
             """
             CREATE (a:Analysis {
                 commit_sha:    $commit,
+                repo_url:      $repo_url,
+                branch_ref:    $branch,
                 risk_score:    $risk,
                 severity:      $severity,
                 changed_files: $files,
@@ -415,12 +571,12 @@ class DependencyGraph:
             UNWIND $services AS service_name
             MATCH (s:Service {name: service_name})
             CREATE (s)-[:HAS_ANALYSIS]->(a)
-            SET s.risk_score       = $risk,
-                s.risk_level       = $severity,
-                s.last_analyzed_at = $ts
+            SET s.last_analyzed_at = $ts
             """,
             services=service_names,
             commit=commit_sha,
+            repo_url=repo_url or "",
+            branch=branch_ref or "",
             risk=risk_score,
             severity=severity,
             files=changed_files,
@@ -443,6 +599,8 @@ class DependencyGraph:
             WITH a, collect(s.name) AS services
             WHERE $service IS NULL OR $service IN services
             RETURN a.commit_sha AS commit,
+                   a.repo_url AS repo_url,
+                   a.branch_ref AS branch_ref,
                    a.risk_score AS risk_score,
                    a.severity AS severity,
                    a.changed_files AS changed_files,

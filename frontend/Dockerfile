@@ -7,12 +7,20 @@ RUN npm ci
 
 COPY . .
 
-ARG VITE_API_URL=http://localhost:8000
+ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_ENABLE_LOCAL_DASHBOARD=false
+ENV VITE_ENABLE_LOCAL_DASHBOARD=$VITE_ENABLE_LOCAL_DASHBOARD
+ARG VITE_ALLOW_SIGNUP=false
+ENV VITE_ALLOW_SIGNUP=$VITE_ALLOW_SIGNUP
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.30.6-alpine
 
+# Refresh security fixes released after the pinned Nginx base was built.
+RUN apk upgrade --no-cache
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80

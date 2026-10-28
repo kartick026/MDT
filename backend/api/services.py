@@ -5,13 +5,16 @@ All data is live — no hardcoded responses.
 """
 import asyncio
 import logging
+import os
 from typing import Optional
 
 import httpx
 from fastapi import APIRouter
 
-from services.dependency_graph import DependencyGraph, KNOWN_SERVICES, KNOWN_DEPENDENCIES
+from core.registry import RegistryManager
+from services.dependency_graph import DependencyGraph
 from services.smell_detector import SmellDetector
+from schemas.service import ServiceListResponse, ServiceGraphResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -27,18 +30,18 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
     Falls back gracefully if the service is unreachable.
     """
     name = svc["name"]
-    port = svc.get("port", 0)
+    port = svc.get("port")
     # Build a display name from the service name
-    display_name = (
+    display_name = svc.get("display_name") or (
         name.replace("-service", "")
             .replace("-", " ")
             .title() + " Service"
     )
 
-    # Attempt to resolve dependencies from the static map
+    # Resolve dependencies dynamically from the registry
     deps = [
         d["to"]
-        for d in KNOWN_DEPENDENCIES
+        for d in RegistryManager.get_dependencies()
         if d["from"] == name
     ]
 
@@ -49,82 +52,171 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
         "url": svc.get("url", ""),
         "description": svc.get("description", ""),
         "dependencies": deps,
-        "api_count": 0,
+        "api_count": svc.get("api_count") or 0,
+        "endpoints": svc.get("endpoints") or [],
         "risk_level": (svc.get("risk_level") or "UNKNOWN").upper(),
-        "risk_score": svc.get("risk_score") or 0,
+        "risk_score": svc.get("risk_score"),
+        "is_external": svc.get("is_external", False),
+        "is_broken": svc.get("is_broken", False),
     }
 
-    # Ping the internal Docker URL
-    url = svc.get("url") or f"http://localhost:{port}"
-    try:
-        resp = await client.get(f"{url}/health", timeout=2.0)
-        if resp.status_code == 200:
-            base["status"] = "healthy"
-        else:
-            base["status"] = "unhealthy"
-        # Try to extract more info if the health endpoint is rich
+    if not svc.get("url"):
+        base["status"] = "unobserved"
+        return base
+
+    # Ping candidate URLs (Docker internal networking, trailing slashes, root)
+    url = (svc.get("url") or f"http://localhost:{port}").rstrip("/")
+    candidate_urls = [f"{url}/health/", f"{url}/health", f"{url}/"]
+    # Registry URLs use Docker DNS names. When the backend is run directly
+    # on a developer machine, use the published local port as a fallback.
+    if "//" in url and not os.path.exists("/.dockerenv"):
+        host = url.split("//", 1)[1].split(":", 1)[0]
+        if host.endswith("-service"):
+            candidate_urls.extend([
+                f"http://localhost:{port}/health/",
+                f"http://localhost:{port}/health",
+            ])
+    if name == "backend" or port == 8000:
+        candidate_urls.extend([
+            "http://127.0.0.1:8000/health/ready",
+            "http://localhost:8000/health/ready",
+            "http://backend:8000/health/ready",
+        ])
+    if ":5173" in url or port in [80, 5173] or name in ["frontend", "web", "ui"]:
+        candidate_urls.extend([
+            "http://frontend:80/",
+            "http://frontend:80/health",
+            "http://127.0.0.1:5173/",
+            "http://localhost:5173/",
+        ])
+
+    async def probe(target: str):
         try:
-            data = resp.json()
-            if "endpoints" in data:
-                base["api_count"] = len(data["endpoints"])
-        except Exception:
-            pass
-    except Exception as exc:
+            return await client.get(target, timeout=0.8, follow_redirects=True)
+        except Exception as exc:
+            logger.debug("Health probe to %s failed: %s", target, exc)
+            return None
+
+    # Probe candidates in parallel. This prevents a missing imported service
+    # from multiplying the dashboard refresh time by every URL fallback.
+    responses = await asyncio.gather(*(probe(target) for target in candidate_urls))
+    last_resp = next((response for response in responses if response is not None), None)
+    healthy = any(response is not None and response.status_code < 400 for response in responses)
+
+    if healthy:
+        base["status"] = "healthy"
+        # Try to extract endpoint count from /openapi.json or health data
+        try:
+            openapi_resp = await client.get(f"{url}/openapi.json", timeout=1.5, follow_redirects=True)
+            if openapi_resp.status_code == 200:
+                paths = openapi_resp.json().get("paths", {})
+                base["api_count"] = len(paths)
+            elif last_resp and hasattr(last_resp, "json"):
+                data = last_resp.json()
+                if isinstance(data, dict) and "endpoints" in data:
+                    base["api_count"] = len(data["endpoints"])
+        except Exception as exc:
+            logger.debug("Failed extracting api_count for %s: %s", url, exc)
+    elif svc.get("is_external"):
+        base["status"] = "imported"
+    elif RegistryManager.get_project_context().get("source") in {"local_demo"}:
         base["status"] = "offline"
-        logger.debug("Service %s unreachable: %s", name, exc)
+    else:
+        base["status"] = "unobserved"
 
     return base
 
 
-@router.get("/", summary="List all registered services with live health")
+@router.get("", response_model=ServiceListResponse, include_in_schema=False)
+@router.get("/", response_model=ServiceListResponse, summary="List all registered services with live health")
 async def list_services():
     """
     Return all services from the dependency graph enriched with live health status.
     Pings each service's /health endpoint concurrently.
     """
-    # Get the service list from Neo4j (falls back to KNOWN_SERVICES if Neo4j is down)
-    raw_services = await graph.get_all_services()
+    reg_services = RegistryManager.get_services()
+    try:
+        graph_services = await graph.get_all_services()
+        graph_map = {s["name"]: s for s in graph_services}
+    except Exception as exc:
+        logger.debug("graph.get_all_services failed: %s", exc)
+        graph_map = {}
 
-    # Merge with KNOWN_SERVICES to ensure we always have URL/port info
-    known_map = {s["name"]: s for s in KNOWN_SERVICES}
-    merged = []
-    for svc in raw_services:
-        known = known_map.get(svc.get("name", ""), {})
-        merged.append({**known, **svc})
+    services = []
+    for s in (reg_services or list(graph_map.values())):
+        merged = {**s}
+        # A captured zero or missing assessment must not inherit stale Neo4j risk.
+        merged["risk_score"] = s.get("risk_score")
+        merged["risk_level"] = s.get("risk_level") if s.get("risk_score") is not None else "UNKNOWN"
+
+        if s.get("api_count"):
+            merged["api_count"] = s["api_count"]
+        if s.get("endpoints"):
+            merged["endpoints"] = s["endpoints"]
+        if s.get("is_external"):
+            merged["is_external"] = s["is_external"]
+
+        services.append(merged)
 
     # Ping all services concurrently
     async with httpx.AsyncClient() as client:
-        tasks = [_ping_service(client, svc) for svc in merged]
+        tasks = [_ping_service(client, svc) for svc in services]
         enriched = await asyncio.gather(*tasks)
 
     return {"services": list(enriched), "total": len(enriched)}
 
 
-@router.get("/graph", summary="Return service nodes and dependency edges for the graph UI")
+@router.get("/graph", response_model=ServiceGraphResponse, summary="Return service nodes and dependency edges for the graph UI")
 async def get_service_graph():
     """
-    Returns the full dependency graph as nodes + edges.
-    Nodes come from Neo4j (or the static seed); edges come from KNOWN_DEPENDENCIES.
-    """
-    raw_services = await graph.get_all_services()
-    known_map = {s["name"]: s for s in KNOWN_SERVICES}
+    Return one internally consistent topology snapshot.
 
+    The persisted registry is authoritative for both nodes and edges.  Neo4j
+    is an analysis store and may be temporarily stale while an import/reset is
+    in progress; using it as the node source could make a valid registry edge
+    (for example order-service -> user-service) disappear from the UI.
+    """
+    registry_services = RegistryManager.get_services()
     nodes = []
-    for svc in raw_services:
-        known = known_map.get(svc.get("name", ""), {})
-        merged = {**known, **svc}
-        name = merged.get("name", "")
+    for svc in registry_services:
+        name = svc.get("name", "")
+        if not name:
+            continue
+        risk_score = svc.get("risk_score")
+        risk_level = svc.get("risk_level")
+        is_broken = (
+            svc.get("is_broken", False)
+            or any(b.get("target_service") == name for b in RegistryManager.get_connection_bugs())
+        )
         nodes.append({
             "id": name,
             "label": name.replace("-service", "").replace("-", " ").title(),
-            "port": merged.get("port", 0),
-            "risk_level": (merged.get("risk_level") or "UNKNOWN").upper(),
-            "risk_score": merged.get("risk_score") or 0,
+            "port": svc.get("port"),
+            "risk_level": (risk_level or "UNKNOWN").upper() if risk_score is not None else "UNKNOWN",
+            "risk_score": risk_score,
+            "is_broken": is_broken,
+            "status": svc.get("status", "unknown"),
         })
 
+    # The registry is the source of truth.  The old process-local list was
+    # never updated by repository onboarding and lost data on restart.
+    bugged_pairs = {
+        (bug.get("source_service"), bug.get("target_service"))
+        for bug in RegistryManager.get_connection_bugs()
+        if bug.get("source_service") and bug.get("target_service")
+    }
+
+    node_ids = {node["id"] for node in nodes}
     edges = [
-        {"from": d["from"], "to": d["to"], "type": d.get("type", "http")}
-        for d in KNOWN_DEPENDENCIES
+        {
+            "from": d["from"],
+            "to": d["to"],
+            "type": d.get("type", "http"),
+            "endpoint": d.get("endpoint", ""),
+            "has_bug": (d["from"], d["to"]) in bugged_pairs
+        }
+        for d in RegistryManager.get_dependencies()
+        if d.get("from") in node_ids and d.get("to") in node_ids
     ]
 
     return {"nodes": nodes, "edges": edges}
@@ -132,9 +224,19 @@ async def get_service_graph():
 
 @router.get("/smells", summary="Detect architectural smells")
 async def get_architectural_smells():
-    """Run all heuristics and Cypher queries to detect architectural smells."""
+    """Run all heuristics and graph detectors to detect architectural smells."""
+    is_mock = smell_detector._is_mock()
     smells = await smell_detector.detect_all_smells()
-    return {"smells": smells, "count": len(smells)}
+    return {
+        "smells": smells,
+        "count": len(smells),
+        "neo4j_connected": not is_mock,
+        "partial_results": is_mock,
+        "notice": (
+            "Neo4j unavailable — running structural smell detection on in-memory dependency graph."
+            if is_mock else None
+        ),
+    }
 
 
 @router.get("/{service_name}", summary="Health check a specific service")
@@ -142,26 +244,43 @@ async def get_service_health(service_name: str):
     """Ping a microservice's /health endpoint and return its status."""
     info = await graph.get_service_info(service_name)
     if not info:
-        known = next((s for s in KNOWN_SERVICES if s["name"] == service_name), None)
+        known_services = RegistryManager.get_services()
+        known = next((s for s in known_services if s["name"] == service_name), None)
         if not known:
             return {
                 "error": "Service not found",
-                "available": [s["name"] for s in KNOWN_SERVICES],
+                "available": [s["name"] for s in known_services],
             }
         info = known
 
     port = info.get("port")
-    url = info.get("url", f"http://localhost:{port}")
+    base_url = (info.get("url") or f"http://localhost:{port}").rstrip("/")
+    candidate_urls = [f"{base_url}/health", f"{base_url}/health/", f"{base_url}/"]
 
+    if port and "//" in base_url and not os.path.exists("/.dockerenv"):
+        host = base_url.split("//", 1)[1].split(":", 1)[0]
+        if host.endswith("-service") or host in ("user-service", "order-service", "inventory-service", "notification-service", "payment-service"):
+            candidate_urls.extend([
+                f"http://localhost:{port}/health",
+                f"http://localhost:{port}/health/",
+                f"http://localhost:{port}/",
+            ])
+
+    last_exc = None
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{url}/health")
-            return {
-                "service": service_name,
-                "status": "healthy" if resp.status_code == 200 else "unhealthy",
-                "port": port,
-                "url": url,
-            }
+            for candidate in candidate_urls:
+                try:
+                    resp = await client.get(candidate, follow_redirects=True)
+                    return {
+                        "service": service_name,
+                        "status": "healthy" if resp.status_code == 200 else "unhealthy",
+                        "port": port,
+                        "url": base_url,
+                    }
+                except Exception as e:
+                    last_exc = e
+            raise last_exc or Exception("Failed to connect to service")
     except Exception as exc:
         return {
             "service": service_name,

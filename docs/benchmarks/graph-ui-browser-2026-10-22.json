@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-22",
+  "graphChecks": [
+    {
+      "name": "MDT recorded demo",
+      "node_overlaps": 0,
+      "paths_finite": true,
+      "rendered_nodes": 6,
+      "scroll_height": 416,
+      "scroll_width": 746,
+      "view_box": "0 0 1373.8 1000",
+      "viewport_height": 416,
+      "viewport_width": 746
+    },
+    {
+      "name": "OpenTelemetry saved live capture",
+      "node_overlaps": 0,
+      "paths_finite": true,
+      "rendered_nodes": 20,
+      "scroll_height": 439,
+      "scroll_width": 746,
+      "view_box": "0 0 1866 1492",
+      "viewport_height": 439,
+      "viewport_width": 746
+    },
+    {
+      "name": "Spring Petclinic saved live capture",
+      "node_overlaps": 0,
+      "paths_finite": true,
+      "rendered_nodes": 11,
+      "scroll_height": 439,
+      "scroll_width": 746,
+      "view_box": "0 0 1452 548",
+      "viewport_height": 439,
+      "viewport_width": 746
+    },
+    {
+      "name": "Voting app saved live capture",
+      "node_overlaps": 0,
+      "paths_finite": true,
+      "rendered_nodes": 6,
+      "scroll_height": 439,
+      "scroll_width": 746,
+      "view_box": "0 0 738 464",
+      "viewport_height": 439,
+      "viewport_width": 746
+    }
+  ],
+  "directory": {
+    "container_height": 44,
+    "input_height": 42,
+    "page_width": 887,
+    "viewport": 897
+  },
+  "newConsoleErrors": [],
+  "expandedDialog": {
+    "height": 644,
+    "scroll_height": 644,
+    "viewport_height": 248
+  }
+}

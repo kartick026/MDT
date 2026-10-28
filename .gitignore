@@ -25,6 +25,7 @@ venv/
 ENV/
 env/
 .venv/
+.venv-alpha/
 
 # IDE
 .vscode/
@@ -35,7 +36,13 @@ env/
 
 # Environment files
 .env
-.env.local
+.env.*
+*.env
+*.env.*
+!.env.example
+!*.env.example
+!.env.template
+!*.env.template
 
 # Logs
 *.log
@@ -61,4 +68,21 @@ htmlcov/
 
 # Temporary
 *.tmp
-.temp/
+*.temp/
+
+# Databases & local runtime data
+chroma_db/
+backend/chroma_db/
+backend/data/
+*.sqlite3
+scratch/
+release-config.local.json
+
+# Testing & browser artifacts
+.playwright-mcp/
+/screenshot_*.png
+/fresh_screenshot_*.png
+.impeccable/
+.kiro/
+
+.neon

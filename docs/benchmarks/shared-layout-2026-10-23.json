@@ -1,0 +1,1181 @@
+{
+  "date": "2026-10-23",
+  "scope": "Shared CSS overlap repairs; read-only UI geometry excludes SVG internals and intentional scrolling areas; no backend/scoring changes.",
+  "before": [
+    {
+      "view": "drift-mobile",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 380,
+      "width": 390
+    },
+    {
+      "view": "drift-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "drift-all-evidence-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "summary-small",
+      "collisions": [],
+      "overflow": [
+        {
+          "cls": "evidence-summary",
+          "contentWidth": 622,
+          "tag": "ASIDE",
+          "text": "Partial analysis — review coverage before relying on this resultMode: deterministic_snapshot. Parser",
+          "width": 237
+        },
+        {
+          "cls": "",
+          "contentWidth": 606,
+          "tag": "UL",
+          "text": "public_archive_comparison_rename_detection_unavailabletopology:source_parse_failed:src/frontend/comp",
+          "width": 205
+        },
+        {
+          "cls": "",
+          "contentWidth": 358,
+          "tag": "LI",
+          "text": "public_archive_comparison_rename_detection_unavailable",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 452,
+          "tag": "LI",
+          "text": "topology:source_parse_failed:src/frontend/components/Button/Button.tsx",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 586,
+          "tag": "LI",
+          "text": "topology:source_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.ts",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 212,
+          "tag": "LI",
+          "text": "topology:source_file_limit_reached",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 388,
+          "tag": "LI",
+          "text": "topology:application_source_unavailable_for_declared_services",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 428,
+          "tag": "LI",
+          "text": "topology:compose_uses_recorded_defaults_not_runtime_environment",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 432,
+          "tag": "LI",
+          "text": "topology:compose_dependencies_are_startup_order_not_verified_calls",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 408,
+          "tag": "LI",
+          "text": "topology:static_topology_is_not_complete_runtime_communication",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 209,
+          "tag": "LI",
+          "text": "semantic_comparison_unavailable",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 243,
+          "tag": "LI",
+          "text": "changed_files_not_mapped_to_services",
+          "width": 185
+        },
+        {
+          "cls": "recommendations-section",
+          "contentWidth": 286,
+          "tag": "SECTION",
+          "text": "⚡ High-Impact Architectural RecommendationsSimulate counterfactual graph topology mutations directly",
+          "width": 240
+        },
+        {
+          "cls": "recommendations-list",
+          "contentWidth": 286,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 240
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        }
+      ],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "summary-desktop",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 1430,
+      "width": 1440
+    },
+    {
+      "view": "findings-expanded-small",
+      "collisions": [],
+      "overflow": [
+        {
+          "cls": "evidence-summary",
+          "contentWidth": 622,
+          "tag": "ASIDE",
+          "text": "Partial analysis — review coverage before relying on this resultMode: deterministic_snapshot. Parser",
+          "width": 237
+        },
+        {
+          "cls": "",
+          "contentWidth": 606,
+          "tag": "UL",
+          "text": "public_archive_comparison_rename_detection_unavailabletopology:source_parse_failed:src/frontend/comp",
+          "width": 205
+        },
+        {
+          "cls": "",
+          "contentWidth": 358,
+          "tag": "LI",
+          "text": "public_archive_comparison_rename_detection_unavailable",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 452,
+          "tag": "LI",
+          "text": "topology:source_parse_failed:src/frontend/components/Button/Button.tsx",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 586,
+          "tag": "LI",
+          "text": "topology:source_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.ts",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 212,
+          "tag": "LI",
+          "text": "topology:source_file_limit_reached",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 388,
+          "tag": "LI",
+          "text": "topology:application_source_unavailable_for_declared_services",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 428,
+          "tag": "LI",
+          "text": "topology:compose_uses_recorded_defaults_not_runtime_environment",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 432,
+          "tag": "LI",
+          "text": "topology:compose_dependencies_are_startup_order_not_verified_calls",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 408,
+          "tag": "LI",
+          "text": "topology:static_topology_is_not_complete_runtime_communication",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 209,
+          "tag": "LI",
+          "text": "semantic_comparison_unavailable",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 243,
+          "tag": "LI",
+          "text": "changed_files_not_mapped_to_services",
+          "width": 185
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 72,
+          "tag": "H3",
+          "text": "God / Bottleneck Service",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 95,
+          "tag": "H3",
+          "text": "Hub-and-Spoke Centralization",
+          "width": 48
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 61,
+          "tag": "H3",
+          "text": "High Coupling",
+          "width": 30
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 61,
+          "tag": "H3",
+          "text": "High Coupling",
+          "width": 30
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 61,
+          "tag": "H3",
+          "text": "High Coupling",
+          "width": 30
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 61,
+          "tag": "H3",
+          "text": "High Coupling",
+          "width": 30
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 61,
+          "tag": "H3",
+          "text": "High Coupling",
+          "width": 30
+        },
+        {
+          "cls": "finding-title",
+          "contentWidth": 61,
+          "tag": "H3",
+          "text": "High Coupling",
+          "width": 30
+        },
+        {
+          "cls": "findings-pagination",
+          "contentWidth": 249,
+          "tag": "DIV",
+          "text": "← PreviousPage 1of 2Next →",
+          "width": 240
+        }
+      ],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "recommendation-preview-small",
+      "collisions": [],
+      "overflow": [
+        {
+          "cls": "evidence-summary",
+          "contentWidth": 622,
+          "tag": "ASIDE",
+          "text": "Partial analysis — review coverage before relying on this resultMode: deterministic_snapshot. Parser",
+          "width": 237
+        },
+        {
+          "cls": "",
+          "contentWidth": 606,
+          "tag": "UL",
+          "text": "public_archive_comparison_rename_detection_unavailabletopology:source_parse_failed:src/frontend/comp",
+          "width": 205
+        },
+        {
+          "cls": "",
+          "contentWidth": 358,
+          "tag": "LI",
+          "text": "public_archive_comparison_rename_detection_unavailable",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 452,
+          "tag": "LI",
+          "text": "topology:source_parse_failed:src/frontend/components/Button/Button.tsx",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 586,
+          "tag": "LI",
+          "text": "topology:source_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.ts",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 212,
+          "tag": "LI",
+          "text": "topology:source_file_limit_reached",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 388,
+          "tag": "LI",
+          "text": "topology:application_source_unavailable_for_declared_services",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 428,
+          "tag": "LI",
+          "text": "topology:compose_uses_recorded_defaults_not_runtime_environment",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 432,
+          "tag": "LI",
+          "text": "topology:compose_dependencies_are_startup_order_not_verified_calls",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 408,
+          "tag": "LI",
+          "text": "topology:static_topology_is_not_complete_runtime_communication",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 209,
+          "tag": "LI",
+          "text": "semantic_comparison_unavailable",
+          "width": 185
+        },
+        {
+          "cls": "",
+          "contentWidth": 243,
+          "tag": "LI",
+          "text": "changed_files_not_mapped_to_services",
+          "width": 185
+        },
+        {
+          "cls": "recommendations-section",
+          "contentWidth": 286,
+          "tag": "SECTION",
+          "text": "⚡ High-Impact Architectural RecommendationsSimulate counterfactual graph topology mutations directly",
+          "width": 240
+        },
+        {
+          "cls": "recommendations-list",
+          "contentWidth": 286,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 240
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 204,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 165,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 165,
+          "tag": "DIV",
+          "text": "✕ Close Counterfactual",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview an explicit intermediary and caller reroute; this may move the b",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-edits-summary",
+          "contentWidth": 169,
+          "tag": "DIV",
+          "text": "14 proposed graph edits+ Node: recommendation_gateway− Edge: recommendation → flagd+ Edge: recommend",
+          "width": 157
+        },
+        {
+          "cls": "edits-list",
+          "contentWidth": 169,
+          "tag": "DIV",
+          "text": "+ Node: recommendation_gateway− Edge: recommendation → flagd+ Edge: recommendation_gateway → flagd− ",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-card ",
+          "contentWidth": 282,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 236
+        },
+        {
+          "cls": "recommendation-header",
+          "contentWidth": 262,
+          "tag": "DIV",
+          "text": "💡Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measu",
+          "width": 196
+        },
+        {
+          "cls": "recommendation-content",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "Architectural RecommendationPreview moving outgoing dependencies through an intermediary and measure",
+          "width": 157
+        },
+        {
+          "cls": "recommendation-actions",
+          "contentWidth": 223,
+          "tag": "DIV",
+          "text": "⚡ Preview Graph Edits & Impact",
+          "width": 157
+        }
+      ],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "analyze-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "history-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 320,
+      "width": 320
+    },
+    {
+      "view": "history-loaded-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "history-comparison-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "graph-controls-small-before-legend-fix",
+      "collisions": [],
+      "overflow": [
+        {
+          "cls": "graph-legend",
+          "contentWidth": 268,
+          "tag": "DIV",
+          "text": "UNANALYZEDLOWMEDIUMHIGHCRITICAL⚠ Broken Link Node / Dead HostRelation Guide:Tail (Caller)────────►He",
+          "width": 183
+        }
+      ],
+      "pageWidth": 310,
+      "width": 320
+    }
+  ],
+  "after": [
+    {
+      "view": "summary-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "summary-preview",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "summary-preview",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 380,
+      "width": 390
+    },
+    {
+      "view": "summary-preview",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 758,
+      "width": 768
+    },
+    {
+      "view": "summary-preview",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 1430,
+      "width": 1440
+    },
+    {
+      "view": "findings-expanded",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "findings-expanded",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 380,
+      "width": 390
+    },
+    {
+      "view": "findings-expanded",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 758,
+      "width": 768
+    },
+    {
+      "view": "findings-expanded",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 1430,
+      "width": 1440
+    },
+    {
+      "view": "finding-review-and-raw-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "analyze-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "history-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "history-comparison-small",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "graph-controls-small-final",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    },
+    {
+      "view": "graph-controls-desktop-final",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 1430,
+      "width": 1440
+    },
+    {
+      "view": "drift-desktop-final",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 1430,
+      "width": 1440
+    },
+    {
+      "view": "drift-small-final",
+      "collisions": [],
+      "overflow": [],
+      "pageWidth": 310,
+      "width": 320
+    }
+  ],
+  "console": [],
+  "notes": [
+    "One local session-expiration sign-in was completed with the existing demo account during checks.",
+    "No persisted review, baseline, analysis or project data was changed.",
+    "Lint, production build, Nginx configuration and whitespace checks passed.",
+    "Viewport override reset."
+  ]
+}

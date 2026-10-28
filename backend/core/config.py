@@ -1,7 +1,14 @@
 """Configuration settings for MDT Backend"""
-from pydantic_settings import BaseSettings
-from typing import List
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from pydantic import Field, field_validator, model_validator
+from typing import List, Union
+import logging
 import os
+import secrets
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -10,28 +17,73 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Microservice Drift Tracker"
     VERSION: str = "1.0.0"
-    DEBUG: bool = True
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    ENVIRONMENT: str = "development"
+    DEBUG: bool = False
+    RUNTIME_PROFILE: str = "local"  # local full stack or hosted deterministic alpha
+    DATABASE_URL: str = ""  # PostgreSQL in hosted or connected mode; SQLite under data/ locally
+    NEON_AUTH_URL: str = ""
+    NEON_JWKS_URL: str = ""
+    MAX_REQUEST_BYTES: int = 5 * 1024 * 1024
+    MAX_PROJECTS_PER_USER: int = 5
+    MAX_ACTIVE_JOBS_PER_USER: int = 2
+    MAX_JOBS_PER_DAY: int = 30
+    JOB_TIMEOUT_SECONDS: int = 180
+    # Disabled by default: saved analyses, snapshots and reviews remain indefinitely.
+    JOB_RETENTION_DAYS: int = Field(default=0, ge=0)
+    # Repository imports stay bounded; coverage records the actual scan budgets.
+    REPO_SOURCE_MAX_FILES: int = Field(default=500, ge=1, le=5000)
+    REPO_SOURCE_MAX_TOTAL_BYTES: int = Field(default=8 * 1024 * 1024, ge=256 * 1024, le=64 * 1024 * 1024)
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "text"  # "text" or "json"
+    ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"]
+
+    # Authentication & JWT
+    AUTH_REQUIRED: bool = True
+    JWT_SECRET_KEY: str = Field(
+        default="",
+        description="JWT symmetric signing key (minimum 32 characters in production)"
+    )
+    JWT_ALGORITHM: str = "HS256"
+    JWT_SECRET_FILE: str = str(Path(__file__).resolve().parent.parent / 'data' / 'jwt-signing.key')
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=5, le=1440)
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "admin123"
+    ALLOW_SELF_SIGNUP: bool = True
+    ENABLE_DEFAULT_VIEWER: bool = True
+    AUDITOR_USERNAME: str = "auditor"
+    AUDITOR_PASSWORD: str = "auditor123"
 
     # Neo4j
-    NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
-    NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "password")
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "password"
 
     # ChromaDB
-    CHROMADB_HOST: str = os.getenv("CHROMADB_HOST", "localhost")
+    CHROMADB_MODE: str = "local"  # "local" (PersistentClient) or "server" (HttpClient)
+    CHROMADB_HOST: str = "localhost"
     CHROMADB_PORT: int = 8000
+    CHROMADB_COLLECTION: str = "mdt_code_context"
 
-    # GitHub
-    GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "secret")
-    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")  # PAT fallback
-    GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
-    GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
+    # GitHub Webhook Security
+    GITHUB_WEBHOOK_SECRET: str = Field(
+        default="",
+        description="GitHub webhook HMAC signature secret"
+    )
+    WEBHOOK_SIGNATURE_REQUIRED: bool = True
+    RATE_LIMIT_WEBHOOK_PER_MINUTE: int = 30
+    RATE_LIMIT_LOGIN_PER_MINUTE: int = 5
+    MAX_WEBHOOK_PAYLOAD_BYTES: int = 25 * 1024 * 1024  # 25 MB payload limit
+
+    # GitHub Access Tokens
+    GITHUB_TOKEN: str = ""  # PAT fallback
+    GITHUB_APP_ID: str = ""
+    GITHUB_APP_PRIVATE_KEY: str = ""
 
     # AI/LLM
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    LLM_MODEL: str = "gpt-4"
-    EMBEDDING_MODEL: str = "text-embedding-ada-002"
+    OPENAI_API_KEY: str = ""
+    LLM_MODEL: str = "gemini-3.8-flash"
+    LLM_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    EMBEDDING_MODEL: str = "gemini-embedding-001"
 
     # Microservice URLs
     USER_SERVICE_URL: str = "http://user-service:8001"
@@ -39,12 +91,26 @@ class Settings(BaseSettings):
     PAYMENT_SERVICE_URL: str = "http://payment-service:8003"
     NOTIFICATION_SERVICE_URL: str = "http://notification-service:8004"
 
+    # Demo Repository Configuration
+    DEMO_REPO_URL: str = "https://github.com/kartick026/MDT"
+    DEMO_REPO_BRANCH: str = "main"
+
     # Risk thresholds
     RISK_LOW: int = 25
     RISK_MEDIUM: int = 50
     RISK_HIGH: int = 75
 
-    # Architectural-smell thresholds.  Set these per environment instead of
+    # HMDA deterministic risk calculation weights
+    HMDA_WEIGHT_FILE: int = 5
+    HMDA_MAX_FILE_PTS: int = 30
+    HMDA_PTS_API_CHANGE: int = 25
+    HMDA_PTS_CORE_SERVICE: int = 30
+    HMDA_WEIGHT_DEPTH: int = 5
+    HMDA_MAX_DEPTH_PTS: int = 15
+    HMDA_PTS_SCHEMA_CHANGE: int = 15
+    HMDA_PTS_CONFIG_CHANGE: int = 10
+
+    # Architectural-smell thresholds. Set these per environment instead of
     # baking demo-sized limits into detector queries.
     SMELL_BOTTLENECK_INBOUND_THRESHOLD: int = 3
     SMELL_BOTTLENECK_TOTAL_DEGREE_THRESHOLD: int = 5
@@ -52,8 +118,124 @@ class Settings(BaseSettings):
     SMELL_DEPENDENCY_GROWTH_THRESHOLD: int = 3
     SMELL_API_CHURN_THRESHOLD: int = 3
 
-    class Config:
-        env_file = ".env"
+    @property
+    def self_service_account_role(self) -> str:
+        """Local self-service users can work on their own projects; hosted stays invited."""
+        return 'analyst' if self.RUNTIME_PROFILE == 'local' and self.ALLOW_SELF_SIGNUP else 'viewer'
+
+    @field_validator("OPENAI_API_KEY")
+    @classmethod
+    def validate_api_key(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            logger.warning("OPENAI_API_KEY is empty. LLM analysis will use deterministic fallback.")
+        elif any(placeholder in cleaned.lower() for placeholder in ("your_", "sk-proj-your", "placeholder")):
+            logger.warning("OPENAI_API_KEY appears to be a placeholder: %s...", cleaned[:10])
+        return cleaned
+
+    @field_validator("ALLOWED_ORIGINS")
+    @classmethod
+    def parse_allowed_origins(cls, v: Union[List[str], str]) -> List[str]:
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+
+    @model_validator(mode="after")
+    def reject_demo_secrets_in_production(self):
+        """Prevent documented development credentials reaching production or staging,
+        and generate high-entropy ephemeral secrets in development when unset."""
+        env_clean = self.ENVIRONMENT.lower().strip()
+        is_prod = env_clean in {"production", "prod", "staging", "stg", "uat"}
+        if self.RUNTIME_PROFILE not in {"local", "hosted"}:
+            raise ValueError("RUNTIME_PROFILE must be local or hosted")
+        if self.RUNTIME_PROFILE == "hosted":
+            if not self.AUTH_REQUIRED:
+                raise ValueError("Hosted mode requires authentication")
+            if self.ALLOW_SELF_SIGNUP or self.ENABLE_DEFAULT_VIEWER:
+                raise ValueError("Hosted alpha requires invite-only accounts and no default viewer")
+            if not self.DATABASE_URL.startswith(("postgresql://", "postgres://")):
+                raise ValueError("Hosted mode requires durable PostgreSQL DATABASE_URL")
+            if "*" in self.ALLOWED_ORIGINS:
+                raise ValueError("Hosted mode requires explicit ALLOWED_ORIGINS")
+            is_prod = True
+
+        known_insecure_jwt = {
+            "mdt-production-super-secret-jwt-key-minimum-32-chars!",
+            "change-this-to-a-secure-random-string-in-production-min-32-chars",
+            "secret",
+            "changeme",
+            "password",
+            "your_secret_key_here",
+        }
+        known_insecure_webhook = {
+            "secret",
+            "your_webhook_secret_here",
+            "your-32-character-webhook-secret",
+            "changeme",
+        }
+
+        # 1. JWT_SECRET_KEY validation & safe dev fallback
+        current_jwt = self.JWT_SECRET_KEY.strip() if self.JWT_SECRET_KEY else ""
+        if not current_jwt or current_jwt in known_insecure_jwt:
+            if is_prod:
+                raise ValueError(
+                    f"[{env_clean.upper()}] Deployment configuration must set a secure JWT_SECRET_KEY (min 32 characters). "
+                    f"Insecure default or empty key is strictly rejected."
+                )
+            if os.environ.get('TESTING', '').lower() in {'1', 'true'}:
+                self.JWT_SECRET_KEY = secrets.token_urlsafe(32)
+            else:
+                from core.local_secrets import local_signing_key
+                self.JWT_SECRET_KEY = local_signing_key(self.JWT_SECRET_FILE)
+                logger.warning('JWT_SECRET_KEY not configured; using the persistent local development key.')
+        elif is_prod and len(current_jwt) < 32:
+            raise ValueError(
+                f"[{env_clean.upper()}] JWT_SECRET_KEY must be at least 32 characters long in production (got {len(current_jwt)})."
+            )
+        else:
+            self.JWT_SECRET_KEY = current_jwt
+
+        # 2. GITHUB_WEBHOOK_SECRET validation & safe dev fallback
+        current_webhook = self.GITHUB_WEBHOOK_SECRET.strip() if self.GITHUB_WEBHOOK_SECRET else ""
+        if not current_webhook or current_webhook in known_insecure_webhook:
+            if is_prod:
+                raise ValueError(
+                    f"[{env_clean.upper()}] Deployment configuration must set a secure GITHUB_WEBHOOK_SECRET. "
+                    f"Insecure default or empty secret is strictly rejected."
+                )
+            self.GITHUB_WEBHOOK_SECRET = secrets.token_hex(20)
+            logger.warning("GITHUB_WEBHOOK_SECRET not set or using insecure default. Generated ephemeral development secret.")
+        else:
+            self.GITHUB_WEBHOOK_SECRET = current_webhook
+
+        # 3. Prevent development passwords in production
+        if is_prod:
+            if len(self.ADMIN_PASSWORD.encode("utf-8")) < 12:
+                raise ValueError("Production administrator password must contain at least 12 bytes")
+            insecure = {
+                "ADMIN_PASSWORD": "admin123",
+            }
+            if self.RUNTIME_PROFILE == "local":
+                insecure["NEO4J_PASSWORD"] = "password"
+            if self.ENABLE_DEFAULT_VIEWER:
+                insecure["AUDITOR_PASSWORD"] = "auditor123"
+
+            unsafe_fields = [field for field, value in insecure.items() if getattr(self, field) == value]
+            if unsafe_fields:
+                raise ValueError(
+                    f"[{env_clean.upper()}] Deployment configuration must replace development defaults: "
+                    + ", ".join(unsafe_fields)
+                )
+        return self
+
+    model_config = SettingsConfigDict(
+        env_file=(
+            os.path.join(os.path.dirname(__file__), "..", ".env"),
+            "backend/.env",
+            ".env",
+        ),
+        extra="ignore"
+    )
 
 
 settings = Settings()

@@ -1,0 +1,41 @@
+{
+  "project_id": "b4c648200dbd45599a17d2506f2707f3",
+  "job_id": "a9b51d195b49480ebca21ba0eb41941b",
+  "created": true,
+  "repository": "https://github.com/SMEWebify/WebErpMesv2",
+  "revision": "7595d2abbffcf1f984a6aad1eca48e7630fbf3fc",
+  "historical_repro": true,
+  "status": "partial",
+  "error": null,
+  "broken_nodes": [
+    "redis",
+    "db"
+  ],
+  "broken_edges": [
+    {
+      "from": "worker",
+      "to": "redis",
+      "type": "startup",
+      "endpoint": "",
+      "evidence_kind": "compose_startup_order",
+      "source_file": "docker-compose.yaml",
+      "has_bug": true,
+      "resolution_reason": "worker requires 'redis', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides."
+    },
+    {
+      "from": "worker",
+      "to": "db",
+      "type": "startup",
+      "endpoint": "",
+      "evidence_kind": "compose_startup_order",
+      "source_file": "docker-compose.yaml",
+      "has_bug": true,
+      "resolution_reason": "worker requires 'db', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides."
+    }
+  ],
+  "browser_verified": true,
+  "local_project_limit": 10,
+  "application_default_project_limit": 5,
+  "screenshot": "docs/benchmarks/repository-broken-links-browser-2026-10-27.png",
+  "graph_url": "http://localhost:5173/#/projects?project=b4c648200dbd45599a17d2506f2707f3&job=a9b51d195b49480ebca21ba0eb41941b&view=graph"
+}

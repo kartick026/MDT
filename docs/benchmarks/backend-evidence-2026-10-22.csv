@@ -1,0 +1,11 @@
+repository,revision,old_nodes,nodes,old_relations,relations,old_debt,debt,old_commit_risk,commit_risk,status
+DietrichGebert/ponytail,09c434ab73ca43761c5d8b0c5d341926c2fba710,,,,,,,,,abstained
+GoogleCloudPlatform/microservices-demo,38e7348eb289eb5b87c0c6e8cb19ced0449dc389,12,12,16,16,80.769,78.0,40.0,40.0,partial
+fastapi/full-stack-fastapi-template,b1125d8839482cb7bbae603ddc6d0081bf87532e,5,4,2,3,45.0,0.0,5.0,5.0,partial
+dockersamples/example-voting-app,63e9150ca17af4ed05880d4245e486481f73fcb4,6,6,5,5,52.174,0.0,40.0,40.0,partial
+microservices-demo/microservices-demo,9dff06fae4981921caec6a62393a6ebfce4b3e3f,17,14,1,1,60.0,0.0,5.0,5.0,partial
+spring-petclinic/spring-petclinic-microservices,1d76b00d683e86b62867a6bf59530f8ab301244f,11,11,13,13,72.152,0.0,5.0,5.0,partial
+open-telemetry/opentelemetry-demo,ba1757b3f197916640fff4f7c549b99e54835ab8,20,20,47,102,88.004,89.573,40.0,55.0,partial
+dotnet/eShop,913acea66708a59595351174cee9b29f37179d29,,17,,41,,82.677,,,partial
+saleor/saleor-platform,ab6315bd59c58b4815175df4c679107ff9695be4,7,7,5,13,54.545,65.625,15.0,15.0,partial
+expressjs/express,0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8,,,,,,,,,abstained

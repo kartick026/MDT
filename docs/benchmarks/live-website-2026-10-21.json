@@ -1,0 +1,4535 @@
+{
+  "date": "2026-10-21",
+  "method": "Browser UI with actual local HTTP jobs and live public GitHub retrieval; no mocked transport",
+  "calibrated_accuracy": false,
+  "source_sha256": {
+    "backend/services/public_github_source.py": "8e3765de9cc8fb08d3345333f5e0e21a62dd29daa2e9f631e8d2802d8ec1d4b0",
+    "backend/services/git_analyzer.py": "4a71827134908dba811e97f001a5b28f92955dee62b40e5f1a6992db0c73f5c3",
+    "backend/services/repo_onboarding.py": "513493be594e4e66d567eaa8a649ff56064e7115b66a616aa4e33c98d17a319c",
+    "backend/api/projects.py": "c4d56a4c241dad8dfc966522b1da8d3d2c69a5e0dd530069f2be9438b25c1d5d",
+    "backend/api/services.py": "fbf1b39e42aa3699ba9acd02e0b8564cc1eaa2243ca4702403f6a71e3dd955a8",
+    "backend/domain/architecture.py": "c0e23a69cec274574739cba370b688022d630076c446f4444e08a751b7872b14",
+    "backend/services/impact_engine.py": "36dded9bd998ddb6e79ec0e1c3db382cd2c8c1961f04edc4309facb48e4021ef",
+    "frontend/src/utils/graphLayout.js": "aac83a29095313ad3485f1f2c11a2e3b18428695d540835c06fc2ae1acdc2e08",
+    "frontend/src/components/DependencyGraph.jsx": "b23b3a471d746ea56c4a1b380aef133df1cee8f60fa5a35ca1a9a60a0d4ce767",
+    "frontend/src/components/Workspace.jsx": "be2c2839b6a8c0cbc04bebd6c77eb1b1b3ab8f0d124811b33045e9e321c30def"
+  },
+  "results": [
+    {
+      "repo": "DietrichGebert/ponytail",
+      "branch": "main",
+      "sha": "09c434ab73ca43761c5d8b0c5d341926c2fba710",
+      "outcome": "unsupported_or_insufficient_architecture",
+      "nodes": null,
+      "edges": null,
+      "commit_risk": null,
+      "architectural_debt": null,
+      "assessment_status": "unavailable",
+      "evidence_completeness": null,
+      "base_sha": null,
+      "coverage": null,
+      "confidence_evidence": null,
+      "import_coverage": null,
+      "graph": {
+        "services": [],
+        "dependencies": []
+      },
+      "recomputed_health": null,
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": null,
+        "graphText": null,
+        "renderedNodes": null,
+        "graphPathsFinite": null,
+        "scoreCards": null,
+        "analysisUrl": null
+      },
+      "import_error": "Insufficient architecture evidence: no deployable services discovered in https://github.com/DietrichGebert/ponytail. Library, tutorial and example files alone do not establish a service architecture."
+    },
+    {
+      "repo": "GoogleCloudPlatform/microservices-demo",
+      "branch": "main",
+      "sha": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
+      "outcome": "partial",
+      "nodes": 12,
+      "edges": 16,
+      "commit_risk": 40.0,
+      "architectural_debt": 80.769,
+      "assessment_status": "insufficient_evidence",
+      "evidence_completeness": 0.0,
+      "base_sha": "0c41e6d3dcd68c07853efda65b6b48a76681f6a0",
+      "coverage": {
+        "status": "partial",
+        "base_sha": "0c41e6d3dcd68c07853efda65b6b48a76681f6a0",
+        "head_sha": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
+        "files_analyzed": 14,
+        "warnings": [
+          "public_archive_comparison_rename_detection_unavailable"
+        ],
+        "source": "public_github_archives",
+        "transport_evidence": {
+          "head": {
+            "transport": "public_github_archive",
+            "revision": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
+            "archive_sha256": "b937195d72b5ac55198f750d687127e597abf410d6886ccc9377af328d4a8dd6",
+            "download_bytes": 10943196,
+            "expanded_bytes": 12744777,
+            "tree_files": 364,
+            "executed_source": false
+          },
+          "base": {
+            "transport": "public_github_archive",
+            "revision": "0c41e6d3dcd68c07853efda65b6b48a76681f6a0",
+            "archive_sha256": "e9507f42f830538d463f956ed4b7010ee6d058946e586f1930e75fc3f011ee75",
+            "download_bytes": 10943148,
+            "expanded_bytes": 12744777,
+            "tree_files": 364,
+            "executed_source": false
+          },
+          "executed_source": false
+        }
+      },
+      "confidence_evidence": {
+        "kind": "evidence_completeness",
+        "calibrated": false,
+        "interpretation": "Coverage of available static evidence, not probability of correctness or deployment success",
+        "changed_files": 14,
+        "effective_changed_files": 14,
+        "equivalent_files": 0,
+        "complete_source_files": 14,
+        "semantically_compared_files": 14,
+        "mapped_effective_files": 0,
+        "affected_service_source_ratios": {},
+        "unresolved_contract_models": [],
+        "reasons": [
+          "changed_files_not_mapped_to_services",
+          "topology_coverage_partial"
+        ]
+      },
+      "import_coverage": {
+        "candidate_files": 57,
+        "files_read": 57,
+        "bytes_read": 822680,
+        "files_candidates": 57,
+        "files_attempted": 57,
+        "warnings": [
+          "kubernetes_environment_references_are_not_runtime_calls",
+          "grpc_contracts_unresolved"
+        ],
+        "source": "static_source",
+        "per_service": {
+          "adservice": 2,
+          "cartservice": 9,
+          "checkoutservice": 5,
+          "currencyservice": 2,
+          "emailservice": 5,
+          "frontend": 12,
+          "loadgenerator": 1,
+          "paymentservice": 4,
+          "productcatalogservice": 6,
+          "recommendationservice": 5,
+          "redis-cart": 0,
+          "shippingservice": 6
+        },
+        "parsers": {
+          "heuristic": 40,
+          "tree_sitter": 6,
+          "ast": 11
+        },
+        "per_service_parsed": {
+          "adservice": 0,
+          "cartservice": 0,
+          "checkoutservice": 0,
+          "currencyservice": 2,
+          "emailservice": 5,
+          "frontend": 0,
+          "loadgenerator": 1,
+          "paymentservice": 4,
+          "productcatalogservice": 0,
+          "recommendationservice": 5,
+          "redis-cart": 0,
+          "shippingservice": 0
+        },
+        "per_service_candidates": {
+          "adservice": 2,
+          "cartservice": 9,
+          "checkoutservice": 5,
+          "currencyservice": 2,
+          "emailservice": 5,
+          "frontend": 12,
+          "loadgenerator": 1,
+          "paymentservice": 4,
+          "productcatalogservice": 6,
+          "recommendationservice": 5,
+          "redis-cart": 0,
+          "shippingservice": 6
+        },
+        "missing_source_services": [],
+        "unsupported_contract_services": [
+          "adservice",
+          "cartservice",
+          "checkoutservice",
+          "frontend",
+          "productcatalogservice",
+          "shippingservice"
+        ],
+        "partial": true,
+        "discovery": {
+          "sources": [
+            "kubernetes"
+          ],
+          "warnings": [
+            "kubernetes_environment_references_are_not_runtime_calls",
+            "grpc_contracts_unresolved"
+          ],
+          "manifest_files_read": 12,
+          "dependency_coverage": "static_only",
+          "unsupported_protocols": [
+            "grpc_contracts"
+          ]
+        },
+        "transport_evidence": {
+          "transport": "public_github_archive",
+          "revision": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
+          "archive_sha256": "b937195d72b5ac55198f750d687127e597abf410d6886ccc9377af328d4a8dd6",
+          "download_bytes": 10943196,
+          "expanded_bytes": 12744777,
+          "tree_files": 364,
+          "executed_source": false
+        }
+      },
+      "graph": {
+        "services": [
+          {
+            "name": "adservice",
+            "display_name": "adservice",
+            "port": 9555,
+            "node_type": "service",
+            "description": "Kubernetes default/adservice",
+            "language": "java",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/adservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "cartservice",
+            "display_name": "cartservice",
+            "port": 7070,
+            "node_type": "service",
+            "description": "Kubernetes default/cartservice",
+            "language": "csharp",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/cartservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 1,
+            "endpoints": [
+              "/"
+            ],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "checkoutservice",
+            "display_name": "checkoutservice",
+            "port": 5050,
+            "node_type": "service",
+            "description": "Kubernetes default/checkoutservice",
+            "language": "go",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/checkoutservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "currencyservice",
+            "display_name": "currencyservice",
+            "port": 7000,
+            "node_type": "service",
+            "description": "Kubernetes default/currencyservice",
+            "language": "javascript",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/currencyservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "emailservice",
+            "display_name": "emailservice",
+            "port": 8080,
+            "node_type": "service",
+            "description": "Kubernetes default/emailservice",
+            "language": "python",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/emailservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "frontend",
+            "display_name": "frontend",
+            "port": 8080,
+            "node_type": "service",
+            "description": "Kubernetes default/frontend",
+            "language": "go",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 1,
+            "endpoints": [
+              "/referer"
+            ],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "loadgenerator",
+            "display_name": "loadgenerator",
+            "port": null,
+            "node_type": "service",
+            "description": "Kubernetes default/loadgenerator",
+            "language": "python",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/loadgenerator.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "paymentservice",
+            "display_name": "paymentservice",
+            "port": 50051,
+            "node_type": "service",
+            "description": "Kubernetes default/paymentservice",
+            "language": "javascript",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/paymentservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "productcatalogservice",
+            "display_name": "productcatalogservice",
+            "port": 3550,
+            "node_type": "service",
+            "description": "Kubernetes default/productcatalogservice",
+            "language": "go",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/productcatalogservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "recommendationservice",
+            "display_name": "recommendationservice",
+            "port": 8080,
+            "node_type": "service",
+            "description": "Kubernetes default/recommendationservice",
+            "language": "python",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/recommendationservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "redis-cart",
+            "display_name": "redis-cart",
+            "port": 6379,
+            "node_type": "database",
+            "description": "Kubernetes default/redis-cart",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "kubernetes-manifests/cartservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "shippingservice",
+            "display_name": "shippingservice",
+            "port": 50051,
+            "node_type": "service",
+            "description": "Kubernetes default/shippingservice",
+            "language": "go",
+            "discovery_kind": "kubernetes",
+            "source_expected": true,
+            "source_file": "kubernetes-manifests/shippingservice.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "cartservice",
+            "to": "redis-cart",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/cartservice.yaml",
+            "environment_variable": "REDIS_ADDR"
+          },
+          {
+            "from": "checkoutservice",
+            "to": "productcatalogservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/checkoutservice.yaml",
+            "environment_variable": "PRODUCT_CATALOG_SERVICE_ADDR"
+          },
+          {
+            "from": "checkoutservice",
+            "to": "shippingservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/checkoutservice.yaml",
+            "environment_variable": "SHIPPING_SERVICE_ADDR"
+          },
+          {
+            "from": "checkoutservice",
+            "to": "paymentservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/checkoutservice.yaml",
+            "environment_variable": "PAYMENT_SERVICE_ADDR"
+          },
+          {
+            "from": "checkoutservice",
+            "to": "emailservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/checkoutservice.yaml",
+            "environment_variable": "EMAIL_SERVICE_ADDR"
+          },
+          {
+            "from": "checkoutservice",
+            "to": "currencyservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/checkoutservice.yaml",
+            "environment_variable": "CURRENCY_SERVICE_ADDR"
+          },
+          {
+            "from": "checkoutservice",
+            "to": "cartservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/checkoutservice.yaml",
+            "environment_variable": "CART_SERVICE_ADDR"
+          },
+          {
+            "from": "frontend",
+            "to": "productcatalogservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "environment_variable": "PRODUCT_CATALOG_SERVICE_ADDR"
+          },
+          {
+            "from": "frontend",
+            "to": "currencyservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "environment_variable": "CURRENCY_SERVICE_ADDR"
+          },
+          {
+            "from": "frontend",
+            "to": "cartservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "environment_variable": "CART_SERVICE_ADDR"
+          },
+          {
+            "from": "frontend",
+            "to": "recommendationservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "environment_variable": "RECOMMENDATION_SERVICE_ADDR"
+          },
+          {
+            "from": "frontend",
+            "to": "shippingservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "environment_variable": "SHIPPING_SERVICE_ADDR"
+          },
+          {
+            "from": "frontend",
+            "to": "checkoutservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "environment_variable": "CHECKOUT_SERVICE_ADDR"
+          },
+          {
+            "from": "frontend",
+            "to": "adservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/frontend.yaml",
+            "environment_variable": "AD_SERVICE_ADDR"
+          },
+          {
+            "from": "loadgenerator",
+            "to": "frontend",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/loadgenerator.yaml",
+            "environment_variable": "FRONTEND_ADDR"
+          },
+          {
+            "from": "recommendationservice",
+            "to": "productcatalogservice",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "kubernetes-manifests/recommendationservice.yaml",
+            "environment_variable": "PRODUCT_CATALOG_SERVICE_ADDR"
+          }
+        ]
+      },
+      "recomputed_health": {
+        "score": 80.769,
+        "severity": "CRITICAL",
+        "raw_score": 154.0,
+        "total_smells": 9,
+        "smells": {
+          "circular_dependency": 0,
+          "shared_database": 0,
+          "hub_and_spoke": 2,
+          "bottleneck_service": 3,
+          "dependency_explosion": 0,
+          "high_coupling": 2,
+          "api_instability": 0,
+          "chatty_communication": 0,
+          "missing_circuit_breaker": 2,
+          "isolated_service": 0
+        },
+        "normalization_constant": 36.666666666666664,
+        "detector_version": "2.0.0",
+        "weights": {
+          "circular_dependency": 30,
+          "shared_database": 20,
+          "hub_and_spoke": 20,
+          "bottleneck_service": 20,
+          "dependency_explosion": 20,
+          "high_coupling": 15,
+          "api_instability": 15,
+          "chatty_communication": 12,
+          "missing_circuit_breaker": 12,
+          "isolated_service": 5
+        }
+      },
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · Voting app\nLive QA · FastAPI template\nLive QA · Online Boutique\nmdt\nLive QA · Online Boutique\n\nhttps://github.com/GoogleCloudPlatform/microservices-demo · main\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\npartial · partial\nRefresh\nProject summary\n\n12 modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.\n\nArchitectural debt: 80.769/100 · 9 static findings. Commit risk has not been assessed.\n\nPartial analysis — review coverage before relying on this result\n\nMode: repository_import. Parser coverage: See individual source findings.\n\nThis result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.\n\nkubernetes_environment_references_are_not_runtime_calls\ngrpc_contracts_unresolved\nProject settings",
+        "graphText": "Service Dependency Topology\n12 Nodes · 16 Dependencies\n\nCircular socket = Caller (Tail) → Directional chevron = Callee (Head).\n\n🏷 Endpoints: OFF\n−\n100%\n+\n↺\n💡\nHover over any relation edge or service node to inspect protocol endpoints and blast radius\nadservice\nMODELED · service\ncartservice\nMODELED · service\ncheckoutservice\nMODELED · service\ncurrencyservice\nMODELED · service\nemailservice\nMODELED · service\nfrontend\nMODELED · service\nloadgenerator\nMODELED · service\npaymentservice\nMODELED · service\nproductcatalogservice\nMODELED · service\nrecommendationservice\nMODELED · service\nredis-cart\nMODELED · database\nshippingservice\nMODELED · service\nUNANALYZED\nLOW\nMEDIUM\nHIGH\nCRITICAL\n⚠ Broken Link Node / Dead Host\nRelation Guide:\nTail (Caller)\n────────►\nHead (Callee)",
+        "renderedNodes": 12,
+        "graphPathsFinite": true,
+        "scoreCards": [
+          "Commit deployment risk40/100Provisional · Insufficient evidence",
+          "Architectural debt80.769/100Heuristic index · Higher = more debt",
+          "Architectural Smells90 Critical · 5 High"
+        ],
+        "analysisUrl": "http://localhost:5173/#/projects?project=e3b8ab72ccc440f4b2abfe85aa1b308e&job=47fbc93c833a41e5879bba3a3722ee57"
+      },
+      "import_error": null
+    },
+    {
+      "repo": "fastapi/full-stack-fastapi-template",
+      "branch": "master",
+      "sha": "b1125d8839482cb7bbae603ddc6d0081bf87532e",
+      "outcome": "partial",
+      "nodes": 5,
+      "edges": 2,
+      "commit_risk": 5.0,
+      "architectural_debt": 45.0,
+      "assessment_status": "insufficient_evidence",
+      "evidence_completeness": 0.0,
+      "base_sha": "99e9ec1ec1f758dc7991ff012c9be7b5fca0f276",
+      "coverage": {
+        "status": "partial",
+        "base_sha": "99e9ec1ec1f758dc7991ff012c9be7b5fca0f276",
+        "head_sha": "b1125d8839482cb7bbae603ddc6d0081bf87532e",
+        "files_analyzed": 1,
+        "warnings": [
+          "public_archive_comparison_rename_detection_unavailable"
+        ],
+        "source": "public_github_archives",
+        "transport_evidence": {
+          "head": {
+            "transport": "public_github_archive",
+            "revision": "b1125d8839482cb7bbae603ddc6d0081bf87532e",
+            "archive_sha256": "95ec61b80d51c427c96c5004a987f6240edceddefdd8e5b70b1e5750d4393a94",
+            "download_bytes": 962743,
+            "expanded_bytes": 1886336,
+            "tree_files": 248,
+            "executed_source": false
+          },
+          "base": {
+            "transport": "public_github_archive",
+            "revision": "99e9ec1ec1f758dc7991ff012c9be7b5fca0f276",
+            "archive_sha256": "9a1e49913b892a934628195b8825adbf880c5e9bf9a85a616c99047cdcbec16d",
+            "download_bytes": 962679,
+            "expanded_bytes": 1886160,
+            "tree_files": 248,
+            "executed_source": false
+          },
+          "executed_source": false
+        }
+      },
+      "confidence_evidence": {
+        "kind": "evidence_completeness",
+        "calibrated": false,
+        "interpretation": "Coverage of available static evidence, not probability of correctness or deployment success",
+        "changed_files": 1,
+        "effective_changed_files": 1,
+        "equivalent_files": 0,
+        "complete_source_files": 1,
+        "semantically_compared_files": 0,
+        "mapped_effective_files": 0,
+        "affected_service_source_ratios": {},
+        "unresolved_contract_models": [],
+        "reasons": [
+          "semantic_comparison_unavailable",
+          "changed_files_not_mapped_to_services",
+          "topology_coverage_partial"
+        ]
+      },
+      "import_coverage": {
+        "candidate_files": 141,
+        "files_read": 100,
+        "bytes_read": 276772,
+        "files_candidates": 141,
+        "files_attempted": 100,
+        "warnings": [
+          "source_parse_failed:backend/app/api/deps.py",
+          "source_file_limit_reached",
+          "compose_dependencies_are_startup_order_not_verified_calls"
+        ],
+        "source": "static_source",
+        "per_service": {
+          "proxy": 0,
+          "db": 0,
+          "adminer": 0,
+          "backend": 40,
+          "frontend": 60
+        },
+        "parsers": {
+          "ast": 39,
+          "tree_sitter": 60,
+          "failed": 1
+        },
+        "per_service_parsed": {
+          "proxy": 0,
+          "db": 0,
+          "adminer": 0,
+          "backend": 39,
+          "frontend": 60
+        },
+        "per_service_candidates": {
+          "proxy": 0,
+          "db": 0,
+          "adminer": 0,
+          "backend": 40,
+          "frontend": 101
+        },
+        "missing_source_services": [],
+        "unsupported_contract_services": [],
+        "partial": true,
+        "discovery": {
+          "sources": [
+            "compose",
+            "directory_entrypoint"
+          ],
+          "warnings": [],
+          "manifest_files_read": 0,
+          "dependency_coverage": "static_only",
+          "unsupported_protocols": []
+        },
+        "transport_evidence": {
+          "transport": "public_github_archive",
+          "revision": "b1125d8839482cb7bbae603ddc6d0081bf87532e",
+          "archive_sha256": "95ec61b80d51c427c96c5004a987f6240edceddefdd8e5b70b1e5750d4393a94",
+          "download_bytes": 962743,
+          "expanded_bytes": 1886336,
+          "tree_files": 248,
+          "executed_source": false
+        }
+      },
+      "graph": {
+        "services": [
+          {
+            "name": "proxy",
+            "display_name": "Proxy Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (proxy)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "db",
+            "display_name": "Db Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (db)",
+            "language": "unknown",
+            "node_type": "database",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "adminer",
+            "display_name": "Adminer Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (adminer)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "backend",
+            "display_name": "Backend Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (backend)",
+            "language": "python",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [
+              {
+                "method": "GET",
+                "path": "/",
+                "line": 13,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  },
+                  {
+                    "name": "skip",
+                    "annotation": "int",
+                    "required": false,
+                    "default_fingerprint": "3665a31e7cefc7e4d62b864a2de16f8ac2d46f669e7695b79bdeb398cebfcfae"
+                  },
+                  {
+                    "name": "limit",
+                    "annotation": "int",
+                    "required": false,
+                    "default_fingerprint": "d88a6bda7f761d2fb52eebe6aceae9f6f8446ce3faab5dbdf4e8f2f3330f36d9"
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "ItemsPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "ItemsPublic",
+                  "SessionDep"
+                ],
+                "source_file": "backend/app/api/routes/items.py"
+              },
+              {
+                "method": "GET",
+                "path": "/{id}",
+                "line": 48,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  },
+                  {
+                    "name": "id",
+                    "annotation": "uuid.UUID",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "ItemPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "ItemPublic",
+                  "SessionDep",
+                  "uuid",
+                  "uuid.UUID"
+                ],
+                "source_file": "backend/app/api/routes/items.py"
+              },
+              {
+                "method": "POST",
+                "path": "/",
+                "line": 61,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  },
+                  {
+                    "name": "item_in",
+                    "annotation": "ItemCreate",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "ItemPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "ItemCreate",
+                  "ItemPublic",
+                  "SessionDep"
+                ],
+                "source_file": "backend/app/api/routes/items.py"
+              },
+              {
+                "method": "PUT",
+                "path": "/{id}",
+                "line": 75,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  },
+                  {
+                    "name": "id",
+                    "annotation": "uuid.UUID",
+                    "required": true
+                  },
+                  {
+                    "name": "item_in",
+                    "annotation": "ItemUpdate",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "ItemPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "ItemPublic",
+                  "ItemUpdate",
+                  "SessionDep",
+                  "uuid",
+                  "uuid.UUID"
+                ],
+                "source_file": "backend/app/api/routes/items.py"
+              },
+              {
+                "method": "DELETE",
+                "path": "/{id}",
+                "line": 99,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  },
+                  {
+                    "name": "id",
+                    "annotation": "uuid.UUID",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Message",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "Message",
+                  "SessionDep",
+                  "uuid",
+                  "uuid.UUID"
+                ],
+                "source_file": "backend/app/api/routes/items.py"
+              },
+              {
+                "method": "POST",
+                "path": "/login/access-token",
+                "line": 23,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "form_data",
+                    "annotation": "Annotated[OAuth2PasswordRequestForm, Depends()]",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Token",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "SessionDep",
+                  "Token"
+                ],
+                "source_file": "backend/app/api/routes/login.py"
+              },
+              {
+                "method": "POST",
+                "path": "/login/test-token",
+                "line": 45,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "UserPublic"
+                ],
+                "source_file": "backend/app/api/routes/login.py"
+              },
+              {
+                "method": "POST",
+                "path": "/password-recovery/{email}",
+                "line": 53,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "email",
+                    "annotation": "str",
+                    "required": true
+                  },
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Message",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "Message",
+                  "SessionDep"
+                ],
+                "source_file": "backend/app/api/routes/login.py"
+              },
+              {
+                "method": "POST",
+                "path": "/reset-password/",
+                "line": 77,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "body",
+                    "annotation": "NewPassword",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Message",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "Message",
+                  "NewPassword",
+                  "SessionDep"
+                ],
+                "source_file": "backend/app/api/routes/login.py"
+              },
+              {
+                "method": "POST",
+                "path": "/password-recovery-html-content/{email}",
+                "line": 100,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "email",
+                    "annotation": "str",
+                    "required": true
+                  },
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Any",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "SessionDep"
+                ],
+                "source_file": "backend/app/api/routes/login.py"
+              },
+              {
+                "method": "POST",
+                "path": "/users/",
+                "line": 23,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "user_in",
+                    "annotation": "PrivateUserCreate",
+                    "required": true
+                  },
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  }
+                ],
+                "request_schema": {
+                  "PrivateUserCreate": {
+                    "fields": [
+                      {
+                        "name": "email",
+                        "annotation": "str",
+                        "source_path": "source.py",
+                        "required": true
+                      },
+                      {
+                        "name": "password",
+                        "annotation": "str",
+                        "source_path": "source.py",
+                        "required": true
+                      },
+                      {
+                        "name": "full_name",
+                        "annotation": "str",
+                        "source_path": "source.py",
+                        "required": true
+                      },
+                      {
+                        "name": "is_verified",
+                        "annotation": "bool",
+                        "source_path": "source.py",
+                        "required": false,
+                        "default_fingerprint": "bfdbc42f821a1db381d3e9bdb4df55b131e34807d7bcc9c647bdccb5708365a9"
+                      }
+                    ],
+                    "bases": [
+                      "BaseModel"
+                    ],
+                    "source_path": "source.py",
+                    "recognized_model": true,
+                    "unresolved_bases": []
+                  }
+                },
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "SessionDep",
+                  "UserPublic"
+                ],
+                "source_file": "backend/app/api/routes/private.py"
+              },
+              {
+                "method": "GET",
+                "path": "/",
+                "line": 32,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "skip",
+                    "annotation": "int",
+                    "required": false,
+                    "default_fingerprint": "3665a31e7cefc7e4d62b864a2de16f8ac2d46f669e7695b79bdeb398cebfcfae"
+                  },
+                  {
+                    "name": "limit",
+                    "annotation": "int",
+                    "required": false,
+                    "default_fingerprint": "d88a6bda7f761d2fb52eebe6aceae9f6f8446ce3faab5dbdf4e8f2f3330f36d9"
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UsersPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "SessionDep",
+                  "UsersPublic"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "POST",
+                "path": "/",
+                "line": 54,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "user_in",
+                    "annotation": "UserCreate",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "SessionDep",
+                  "UserCreate",
+                  "UserPublic"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "PATCH",
+                "path": "/me",
+                "line": 81,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "user_in",
+                    "annotation": "UserUpdateMe",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "SessionDep",
+                  "UserPublic",
+                  "UserUpdateMe"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "PATCH",
+                "path": "/me/password",
+                "line": 103,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "body",
+                    "annotation": "UpdatePassword",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Message",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "Message",
+                  "SessionDep",
+                  "UpdatePassword"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "GET",
+                "path": "/me",
+                "line": 124,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "UserPublic"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "DELETE",
+                "path": "/me",
+                "line": 132,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Message",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "Message",
+                  "SessionDep"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "POST",
+                "path": "/signup",
+                "line": 146,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "user_in",
+                    "annotation": "UserRegister",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "SessionDep",
+                  "UserPublic",
+                  "UserRegister"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "GET",
+                "path": "/{user_id}",
+                "line": 162,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "user_id",
+                    "annotation": "uuid.UUID",
+                    "required": true
+                  },
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "SessionDep",
+                  "UserPublic",
+                  "uuid",
+                  "uuid.UUID"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "PATCH",
+                "path": "/{user_id}",
+                "line": 182,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "user_id",
+                    "annotation": "uuid.UUID",
+                    "required": true
+                  },
+                  {
+                    "name": "user_in",
+                    "annotation": "UserUpdate",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "UserPublic",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "SessionDep",
+                  "UserPublic",
+                  "UserUpdate",
+                  "uuid",
+                  "uuid.UUID"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "DELETE",
+                "path": "/{user_id}",
+                "line": 214,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "session",
+                    "annotation": "SessionDep",
+                    "required": true
+                  },
+                  {
+                    "name": "current_user",
+                    "annotation": "CurrentUser",
+                    "required": true
+                  },
+                  {
+                    "name": "user_id",
+                    "annotation": "uuid.UUID",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Message",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "CurrentUser",
+                  "Message",
+                  "SessionDep",
+                  "uuid",
+                  "uuid.UUID"
+                ],
+                "source_file": "backend/app/api/routes/users.py"
+              },
+              {
+                "method": "POST",
+                "path": "/test-email/",
+                "line": 11,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [
+                  {
+                    "name": "email_to",
+                    "annotation": "EmailStr",
+                    "required": true
+                  }
+                ],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "Message",
+                  "models": {}
+                },
+                "unresolved_models": [
+                  "EmailStr",
+                  "Message"
+                ],
+                "status_code": "201",
+                "source_file": "backend/app/api/routes/utils.py"
+              },
+              {
+                "method": "GET",
+                "path": "/health-check/",
+                "line": 29,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": "bool",
+                  "models": {}
+                },
+                "unresolved_models": [],
+                "source_file": "backend/app/api/routes/utils.py"
+              }
+            ],
+            "api_count": 21,
+            "endpoints": [
+              "/",
+              "/{id}",
+              "/login/access-token",
+              "/login/test-token",
+              "/password-recovery/{email}",
+              "/reset-password/",
+              "/password-recovery-html-content/{email}",
+              "/users/",
+              "/me",
+              "/me/password",
+              "/signup",
+              "/{user_id}",
+              "/test-email/",
+              "/health-check/"
+            ],
+            "contract_coverage": "observed_static",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "frontend",
+            "display_name": "Frontend Service",
+            "port": null,
+            "url": null,
+            "description": "Inferred microservice from frontend",
+            "language": "javascript",
+            "discovery_kind": "directory_entrypoint",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "adminer",
+            "to": "db",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "backend",
+            "to": "db",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          }
+        ]
+      },
+      "recomputed_health": {
+        "score": 45.0,
+        "severity": "MEDIUM",
+        "raw_score": 30.0,
+        "total_smells": 3,
+        "smells": {
+          "circular_dependency": 0,
+          "shared_database": 1,
+          "hub_and_spoke": 0,
+          "bottleneck_service": 0,
+          "dependency_explosion": 0,
+          "high_coupling": 0,
+          "api_instability": 0,
+          "chatty_communication": 0,
+          "missing_circuit_breaker": 0,
+          "isolated_service": 2
+        },
+        "normalization_constant": 36.666666666666664,
+        "detector_version": "2.0.0",
+        "weights": {
+          "circular_dependency": 30,
+          "shared_database": 20,
+          "hub_and_spoke": 20,
+          "bottleneck_service": 20,
+          "dependency_explosion": 20,
+          "high_coupling": 15,
+          "api_instability": 15,
+          "chatty_communication": 12,
+          "missing_circuit_breaker": 12,
+          "isolated_service": 5
+        }
+      },
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · Voting app\nLive QA · FastAPI template\nLive QA · Online Boutique\nmdt\nLive QA · FastAPI template\n\nhttps://github.com/fastapi/full-stack-fastapi-template · master\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\npartial · partial\nRefresh\nProject summary\n\n5 modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.\n\nArchitectural debt: 45/100 · 3 static findings. Commit risk has not been assessed.\n\nPartial analysis — review coverage before relying on this result\n\nMode: repository_import. Parser coverage: See individual source findings.\n\nThis result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.\n\nsource_parse_failed:backend/app/api/deps.py\nsource_file_limit_reached\ncompose_dependencies_are_startup_order_not_verified_calls\nProject settings",
+        "graphText": "Service Dependency Topology\n5 Nodes · 2 Dependencies\n\nCircular socket = Caller (Tail) → Directional chevron = Callee (Head).\n\n🏷 Endpoints: OFF\n−\n100%\n+\n↺\n💡\nHover over any relation edge or service node to inspect protocol endpoints and blast radius\nproxy\nMODELED · service\ndb\nMODELED · database\nadminer\nMODELED · service\nbackend\nMODELED · service\nfrontend\nMODELED · service\nUNANALYZED\nLOW\nMEDIUM\nHIGH\nCRITICAL\n⚠ Broken Link Node / Dead Host\nRelation Guide:\nTail (Caller)\n────────►\nHead (Callee)",
+        "renderedNodes": 5,
+        "graphPathsFinite": true,
+        "scoreCards": [
+          "Commit deployment risk5/100Provisional · Insufficient evidence",
+          "Architectural debt45/100Heuristic index · Higher = more debt",
+          "Architectural Smells30 Critical · 1 High"
+        ],
+        "analysisUrl": "http://localhost:5173/#/projects?project=aee1a50ee25c4f48860b56784447aafa&job=25a00cc808374c359e19bcb447671bc5"
+      },
+      "import_error": null
+    },
+    {
+      "repo": "dockersamples/example-voting-app",
+      "branch": "main",
+      "sha": "63e9150ca17af4ed05880d4245e486481f73fcb4",
+      "outcome": "partial",
+      "nodes": 6,
+      "edges": 5,
+      "commit_risk": 40.0,
+      "architectural_debt": 52.174,
+      "assessment_status": "insufficient_evidence",
+      "evidence_completeness": 0.0,
+      "base_sha": "1df1971b6b289f9686d14df900d28b141b495ba6",
+      "coverage": {
+        "status": "partial",
+        "base_sha": "1df1971b6b289f9686d14df900d28b141b495ba6",
+        "head_sha": "63e9150ca17af4ed05880d4245e486481f73fcb4",
+        "files_analyzed": 7,
+        "warnings": [
+          "public_archive_comparison_rename_detection_unavailable",
+          "semantic_analysis_unavailable"
+        ],
+        "source": "public_github_archives",
+        "transport_evidence": {
+          "head": {
+            "transport": "public_github_archive",
+            "revision": "63e9150ca17af4ed05880d4245e486481f73fcb4",
+            "archive_sha256": "f993741770ec58274d9d4d3d81b072887e5bc2af66bcafc474927d42a9dcfad4",
+            "download_bytes": 238942,
+            "expanded_bytes": 476150,
+            "tree_files": 51,
+            "executed_source": false
+          },
+          "base": {
+            "transport": "public_github_archive",
+            "revision": "1df1971b6b289f9686d14df900d28b141b495ba6",
+            "archive_sha256": "f1793bbbf64ccfe803a94d8c667ce3de66b375112f7cb4dff9352eef80b81f62",
+            "download_bytes": 238942,
+            "expanded_bytes": 476150,
+            "tree_files": 51,
+            "executed_source": false
+          },
+          "executed_source": false
+        }
+      },
+      "confidence_evidence": {
+        "kind": "evidence_completeness",
+        "calibrated": false,
+        "interpretation": "Coverage of available static evidence, not probability of correctness or deployment success",
+        "changed_files": 7,
+        "effective_changed_files": 7,
+        "equivalent_files": 0,
+        "complete_source_files": 6,
+        "semantically_compared_files": 5,
+        "mapped_effective_files": 0,
+        "affected_service_source_ratios": {},
+        "unresolved_contract_models": [],
+        "reasons": [
+          "changed_source_incomplete",
+          "semantic_comparison_unavailable",
+          "changed_files_not_mapped_to_services",
+          "topology_coverage_partial"
+        ]
+      },
+      "import_coverage": {
+        "candidate_files": 8,
+        "files_read": 8,
+        "bytes_read": 211374,
+        "files_candidates": 8,
+        "files_attempted": 8,
+        "warnings": [
+          "syntax_node_limit_reached:result/views/angular.min.js",
+          "compose_dependencies_are_startup_order_not_verified_calls"
+        ],
+        "source": "static_source",
+        "per_service": {
+          "vote": 1,
+          "result": 5,
+          "worker": 1,
+          "redis": 0,
+          "db": 0,
+          "seed": 1
+        },
+        "parsers": {
+          "tree_sitter": 4,
+          "ast": 2,
+          "heuristic": 1,
+          "partial": 1
+        },
+        "per_service_parsed": {
+          "vote": 1,
+          "result": 4,
+          "worker": 0,
+          "redis": 0,
+          "db": 0,
+          "seed": 1
+        },
+        "per_service_candidates": {
+          "vote": 1,
+          "result": 5,
+          "worker": 1,
+          "redis": 0,
+          "db": 0,
+          "seed": 1
+        },
+        "missing_source_services": [],
+        "unsupported_contract_services": [
+          "worker"
+        ],
+        "partial": true,
+        "discovery": {
+          "sources": [
+            "compose"
+          ],
+          "warnings": [],
+          "manifest_files_read": 0,
+          "dependency_coverage": "static_only",
+          "unsupported_protocols": []
+        },
+        "transport_evidence": {
+          "transport": "public_github_archive",
+          "revision": "63e9150ca17af4ed05880d4245e486481f73fcb4",
+          "archive_sha256": "f993741770ec58274d9d4d3d81b072887e5bc2af66bcafc474927d42a9dcfad4",
+          "download_bytes": 238942,
+          "expanded_bytes": 476150,
+          "tree_files": 51,
+          "executed_source": false
+        }
+      },
+      "graph": {
+        "services": [
+          {
+            "name": "vote",
+            "display_name": "Vote Service",
+            "port": 80,
+            "internal_port": 80,
+            "host_port": 8080,
+            "published_port": 8080,
+            "url": "http://vote:80",
+            "description": "Microservice defined in docker-compose (vote)",
+            "language": "python",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [
+              {
+                "method": "POST",
+                "path": "/",
+                "line": 24,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": null,
+                  "models": {}
+                },
+                "unresolved_models": [],
+                "source_file": "vote/app.py"
+              },
+              {
+                "method": "GET",
+                "path": "/",
+                "line": 24,
+                "coverage": "literal_route_and_local_annotations",
+                "parameters": [],
+                "request_schema": {},
+                "response_schema": {
+                  "annotation": null,
+                  "models": {}
+                },
+                "unresolved_models": [],
+                "source_file": "vote/app.py"
+              }
+            ],
+            "api_count": 2,
+            "endpoints": [
+              "/"
+            ],
+            "contract_coverage": "observed_static",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "result",
+            "display_name": "Result Service",
+            "port": 80,
+            "internal_port": 80,
+            "host_port": 8081,
+            "published_port": 8081,
+            "url": "http://result:80",
+            "description": "Microservice defined in docker-compose (result)",
+            "language": "javascript",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [
+              {
+                "method": "GET",
+                "path": "/",
+                "line": 70,
+                "coverage": "syntax_literal_method_path",
+                "source_file": "result/server.js"
+              }
+            ],
+            "api_count": 1,
+            "endpoints": [
+              "/"
+            ],
+            "contract_coverage": "observed_static",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "worker",
+            "display_name": "Worker Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (worker)",
+            "language": "csharp",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "redis",
+            "display_name": "Redis Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (redis)",
+            "language": "unknown",
+            "node_type": "database",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "db",
+            "display_name": "Db Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (db)",
+            "language": "unknown",
+            "node_type": "database",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "seed",
+            "display_name": "Seed Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (seed)",
+            "language": "python",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "vote",
+            "to": "redis",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "result",
+            "to": "db",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "worker",
+            "to": "redis",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "worker",
+            "to": "db",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "seed",
+            "to": "vote",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          }
+        ]
+      },
+      "recomputed_health": {
+        "score": 52.174,
+        "severity": "HIGH",
+        "raw_score": 40.0,
+        "total_smells": 2,
+        "smells": {
+          "circular_dependency": 0,
+          "shared_database": 2,
+          "hub_and_spoke": 0,
+          "bottleneck_service": 0,
+          "dependency_explosion": 0,
+          "high_coupling": 0,
+          "api_instability": 0,
+          "chatty_communication": 0,
+          "missing_circuit_breaker": 0,
+          "isolated_service": 0
+        },
+        "normalization_constant": 36.666666666666664,
+        "detector_version": "2.0.0",
+        "weights": {
+          "circular_dependency": 30,
+          "shared_database": 20,
+          "hub_and_spoke": 20,
+          "bottleneck_service": 20,
+          "dependency_explosion": 20,
+          "high_coupling": 15,
+          "api_instability": 15,
+          "chatty_communication": 12,
+          "missing_circuit_breaker": 12,
+          "isolated_service": 5
+        }
+      },
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · dotnet eShop\nLive QA · OpenTelemetry\nLive QA · Sock Shop\nLive QA · Voting app\nmdt\nLive QA · Voting app\n\nhttps://github.com/dockersamples/example-voting-app · main\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\npartial · partial\nRefresh\nProject summary\n\n6 modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.\n\nArchitectural debt: 52.174/100 · 2 static findings. Commit risk has not been assessed.\n\nPartial analysis — review coverage before relying on this result\n\nMode: repository_import. Parser coverage: See individual source findings.\n\nThis result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.\n\nsyntax_node_limit_reached:result/views/angular.min.js\ncompose_dependencies_are_startup_order_not_verified_calls\nProject settings",
+        "graphText": "Service Dependency Topology\n6 Nodes · 5 Dependencies\n\nCircular socket = Caller (Tail) → Directional chevron = Callee (Head).\n\n🏷 Endpoints: OFF\n−\n100%\n+\n↺\n💡\nHover over any relation edge or service node to inspect protocol endpoints and blast radius\nvote\nMODELED · service\nresult\nMODELED · service\nworker\nMODELED · service\nredis\nMODELED · database\ndb\nMODELED · database\nseed\nMODELED · service\nUNANALYZED\nLOW\nMEDIUM\nHIGH\nCRITICAL\n⚠ Broken Link Node / Dead Host\nRelation Guide:\nTail (Caller)\n────────►\nHead (Callee)",
+        "renderedNodes": 6,
+        "graphPathsFinite": true,
+        "scoreCards": [
+          "Commit deployment risk40/100Provisional · Insufficient evidence",
+          "Architectural debt52.174/100Heuristic index · Higher = more debt",
+          "Architectural Smells20 Critical · 2 High"
+        ],
+        "analysisUrl": "http://localhost:5173/#/projects?project=fb93477f71314e528c6e3ac6ad1ef0a3&job=369d8951b47147b8b93096982abb89d4"
+      },
+      "import_error": null
+    },
+    {
+      "repo": "microservices-demo/microservices-demo",
+      "branch": "master",
+      "sha": "9dff06fae4981921caec6a62393a6ebfce4b3e3f",
+      "outcome": "partial",
+      "nodes": 17,
+      "edges": 1,
+      "commit_risk": 5.0,
+      "architectural_debt": 60.0,
+      "assessment_status": "insufficient_evidence",
+      "evidence_completeness": 0.0,
+      "base_sha": "9bffa02d273568b8bddaeaa9e5a3ef6a045b4151",
+      "coverage": {
+        "status": "partial",
+        "base_sha": "9bffa02d273568b8bddaeaa9e5a3ef6a045b4151",
+        "head_sha": "9dff06fae4981921caec6a62393a6ebfce4b3e3f",
+        "files_analyzed": 1,
+        "warnings": [
+          "public_archive_comparison_rename_detection_unavailable"
+        ],
+        "source": "public_github_archives",
+        "transport_evidence": {
+          "head": {
+            "transport": "public_github_archive",
+            "revision": "9dff06fae4981921caec6a62393a6ebfce4b3e3f",
+            "archive_sha256": "aa3242a386cc9c3f5a91c92f59a6c918be9cabec3f1ebbf35a31cf541cad0dba",
+            "download_bytes": 108954,
+            "expanded_bytes": 533374,
+            "tree_files": 197,
+            "executed_source": false
+          },
+          "base": {
+            "transport": "public_github_archive",
+            "revision": "9bffa02d273568b8bddaeaa9e5a3ef6a045b4151",
+            "archive_sha256": "4681a9413d9f87c875d2737e5a696fffe35793cd352dd1b4be7def4479b2fef8",
+            "download_bytes": 108948,
+            "expanded_bytes": 533362,
+            "tree_files": 197,
+            "executed_source": false
+          },
+          "executed_source": false
+        }
+      },
+      "confidence_evidence": {
+        "kind": "evidence_completeness",
+        "calibrated": false,
+        "interpretation": "Coverage of available static evidence, not probability of correctness or deployment success",
+        "changed_files": 1,
+        "effective_changed_files": 1,
+        "equivalent_files": 0,
+        "complete_source_files": 1,
+        "semantically_compared_files": 0,
+        "mapped_effective_files": 0,
+        "affected_service_source_ratios": {},
+        "unresolved_contract_models": [],
+        "reasons": [
+          "semantic_comparison_unavailable",
+          "changed_files_not_mapped_to_services",
+          "topology_coverage_partial"
+        ]
+      },
+      "import_coverage": {
+        "candidate_files": 0,
+        "files_read": 0,
+        "bytes_read": 0,
+        "files_candidates": 0,
+        "files_attempted": 0,
+        "warnings": [
+          "kubernetes_manifest_file_limit_reached",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/cart-db-dep.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/carts-dep.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/carts-svc.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-db-dep.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-dep.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-svc.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/front-end-dep.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/ingress.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/loadtest-dep.yaml",
+          "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/orders-db-dep.yaml",
+          "kubernetes_environment_references_are_not_runtime_calls"
+        ],
+        "source": "static_source",
+        "per_service": {
+          "heapster": 0,
+          "monitoring-grafana": 0,
+          "monitoring-influxdb": 0,
+          "carts": 0,
+          "carts-db": 0,
+          "catalogue": 0,
+          "catalogue-db": 0,
+          "front-end": 0,
+          "orders": 0,
+          "orders-db": 0,
+          "payment": 0,
+          "queue-master": 0,
+          "rabbitmq": 0,
+          "session-db": 0,
+          "shipping": 0,
+          "user": 0,
+          "user-db": 0
+        },
+        "parsers": {},
+        "per_service_parsed": {
+          "heapster": 0,
+          "monitoring-grafana": 0,
+          "monitoring-influxdb": 0,
+          "carts": 0,
+          "carts-db": 0,
+          "catalogue": 0,
+          "catalogue-db": 0,
+          "front-end": 0,
+          "orders": 0,
+          "orders-db": 0,
+          "payment": 0,
+          "queue-master": 0,
+          "rabbitmq": 0,
+          "session-db": 0,
+          "shipping": 0,
+          "user": 0,
+          "user-db": 0
+        },
+        "per_service_candidates": {
+          "heapster": 0,
+          "monitoring-grafana": 0,
+          "monitoring-influxdb": 0,
+          "carts": 0,
+          "carts-db": 0,
+          "catalogue": 0,
+          "catalogue-db": 0,
+          "front-end": 0,
+          "orders": 0,
+          "orders-db": 0,
+          "payment": 0,
+          "queue-master": 0,
+          "rabbitmq": 0,
+          "session-db": 0,
+          "shipping": 0,
+          "user": 0,
+          "user-db": 0
+        },
+        "missing_source_services": [],
+        "unsupported_contract_services": [],
+        "partial": true,
+        "discovery": {
+          "sources": [
+            "kubernetes"
+          ],
+          "warnings": [
+            "kubernetes_manifest_file_limit_reached",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/cart-db-dep.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/carts-dep.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/carts-svc.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-db-dep.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-dep.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-svc.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/front-end-dep.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/ingress.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/loadtest-dep.yaml",
+            "kubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/orders-db-dep.yaml",
+            "kubernetes_environment_references_are_not_runtime_calls"
+          ],
+          "manifest_files_read": 22,
+          "dependency_coverage": "static_only",
+          "unsupported_protocols": []
+        },
+        "transport_evidence": {
+          "transport": "public_github_archive",
+          "revision": "9dff06fae4981921caec6a62393a6ebfce4b3e3f",
+          "archive_sha256": "aa3242a386cc9c3f5a91c92f59a6c918be9cabec3f1ebbf35a31cf541cad0dba",
+          "download_bytes": 108954,
+          "expanded_bytes": 533374,
+          "tree_files": 197,
+          "executed_source": false
+        }
+      },
+      "graph": {
+        "services": [
+          {
+            "name": "heapster",
+            "display_name": "heapster",
+            "port": null,
+            "node_type": "service",
+            "description": "Kubernetes kube-system/heapster",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/autoscaling/heapster-deployment.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "monitoring-grafana",
+            "display_name": "monitoring-grafana",
+            "port": 3000,
+            "node_type": "service",
+            "description": "Kubernetes kube-system/monitoring-grafana",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/autoscaling/grafana-deployment.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "monitoring-influxdb",
+            "display_name": "monitoring-influxdb",
+            "port": null,
+            "node_type": "service",
+            "description": "Kubernetes kube-system/monitoring-influxdb",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/autoscaling/influxdb-deployment.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "carts",
+            "display_name": "carts",
+            "port": 80,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/carts",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "carts-db",
+            "display_name": "carts-db",
+            "port": 27017,
+            "node_type": "database",
+            "description": "Kubernetes sock-shop/carts-db",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "catalogue",
+            "display_name": "catalogue",
+            "port": 80,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/catalogue",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "catalogue-db",
+            "display_name": "catalogue-db",
+            "port": 3306,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/catalogue-db",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "front-end",
+            "display_name": "front-end",
+            "port": 8079,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/front-end",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "orders",
+            "display_name": "orders",
+            "port": 80,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/orders",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "orders-db",
+            "display_name": "orders-db",
+            "port": 27017,
+            "node_type": "database",
+            "description": "Kubernetes sock-shop/orders-db",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "payment",
+            "display_name": "payment",
+            "port": 80,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/payment",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "queue-master",
+            "display_name": "queue-master",
+            "port": 80,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/queue-master",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "rabbitmq",
+            "display_name": "rabbitmq",
+            "port": 15672,
+            "node_type": "broker",
+            "description": "Kubernetes sock-shop/rabbitmq",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "session-db",
+            "display_name": "session-db",
+            "port": 6379,
+            "node_type": "database",
+            "description": "Kubernetes sock-shop/session-db",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "shipping",
+            "display_name": "shipping",
+            "port": 80,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/shipping",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "user",
+            "display_name": "user",
+            "port": 80,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/user",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "user-db",
+            "display_name": "user-db",
+            "port": 27017,
+            "node_type": "service",
+            "description": "Kubernetes sock-shop/user-db",
+            "language": "unknown",
+            "discovery_kind": "kubernetes",
+            "source_expected": false,
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "user",
+            "to": "user-db",
+            "type": "declared",
+            "endpoint": "",
+            "evidence_kind": "kubernetes_env_reference",
+            "source_file": "deploy/kubernetes/complete-demo.yaml",
+            "environment_variable": "mongo"
+          }
+        ]
+      },
+      "recomputed_health": {
+        "score": 60.0,
+        "severity": "HIGH",
+        "raw_score": 55.0,
+        "total_smells": 11,
+        "smells": {
+          "circular_dependency": 0,
+          "shared_database": 0,
+          "hub_and_spoke": 0,
+          "bottleneck_service": 0,
+          "dependency_explosion": 0,
+          "high_coupling": 0,
+          "api_instability": 0,
+          "chatty_communication": 0,
+          "missing_circuit_breaker": 0,
+          "isolated_service": 11
+        },
+        "normalization_constant": 36.666666666666664,
+        "detector_version": "2.0.0",
+        "weights": {
+          "circular_dependency": 30,
+          "shared_database": 20,
+          "hub_and_spoke": 20,
+          "bottleneck_service": 20,
+          "dependency_explosion": 20,
+          "high_coupling": 15,
+          "api_instability": 15,
+          "chatty_communication": 12,
+          "missing_circuit_breaker": 12,
+          "isolated_service": 5
+        }
+      },
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · Spring Petclinic\nLive QA · Sock Shop\nLive QA · Voting app\nLive QA · Online Boutique\nmdt\nLive QA · Sock Shop\n\nhttps://github.com/microservices-demo/microservices-demo · master\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\npartial · partial\nRefresh\nProject summary\n\n17 modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.\n\nArchitectural debt: 60/100 · 11 static findings. Commit risk has not been assessed.\n\nPartial analysis — review coverage before relying on this result\n\nMode: repository_import. Parser coverage: See individual source findings.\n\nThis result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.\n\nkubernetes_manifest_file_limit_reached\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/cart-db-dep.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/carts-dep.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/carts-svc.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-db-dep.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-dep.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/catalogue-svc.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/front-end-dep.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/ingress.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/loadtest-dep.yaml\nkubernetes_template_unresolved:deploy/kubernetes/helm-chart/templates/orders-db-dep.yaml\nkubernetes_environment_references_are_not_runtime_calls\nProject settings",
+        "graphText": "Service Dependency Topology\n17 Nodes · 1 Dependencies\n\nCircular socket = Caller (Tail) → Directional chevron = Callee (Head).\n\n🏷 Endpoints: OFF\n−\n100%\n+\n↺\n💡\nHover over any relation edge or service node to inspect protocol endpoints and blast radius\nheapster\nMODELED · service\nmonitoring-grafana\nMODELED · service\nmonitoring-influxdb\nMODELED · service\ncarts\nMODELED · service\ncarts-db\nMODELED · database\ncatalogue\nMODELED · service\ncatalogue-db\nMODELED · service\nfront-end\nMODELED · service\norders\nMODELED · service\norders-db\nMODELED · database\npayment\nMODELED · service\nqueue-master\nMODELED · service\nrabbitmq\nMODELED · broker\nsession-db\nMODELED · database\nshipping\nMODELED · service\nuser\nMODELED · service\nuser-db\nMODELED · service\nUNANALYZED\nLOW\nMEDIUM\nHIGH\nCRITICAL\n⚠ Broken Link Node / Dead Host\nRelation Guide:\nTail (Caller)\n────────►\nHead (Callee)",
+        "renderedNodes": 17,
+        "graphPathsFinite": true,
+        "scoreCards": [
+          "Commit deployment risk5/100Provisional · Insufficient evidence",
+          "Architectural debt60/100Heuristic index · Higher = more debt",
+          "Architectural Smells110 Critical · 0 High"
+        ],
+        "analysisUrl": "http://localhost:5173/#/projects?project=7ba75a1525f04ccd874ad53f28e949c4&job=f447124c3524483d9a14957ab4e94c7c"
+      },
+      "import_error": null
+    },
+    {
+      "repo": "spring-petclinic/spring-petclinic-microservices",
+      "branch": "main",
+      "sha": "1d76b00d683e86b62867a6bf59530f8ab301244f",
+      "outcome": "partial",
+      "nodes": 11,
+      "edges": 13,
+      "commit_risk": 5.0,
+      "architectural_debt": 72.152,
+      "assessment_status": "insufficient_evidence",
+      "evidence_completeness": 0.0,
+      "base_sha": "a3f9d06d36d7183b8e7a957d4d93d2dfc884f5ae",
+      "coverage": {
+        "status": "partial",
+        "base_sha": "a3f9d06d36d7183b8e7a957d4d93d2dfc884f5ae",
+        "head_sha": "1d76b00d683e86b62867a6bf59530f8ab301244f",
+        "files_analyzed": 1,
+        "warnings": [
+          "public_archive_comparison_rename_detection_unavailable"
+        ],
+        "source": "public_github_archives",
+        "transport_evidence": {
+          "head": {
+            "transport": "public_github_archive",
+            "revision": "1d76b00d683e86b62867a6bf59530f8ab301244f",
+            "archive_sha256": "8f887679f3004f338013efba42a92975cb431449bf5407da2f6645cc24268a1f",
+            "download_bytes": 1425468,
+            "expanded_bytes": 2569836,
+            "tree_files": 200,
+            "executed_source": false
+          },
+          "base": {
+            "transport": "public_github_archive",
+            "revision": "a3f9d06d36d7183b8e7a957d4d93d2dfc884f5ae",
+            "archive_sha256": "06989c4b9a730367186e6bc4db53b535f8ad66e742f4b98025a14abc08fded0e",
+            "download_bytes": 1425414,
+            "expanded_bytes": 2569663,
+            "tree_files": 200,
+            "executed_source": false
+          },
+          "executed_source": false
+        }
+      },
+      "confidence_evidence": {
+        "kind": "evidence_completeness",
+        "calibrated": false,
+        "interpretation": "Coverage of available static evidence, not probability of correctness or deployment success",
+        "changed_files": 1,
+        "effective_changed_files": 1,
+        "equivalent_files": 0,
+        "complete_source_files": 1,
+        "semantically_compared_files": 0,
+        "mapped_effective_files": 0,
+        "affected_service_source_ratios": {},
+        "unresolved_contract_models": [],
+        "reasons": [
+          "semantic_comparison_unavailable",
+          "changed_files_not_mapped_to_services",
+          "topology_coverage_partial"
+        ]
+      },
+      "import_coverage": {
+        "candidate_files": 0,
+        "files_read": 0,
+        "bytes_read": 0,
+        "files_candidates": 0,
+        "files_attempted": 0,
+        "warnings": [
+          "compose_dependencies_are_startup_order_not_verified_calls"
+        ],
+        "source": "static_source",
+        "per_service": {
+          "config-server": 0,
+          "discovery-server": 0,
+          "customers-service": 0,
+          "visits-service": 0,
+          "vets-service": 0,
+          "genai-service": 0,
+          "api-gateway": 0,
+          "tracing-server": 0,
+          "admin-server": 0,
+          "grafana-server": 0,
+          "prometheus-server": 0
+        },
+        "parsers": {},
+        "per_service_parsed": {
+          "config-server": 0,
+          "discovery-server": 0,
+          "customers-service": 0,
+          "visits-service": 0,
+          "vets-service": 0,
+          "genai-service": 0,
+          "api-gateway": 0,
+          "tracing-server": 0,
+          "admin-server": 0,
+          "grafana-server": 0,
+          "prometheus-server": 0
+        },
+        "per_service_candidates": {
+          "config-server": 0,
+          "discovery-server": 0,
+          "customers-service": 0,
+          "visits-service": 0,
+          "vets-service": 0,
+          "genai-service": 0,
+          "api-gateway": 0,
+          "tracing-server": 0,
+          "admin-server": 0,
+          "grafana-server": 0,
+          "prometheus-server": 0
+        },
+        "missing_source_services": [
+          "grafana-server",
+          "prometheus-server"
+        ],
+        "unsupported_contract_services": [
+          "grafana-server",
+          "prometheus-server"
+        ],
+        "partial": true,
+        "discovery": {
+          "sources": [
+            "compose"
+          ],
+          "warnings": [],
+          "manifest_files_read": 0,
+          "dependency_coverage": "static_only",
+          "unsupported_protocols": []
+        },
+        "transport_evidence": {}
+      },
+      "graph": {
+        "services": [
+          {
+            "name": "config-server",
+            "display_name": "Config Server Service",
+            "port": 8888,
+            "internal_port": 8888,
+            "host_port": 8888,
+            "published_port": 8888,
+            "url": "http://config-server:8888",
+            "description": "Microservice defined in docker-compose (config-server)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "discovery-server",
+            "display_name": "Discovery Server Service",
+            "port": 8761,
+            "internal_port": 8761,
+            "host_port": 8761,
+            "published_port": 8761,
+            "url": "http://discovery-server:8761",
+            "description": "Microservice defined in docker-compose (discovery-server)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "customers-service",
+            "display_name": "Customers Service",
+            "port": 8081,
+            "internal_port": 8081,
+            "host_port": 8081,
+            "published_port": 8081,
+            "url": "http://customers-service:8081",
+            "description": "Microservice defined in docker-compose (customers-service)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "visits-service",
+            "display_name": "Visits Service",
+            "port": 8082,
+            "internal_port": 8082,
+            "host_port": 8082,
+            "published_port": 8082,
+            "url": "http://visits-service:8082",
+            "description": "Microservice defined in docker-compose (visits-service)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "vets-service",
+            "display_name": "Vets Service",
+            "port": 8083,
+            "internal_port": 8083,
+            "host_port": 8083,
+            "published_port": 8083,
+            "url": "http://vets-service:8083",
+            "description": "Microservice defined in docker-compose (vets-service)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "genai-service",
+            "display_name": "Genai Service",
+            "port": 8084,
+            "internal_port": 8084,
+            "host_port": 8084,
+            "published_port": 8084,
+            "url": "http://genai-service:8084",
+            "description": "Microservice defined in docker-compose (genai-service)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "api-gateway",
+            "display_name": "Api Gateway Service",
+            "port": 8080,
+            "internal_port": 8080,
+            "host_port": 8080,
+            "published_port": 8080,
+            "url": "http://api-gateway:8080",
+            "description": "Microservice defined in docker-compose (api-gateway)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "tracing-server",
+            "display_name": "Tracing Server Service",
+            "port": 9411,
+            "internal_port": 9411,
+            "host_port": 9411,
+            "published_port": 9411,
+            "url": "http://tracing-server:9411",
+            "description": "Microservice defined in docker-compose (tracing-server)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "admin-server",
+            "display_name": "Admin Server Service",
+            "port": 9090,
+            "internal_port": 9090,
+            "host_port": 9090,
+            "published_port": 9090,
+            "url": "http://admin-server:9090",
+            "description": "Microservice defined in docker-compose (admin-server)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "grafana-server",
+            "display_name": "Grafana Server Service",
+            "port": 3000,
+            "internal_port": 3000,
+            "host_port": 3030,
+            "published_port": 3030,
+            "url": "http://grafana-server:3000",
+            "description": "Microservice defined in docker-compose (grafana-server)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "prometheus-server",
+            "display_name": "Prometheus Server Service",
+            "port": 9090,
+            "internal_port": 9090,
+            "host_port": 9091,
+            "published_port": 9091,
+            "url": "http://prometheus-server:9090",
+            "description": "Microservice defined in docker-compose (prometheus-server)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "discovery-server",
+            "to": "config-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "customers-service",
+            "to": "config-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "customers-service",
+            "to": "discovery-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "visits-service",
+            "to": "config-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "visits-service",
+            "to": "discovery-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "vets-service",
+            "to": "config-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "vets-service",
+            "to": "discovery-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "genai-service",
+            "to": "config-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "genai-service",
+            "to": "discovery-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "api-gateway",
+            "to": "config-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "api-gateway",
+            "to": "discovery-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "admin-server",
+            "to": "config-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "admin-server",
+            "to": "discovery-server",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          }
+        ]
+      },
+      "recomputed_health": {
+        "score": 72.152,
+        "severity": "HIGH",
+        "raw_score": 95.0,
+        "total_smells": 7,
+        "smells": {
+          "circular_dependency": 0,
+          "shared_database": 0,
+          "hub_and_spoke": 2,
+          "bottleneck_service": 2,
+          "dependency_explosion": 0,
+          "high_coupling": 0,
+          "api_instability": 0,
+          "chatty_communication": 0,
+          "missing_circuit_breaker": 0,
+          "isolated_service": 3
+        },
+        "normalization_constant": 36.666666666666664,
+        "detector_version": "2.0.0",
+        "weights": {
+          "circular_dependency": 30,
+          "shared_database": 20,
+          "hub_and_spoke": 20,
+          "bottleneck_service": 20,
+          "dependency_explosion": 20,
+          "high_coupling": 15,
+          "api_instability": 15,
+          "chatty_communication": 12,
+          "missing_circuit_breaker": 12,
+          "isolated_service": 5
+        }
+      },
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · Spring Petclinic\nLive QA · Saleor platform\nLive QA · OpenTelemetry\nLive QA · Voting app\nmdt\nLive QA · Spring Petclinic\n\nhttps://github.com/spring-petclinic/spring-petclinic-microservices · main\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\npartial · partial\nRefresh\nProject summary\n\n11 modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.\n\nArchitectural debt: 72.152/100 · 7 static findings. Commit risk has not been assessed.\n\nPartial analysis — review coverage before relying on this result\n\nMode: repository_import. Parser coverage: See individual source findings.\n\nThis result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.\n\ncompose_dependencies_are_startup_order_not_verified_calls\nProject settings",
+        "graphText": "Service Dependency Topology\n11 Nodes · 13 Dependencies\n\nCircular socket = Caller (Tail) → Directional chevron = Callee (Head).\n\n🏷 Endpoints: OFF\n−\n100%\n+\n↺\n💡\nHover over any relation edge or service node to inspect protocol endpoints and blast radius\nconfig-server\nMODELED · service\ndiscovery-server\nMODELED · service\ncustomers-service\nMODELED · service\nvisits-service\nMODELED · service\nvets-service\nMODELED · service\ngenai-service\nMODELED · service\napi-gateway\nMODELED · service\ntracing-server\nMODELED · service\nadmin-server\nMODELED · service\ngrafana-server\nMODELED · service\nprometheus-server\nMODELED · service\nUNANALYZED\nLOW\nMEDIUM\nHIGH\nCRITICAL\n⚠ Broken Link Node / Dead Host\nRelation Guide:\nTail (Caller)\n────────►\nHead (Callee)",
+        "renderedNodes": 11,
+        "graphPathsFinite": true,
+        "scoreCards": [
+          "Commit deployment risk5/100Provisional · Insufficient evidence",
+          "Architectural debt72.152/100Heuristic index · Higher = more debt",
+          "Architectural Smells70 Critical · 4 High"
+        ],
+        "analysisUrl": "http://localhost:5173/#/projects?project=ea10f311c9844798b6cf95de39156fe7&job=c656e95fc29b46fe8e994491598449a7"
+      },
+      "import_error": null
+    },
+    {
+      "repo": "open-telemetry/opentelemetry-demo",
+      "branch": "main",
+      "sha": "ba1757b3f197916640fff4f7c549b99e54835ab8",
+      "outcome": "partial",
+      "nodes": 20,
+      "edges": 47,
+      "commit_risk": 40.0,
+      "architectural_debt": 88.004,
+      "assessment_status": "insufficient_evidence",
+      "evidence_completeness": 0.0,
+      "base_sha": "bbe2eda219af4fd32e57b3b7265f6b36d1b6d4e0",
+      "coverage": {
+        "status": "partial",
+        "base_sha": "bbe2eda219af4fd32e57b3b7265f6b36d1b6d4e0",
+        "head_sha": "ba1757b3f197916640fff4f7c549b99e54835ab8",
+        "files_analyzed": 3,
+        "warnings": [
+          "public_archive_comparison_rename_detection_unavailable"
+        ],
+        "source": "public_github_archives",
+        "transport_evidence": {
+          "head": {
+            "transport": "public_github_archive",
+            "revision": "ba1757b3f197916640fff4f7c549b99e54835ab8",
+            "archive_sha256": "0281daf970570d96770277ba3914bc91c1d952bc8c0b4c4c8d57b603b0557b30",
+            "download_bytes": 3210401,
+            "expanded_bytes": 9390413,
+            "tree_files": 613,
+            "executed_source": false
+          },
+          "base": {
+            "transport": "public_github_archive",
+            "revision": "bbe2eda219af4fd32e57b3b7265f6b36d1b6d4e0",
+            "archive_sha256": "67a6fa6bf13349aa3e1622cab8c170d2944c5b2c62719f68bf8ba49590db37fb",
+            "download_bytes": 3210538,
+            "expanded_bytes": 9389718,
+            "tree_files": 612,
+            "executed_source": false
+          },
+          "executed_source": false
+        }
+      },
+      "confidence_evidence": {
+        "kind": "evidence_completeness",
+        "calibrated": false,
+        "interpretation": "Coverage of available static evidence, not probability of correctness or deployment success",
+        "changed_files": 3,
+        "effective_changed_files": 2,
+        "equivalent_files": 1,
+        "complete_source_files": 3,
+        "semantically_compared_files": 3,
+        "mapped_effective_files": 1,
+        "affected_service_source_ratios": {
+          "otel-collector": 0.0
+        },
+        "unresolved_contract_models": [],
+        "reasons": [
+          "changed_files_not_mapped_to_services",
+          "affected_service_source_coverage_incomplete",
+          "topology_coverage_partial"
+        ]
+      },
+      "import_coverage": {
+        "candidate_files": 161,
+        "files_read": 100,
+        "bytes_read": 508616,
+        "files_candidates": 161,
+        "files_attempted": 100,
+        "warnings": [
+          "source_parse_failed:src/frontend/components/Button/Button.tsx",
+          "source_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.ts",
+          "source_file_limit_reached",
+          "grpc_contracts_unresolved",
+          "compose_dependencies_are_startup_order_not_verified_calls"
+        ],
+        "source": "static_source",
+        "per_service": {
+          "ad": 4,
+          "cart": 8,
+          "checkout": 8,
+          "currency": 0,
+          "email": 1,
+          "frontend": 50,
+          "frontend-proxy": 0,
+          "image-provider": 0,
+          "load-generator": 1,
+          "payment": 3,
+          "product-catalog": 6,
+          "quote": 6,
+          "recommendation": 5,
+          "shipping": 7,
+          "flagd": 0,
+          "flagd-ui": 1,
+          "telemetry-docs": 0,
+          "astronomy-db": 0,
+          "valkey-cart": 0,
+          "otel-collector": 0
+        },
+        "parsers": {
+          "heuristic": 45,
+          "tree_sitter": 52,
+          "ast": 1,
+          "failed": 2
+        },
+        "per_service_parsed": {
+          "ad": 0,
+          "cart": 0,
+          "checkout": 0,
+          "currency": 0,
+          "email": 0,
+          "frontend": 48,
+          "frontend-proxy": 0,
+          "image-provider": 0,
+          "load-generator": 1,
+          "payment": 3,
+          "product-catalog": 0,
+          "quote": 0,
+          "recommendation": 0,
+          "shipping": 0,
+          "flagd": 0,
+          "flagd-ui": 1,
+          "telemetry-docs": 0,
+          "astronomy-db": 0,
+          "valkey-cart": 0,
+          "otel-collector": 0
+        },
+        "per_service_candidates": {
+          "ad": 4,
+          "cart": 8,
+          "checkout": 8,
+          "currency": 0,
+          "email": 1,
+          "frontend": 111,
+          "frontend-proxy": 0,
+          "image-provider": 0,
+          "load-generator": 1,
+          "payment": 3,
+          "product-catalog": 6,
+          "quote": 6,
+          "recommendation": 5,
+          "shipping": 7,
+          "flagd": 0,
+          "flagd-ui": 1,
+          "telemetry-docs": 0,
+          "astronomy-db": 0,
+          "valkey-cart": 0,
+          "otel-collector": 0
+        },
+        "missing_source_services": [
+          "currency",
+          "frontend-proxy",
+          "image-provider",
+          "flagd",
+          "telemetry-docs",
+          "otel-collector"
+        ],
+        "unsupported_contract_services": [
+          "ad",
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "frontend-proxy",
+          "image-provider",
+          "product-catalog",
+          "quote",
+          "recommendation",
+          "shipping",
+          "flagd",
+          "telemetry-docs",
+          "otel-collector"
+        ],
+        "partial": true,
+        "discovery": {
+          "sources": [
+            "compose"
+          ],
+          "warnings": [
+            "grpc_contracts_unresolved"
+          ],
+          "manifest_files_read": 0,
+          "dependency_coverage": "static_only",
+          "unsupported_protocols": [
+            "grpc_contracts"
+          ]
+        },
+        "transport_evidence": {
+          "transport": "public_github_archive",
+          "revision": "ba1757b3f197916640fff4f7c549b99e54835ab8",
+          "archive_sha256": "0281daf970570d96770277ba3914bc91c1d952bc8c0b4c4c8d57b603b0557b30",
+          "download_bytes": 3210401,
+          "expanded_bytes": 9390413,
+          "tree_files": 613,
+          "executed_source": false
+        }
+      },
+      "graph": {
+        "services": [
+          {
+            "name": "ad",
+            "display_name": "Ad Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (ad)",
+            "language": "java",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "cart",
+            "display_name": "Cart Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (cart)",
+            "language": "csharp",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 1,
+            "endpoints": [
+              "/"
+            ],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "checkout",
+            "display_name": "Checkout Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (checkout)",
+            "language": "go",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "currency",
+            "display_name": "Currency Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (currency)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "email",
+            "display_name": "Email Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (email)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 1,
+            "endpoints": [
+              "/send_order_confirmation"
+            ],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "frontend",
+            "display_name": "Frontend Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (frontend)",
+            "language": "typescript",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "frontend-proxy",
+            "display_name": "Frontend Proxy Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (frontend-proxy)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "image-provider",
+            "display_name": "Image Provider Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (image-provider)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "load-generator",
+            "display_name": "Load Generator Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (load-generator)",
+            "language": "python",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "payment",
+            "display_name": "Payment Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (payment)",
+            "language": "javascript",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "product-catalog",
+            "display_name": "Product Catalog Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (product-catalog)",
+            "language": "go",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "quote",
+            "display_name": "Quote Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (quote)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 2,
+            "endpoints": [
+              "/logger",
+              "/getquote"
+            ],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "recommendation",
+            "display_name": "Recommendation Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (recommendation)",
+            "language": "java",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "shipping",
+            "display_name": "Shipping Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (shipping)",
+            "language": "rust",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 2,
+            "endpoints": [
+              "/get-quote",
+              "/ship-order"
+            ],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "flagd",
+            "display_name": "Flagd Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (flagd)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "flagd-ui",
+            "display_name": "Flagd Ui Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (flagd-ui)",
+            "language": "javascript",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "telemetry-docs",
+            "display_name": "Telemetry Docs Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (telemetry-docs)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "astronomy-db",
+            "display_name": "Astronomy Db Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (astronomy-db)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "valkey-cart",
+            "display_name": "Valkey Cart Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (valkey-cart)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "otel-collector",
+            "display_name": "Otel Collector Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (otel-collector)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": true,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "ad",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "ad",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "cart",
+            "to": "valkey-cart",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "cart",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "cart",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "cart",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "currency",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "email",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "payment",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "product-catalog",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "shipping",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "checkout",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "currency",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "email",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "ad",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "cart",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "checkout",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "currency",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "product-catalog",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "quote",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "recommendation",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "shipping",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "image-provider",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend-proxy",
+            "to": "frontend",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend-proxy",
+            "to": "load-generator",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend-proxy",
+            "to": "flagd-ui",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "frontend-proxy",
+            "to": "telemetry-docs",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "image-provider",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "load-generator",
+            "to": "frontend",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "load-generator",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "payment",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "payment",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "product-catalog",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "product-catalog",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "product-catalog",
+            "to": "astronomy-db",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "quote",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "recommendation",
+            "to": "product-catalog",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "recommendation",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "recommendation",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "shipping",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "shipping",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "flagd-ui",
+            "to": "otel-collector",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "flagd-ui",
+            "to": "flagd",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "shipping",
+            "to": "quote",
+            "type": "http",
+            "endpoint": "/",
+            "evidence_kind": "source_inferred",
+            "source_file": "src/shipping/src/shipping_service/quote.rs",
+            "source_line": 53
+          }
+        ]
+      },
+      "recomputed_health": {
+        "score": 88.004,
+        "severity": "CRITICAL",
+        "raw_score": 269.0,
+        "total_smells": 16,
+        "smells": {
+          "circular_dependency": 0,
+          "shared_database": 0,
+          "hub_and_spoke": 0,
+          "bottleneck_service": 7,
+          "dependency_explosion": 0,
+          "high_coupling": 7,
+          "api_instability": 0,
+          "chatty_communication": 0,
+          "missing_circuit_breaker": 2,
+          "isolated_service": 0
+        },
+        "normalization_constant": 36.666666666666664,
+        "detector_version": "2.0.0",
+        "weights": {
+          "circular_dependency": 30,
+          "shared_database": 20,
+          "hub_and_spoke": 20,
+          "bottleneck_service": 20,
+          "dependency_explosion": 20,
+          "high_coupling": 15,
+          "api_instability": 15,
+          "chatty_communication": 12,
+          "missing_circuit_breaker": 12,
+          "isolated_service": 5
+        }
+      },
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · Spring Petclinic\nLive QA · Saleor platform\nLive QA · OpenTelemetry\nLive QA · Voting app\nmdt\nLive QA · OpenTelemetry\n\nhttps://github.com/open-telemetry/opentelemetry-demo · main\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\npartial · partial\nRefresh\nProject summary\n\n20 modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.\n\nArchitectural debt: 88.004/100 · 16 static findings. Commit risk has not been assessed.\n\nPartial analysis — review coverage before relying on this result\n\nMode: repository_import. Parser coverage: See individual source findings.\n\nThis result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.\n\nsource_parse_failed:src/frontend/components/Button/Button.tsx\nsource_parse_failed:src/frontend/components/CartDropdown/CartDropdown.styled.ts\nsource_file_limit_reached\ngrpc_contracts_unresolved\ncompose_dependencies_are_startup_order_not_verified_calls\nProject settings",
+        "graphText": "Service Dependency Topology\n20 Nodes · 47 Dependencies\n\nCircular socket = Caller (Tail) → Directional chevron = Callee (Head).\n\n🏷 Endpoints: OFF\n−\n100%\n+\n↺\n💡\nHover over any relation edge or service node to inspect protocol endpoints and blast radius\nad\nMODELED · service\ncart\nMODELED · service\ncheckout\nMODELED · service\ncurrency\nMODELED · service\nemail\nMODELED · service\nfrontend\nMODELED · service\nfrontend-proxy\nMODELED · service\nimage-provider\nMODELED · service\nload-generator\nMODELED · service\npayment\nMODELED · service\nproduct-catalog\nMODELED · service\nquote\nMODELED · service\nrecommendation\nMODELED · service\nshipping\nMODELED · service\nflagd\nMODELED · service\nflagd-ui\nMODELED · service\ntelemetry-docs\nMODELED · service\nastronomy-db\nMODELED · service\nvalkey-cart\nMODELED · service\notel-collector\nMODELED · service\nUNANALYZED\nLOW\nMEDIUM\nHIGH\nCRITICAL\n⚠ Broken Link Node / Dead Host\nRelation Guide:\nTail (Caller)\n────────►\nHead (Callee)",
+        "renderedNodes": 20,
+        "graphPathsFinite": true,
+        "scoreCards": [
+          "Commit deployment risk40/100Provisional · Insufficient evidence",
+          "Architectural debt88.004/100Heuristic index · Higher = more debt",
+          "Architectural Smells160 Critical · 7 High"
+        ],
+        "analysisUrl": "http://localhost:5173/#/projects?project=8ae27de20f5b4e3c9956c579288ec385&job=b1feaa158d1f42e69356ced212aaee36"
+      },
+      "import_error": null
+    },
+    {
+      "repo": "dotnet/eShop",
+      "branch": "main",
+      "sha": "913acea66708a59595351174cee9b29f37179d29",
+      "outcome": "unsupported_or_insufficient_architecture",
+      "nodes": null,
+      "edges": null,
+      "commit_risk": null,
+      "architectural_debt": null,
+      "assessment_status": "unavailable",
+      "evidence_completeness": null,
+      "base_sha": null,
+      "coverage": null,
+      "confidence_evidence": null,
+      "import_coverage": null,
+      "graph": {
+        "services": [],
+        "dependencies": []
+      },
+      "recomputed_health": null,
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · dotnet eShop\nLive QA · OpenTelemetry\nLive QA · Sock Shop\nLive QA · Voting app\nmdt\nLive QA · dotnet eShop\n\nhttps://github.com/dotnet/eShop · main\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\nfailed · failed · Insufficient architecture evidence: no deployable services discovered in https://github.com/dotnet/eShop. Library, tutorial and example files alone do not establish a service architecture.\nRefresh\nProject summary\n\nArchitecture import has not completed. Open History to find its job, or Analyze to retry the import.\n\nProject settings",
+        "graphText": "← All projects\n✨ Explore Demo\nLive QA · dotnet eShop\nLive QA · OpenTelemetry\nLive QA · Sock Shop\nLive QA · Voting app\nmdt\nLive QA · dotnet eShop\n\nhttps://github.com/dotnet/eShop · main\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\nfailed · failed · Insufficient architecture evidence: no deployable services discovered in https://github.com/dotnet/eShop. Library, tutorial and example files alone do not establish a service architecture.\nRefresh\nDependency graph\n\nTopology captured for this saved analysis. Nodes describe modeled services and dependencies.\n\nNo services in the graph yet. Run an analysis to populate it.",
+        "renderedNodes": null,
+        "graphPathsFinite": null,
+        "scoreCards": null,
+        "analysisUrl": null
+      },
+      "import_error": "Insufficient architecture evidence: no deployable services discovered in https://github.com/dotnet/eShop. Library, tutorial and example files alone do not establish a service architecture."
+    },
+    {
+      "repo": "saleor/saleor-platform",
+      "branch": "main",
+      "sha": "ab6315bd59c58b4815175df4c679107ff9695be4",
+      "outcome": "partial",
+      "nodes": 7,
+      "edges": 5,
+      "commit_risk": 15.0,
+      "architectural_debt": 54.545,
+      "assessment_status": "insufficient_evidence",
+      "evidence_completeness": 0.0,
+      "base_sha": "fe0a737b5ad74cc3722594f7f17e1135c1287398",
+      "coverage": {
+        "status": "partial",
+        "base_sha": "fe0a737b5ad74cc3722594f7f17e1135c1287398",
+        "head_sha": "ab6315bd59c58b4815175df4c679107ff9695be4",
+        "files_analyzed": 1,
+        "warnings": [
+          "public_archive_comparison_rename_detection_unavailable"
+        ],
+        "source": "public_github_archives",
+        "transport_evidence": {
+          "head": {
+            "transport": "public_github_archive",
+            "revision": "ab6315bd59c58b4815175df4c679107ff9695be4",
+            "archive_sha256": "9efc256d01ff7aad15ddd80eb33c948b2c8f0b17acfd1cb1c410b4c372b97474",
+            "download_bytes": 5551,
+            "expanded_bytes": 12158,
+            "tree_files": 9,
+            "executed_source": false
+          },
+          "base": {
+            "transport": "public_github_archive",
+            "revision": "fe0a737b5ad74cc3722594f7f17e1135c1287398",
+            "archive_sha256": "197682c9f96692bc386c354c290b44f9dc7b898b44f061e6289366049c0bef79",
+            "download_bytes": 5559,
+            "expanded_bytes": 12160,
+            "tree_files": 9,
+            "executed_source": false
+          },
+          "executed_source": false
+        }
+      },
+      "confidence_evidence": {
+        "kind": "evidence_completeness",
+        "calibrated": false,
+        "interpretation": "Coverage of available static evidence, not probability of correctness or deployment success",
+        "changed_files": 1,
+        "effective_changed_files": 1,
+        "equivalent_files": 0,
+        "complete_source_files": 1,
+        "semantically_compared_files": 1,
+        "mapped_effective_files": 0,
+        "affected_service_source_ratios": {},
+        "unresolved_contract_models": [],
+        "reasons": [
+          "changed_files_not_mapped_to_services",
+          "topology_coverage_partial"
+        ]
+      },
+      "import_coverage": {
+        "candidate_files": 0,
+        "files_read": 0,
+        "bytes_read": 0,
+        "files_candidates": 0,
+        "files_attempted": 0,
+        "warnings": [
+          "compose_dependencies_are_startup_order_not_verified_calls"
+        ],
+        "source": "static_source",
+        "per_service": {
+          "api": 0,
+          "dashboard": 0,
+          "db": 0,
+          "cache": 0,
+          "worker": 0,
+          "jaeger": 0,
+          "mailpit": 0
+        },
+        "parsers": {},
+        "per_service_parsed": {
+          "api": 0,
+          "dashboard": 0,
+          "db": 0,
+          "cache": 0,
+          "worker": 0,
+          "jaeger": 0,
+          "mailpit": 0
+        },
+        "per_service_candidates": {
+          "api": 0,
+          "dashboard": 0,
+          "db": 0,
+          "cache": 0,
+          "worker": 0,
+          "jaeger": 0,
+          "mailpit": 0
+        },
+        "missing_source_services": [],
+        "unsupported_contract_services": [],
+        "partial": false,
+        "discovery": {
+          "sources": [
+            "compose"
+          ],
+          "warnings": [],
+          "manifest_files_read": 0,
+          "dependency_coverage": "static_only",
+          "unsupported_protocols": []
+        },
+        "transport_evidence": {
+          "transport": "public_github_archive",
+          "revision": "ab6315bd59c58b4815175df4c679107ff9695be4",
+          "archive_sha256": "9efc256d01ff7aad15ddd80eb33c948b2c8f0b17acfd1cb1c410b4c372b97474",
+          "download_bytes": 5551,
+          "expanded_bytes": 12158,
+          "tree_files": 9,
+          "executed_source": false
+        }
+      },
+      "graph": {
+        "services": [
+          {
+            "name": "api",
+            "display_name": "Api Service",
+            "port": 8000,
+            "internal_port": 8000,
+            "host_port": 8000,
+            "published_port": 8000,
+            "url": "http://api:8000",
+            "description": "Microservice defined in docker-compose (api)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "dashboard",
+            "display_name": "Dashboard Service",
+            "port": 80,
+            "internal_port": 80,
+            "host_port": 9000,
+            "published_port": 9000,
+            "url": "http://dashboard:80",
+            "description": "Microservice defined in docker-compose (dashboard)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "db",
+            "display_name": "Db Service",
+            "port": 5432,
+            "internal_port": 5432,
+            "host_port": 5432,
+            "published_port": 5432,
+            "url": "http://db:5432",
+            "description": "Microservice defined in docker-compose (db)",
+            "language": "unknown",
+            "node_type": "database",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "cache",
+            "display_name": "Cache Service",
+            "port": 6379,
+            "internal_port": 6379,
+            "host_port": 6379,
+            "published_port": 6379,
+            "url": "http://cache:6379",
+            "description": "Microservice defined in docker-compose (cache)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "worker",
+            "display_name": "Worker Service",
+            "port": null,
+            "internal_port": null,
+            "host_port": null,
+            "published_port": null,
+            "url": null,
+            "description": "Microservice defined in docker-compose (worker)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "jaeger",
+            "display_name": "Jaeger Service",
+            "port": 16686,
+            "internal_port": 16686,
+            "host_port": 16686,
+            "published_port": 16686,
+            "url": "http://jaeger:16686",
+            "description": "Microservice defined in docker-compose (jaeger)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          },
+          {
+            "name": "mailpit",
+            "display_name": "Mailpit Service",
+            "port": 1025,
+            "internal_port": 1025,
+            "host_port": 1025,
+            "published_port": 1025,
+            "url": "http://mailpit:1025",
+            "description": "Microservice defined in docker-compose (mailpit)",
+            "language": "unknown",
+            "node_type": "service",
+            "discovery_kind": "compose",
+            "source_expected": false,
+            "is_external": false,
+            "api_endpoints": [],
+            "api_count": 0,
+            "endpoints": [],
+            "contract_coverage": "not_observed",
+            "risk_score": null,
+            "risk_level": "UNKNOWN"
+          }
+        ],
+        "dependencies": [
+          {
+            "from": "api",
+            "to": "db",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "api",
+            "to": "cache",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "api",
+            "to": "jaeger",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "worker",
+            "to": "cache",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          },
+          {
+            "from": "worker",
+            "to": "mailpit",
+            "type": "startup",
+            "endpoint": "",
+            "evidence_kind": "compose_startup_order"
+          }
+        ]
+      },
+      "recomputed_health": {
+        "score": 54.545,
+        "severity": "HIGH",
+        "raw_score": 44.0,
+        "total_smells": 4,
+        "smells": {
+          "circular_dependency": 0,
+          "shared_database": 0,
+          "hub_and_spoke": 0,
+          "bottleneck_service": 0,
+          "dependency_explosion": 0,
+          "high_coupling": 1,
+          "api_instability": 0,
+          "chatty_communication": 0,
+          "missing_circuit_breaker": 2,
+          "isolated_service": 1
+        },
+        "normalization_constant": 36.666666666666664,
+        "detector_version": "2.0.0",
+        "weights": {
+          "circular_dependency": 30,
+          "shared_database": 20,
+          "hub_and_spoke": 20,
+          "bottleneck_service": 20,
+          "dependency_explosion": 20,
+          "high_coupling": 15,
+          "api_instability": 15,
+          "chatty_communication": 12,
+          "missing_circuit_breaker": 12,
+          "isolated_service": 5
+        }
+      },
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · Express\nLive QA · Saleor platform\nLive QA · OpenTelemetry\nLive QA · Voting app\nmdt\nLive QA · Saleor platform\n\nhttps://github.com/saleor/saleor-platform · main\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\nsucceeded · succeeded\nRefresh\nProject summary\n\n7 modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.\n\nArchitectural debt: 54.545/100 · 4 static findings. Commit risk has not been assessed.\n\nAnalysis evidence\n\nMode: repository_import. Parser coverage: See individual source findings.\n\nThis result does not confirm historical semantic evidence. Scores are engineering indicators, not calibrated incident probabilities.\n\ncompose_dependencies_are_startup_order_not_verified_calls\nProject settings",
+        "graphText": "Service Dependency Topology\n7 Nodes · 5 Dependencies\n\nCircular socket = Caller (Tail) → Directional chevron = Callee (Head).\n\n🏷 Endpoints: OFF\n−\n100%\n+\n↺\n💡\nHover over any relation edge or service node to inspect protocol endpoints and blast radius\napi\nMODELED · service\ndashboard\nMODELED · service\ndb\nMODELED · database\ncache\nMODELED · service\nworker\nMODELED · service\njaeger\nMODELED · service\nmailpit\nMODELED · service\nUNANALYZED\nLOW\nMEDIUM\nHIGH\nCRITICAL\n⚠ Broken Link Node / Dead Host\nRelation Guide:\nTail (Caller)\n────────►\nHead (Callee)",
+        "renderedNodes": 7,
+        "graphPathsFinite": true,
+        "scoreCards": [
+          "Commit deployment risk15/100Provisional · Insufficient evidence",
+          "Architectural debt54.545/100Heuristic index · Higher = more debt",
+          "Architectural Smells40 Critical · 0 High"
+        ],
+        "analysisUrl": "http://localhost:5173/#/projects?project=6623357581db475f8b96ac8c93d1f1e5&job=3b851f0645334c7c868442e195e15fcd"
+      },
+      "import_error": null
+    },
+    {
+      "repo": "expressjs/express",
+      "branch": "master",
+      "sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
+      "outcome": "unsupported_or_insufficient_architecture",
+      "nodes": null,
+      "edges": null,
+      "commit_risk": null,
+      "architectural_debt": null,
+      "assessment_status": "unavailable",
+      "evidence_completeness": null,
+      "base_sha": null,
+      "coverage": null,
+      "confidence_evidence": null,
+      "import_coverage": null,
+      "graph": {
+        "services": [],
+        "dependencies": []
+      },
+      "recomputed_health": null,
+      "recomputation_scope": "same detector on exported snapshot; consistency only, not independent accuracy labels",
+      "browser": {
+        "importSummary": "← All projects\n✨ Explore Demo\nLive QA · Express\nLive QA · Saleor platform\nLive QA · OpenTelemetry\nLive QA · Voting app\nmdt\nLive QA · Express\n\nhttps://github.com/expressjs/express · master\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\nfailed · failed · Insufficient architecture evidence: no deployable services discovered in https://github.com/expressjs/express. Library, tutorial and example files alone do not establish a service architecture.\nRefresh\nProject summary\n\nArchitecture import has not completed. Open History to find its job, or Analyze to retry the import.\n\nProject settings",
+        "graphText": "← All projects\n✨ Explore Demo\nLive QA · Express\nLive QA · Saleor platform\nLive QA · OpenTelemetry\nLive QA · Voting app\nmdt\nLive QA · Express\n\nhttps://github.com/expressjs/express · master\n\n🔗 Share link\nAcademic alpha\n📊Summary\n⚡Analyze\n🕸Graph\n🔍Findings\n🔀Drift\nfailed · failed · Insufficient architecture evidence: no deployable services discovered in https://github.com/expressjs/express. Library, tutorial and example files alone do not establish a service architecture.\nRefresh\nDependency graph\n\nTopology captured for this saved analysis. Nodes describe modeled services and dependencies.\n\nNo services in the graph yet. Run an analysis to populate it.",
+        "renderedNodes": null,
+        "graphPathsFinite": null,
+        "scoreCards": null,
+        "analysisUrl": null
+      },
+      "import_error": "Insufficient architecture evidence: no deployable services discovered in https://github.com/expressjs/express. Library, tutorial and example files alone do not establish a service architecture."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "MDT Architecture Review",
+  "version": "0.1.0",
+  "description": "Analyze a GitHub change using your MDT workspace and inspect its architectural evidence.",
+  "minimum_chrome_version": "102",
+  "permissions": ["activeTab", "storage"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "action": { "default_popup": "popup.html", "default_title": "Review with MDT" },
+  "background": { "service_worker": "background.js" },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'" }
+}

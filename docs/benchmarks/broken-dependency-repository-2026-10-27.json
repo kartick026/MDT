@@ -1,0 +1,565 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-27T15:23:26.407833+00:00",
+  "status": "passed",
+  "repository": "SMEWebify/WebErpMesv2",
+  "repository_url": "https://github.com/SMEWebify/WebErpMesv2",
+  "revision": "7595d2abbffcf1f984a6aad1eca48e7630fbf3fc",
+  "historical_reproduction": true,
+  "scope": "Complete RepoOnboarder import with read-only pinned public archive transport, then immutable graph serialization; no repository code execution or live database writes",
+  "limitation": "This historical bug was fixed upstream. Missing Compose declarations prove an invalid captured configuration; no runtime availability probes or application functionality tests were performed.",
+  "source": {
+    "file": "docker-compose.yaml",
+    "sha256": "ecd96e789d8f19c9adced50dd501f97d8f8b4f4c55e89c69dc2c71dfdcd87f48",
+    "undefined_depends_on_lines": [
+      72,
+      73,
+      74
+    ],
+    "actual_service_definition_lines": [
+      38,
+      50
+    ],
+    "blob_url": "https://github.com/SMEWebify/WebErpMesv2/blob/7595d2abbffcf1f984a6aad1eca48e7630fbf3fc/docker-compose.yaml#L72-L74"
+  },
+  "upstream_issue": "https://github.com/SMEWebify/WebErpMesv2/issues/1174",
+  "upstream_fix": "https://github.com/SMEWebify/WebErpMesv2/commit/1a7c8874b2c3f2b508e84a1f7d52e44080afd4ad",
+  "transport": {
+    "transport": "public_github_archive",
+    "revision": "7595d2abbffcf1f984a6aad1eca48e7630fbf3fc",
+    "archive_sha256": "f25204966bda5b0be24921c3612474c6067c1b289259ccb91597d10f6eed77d1",
+    "download_bytes": 32204338,
+    "expanded_bytes": 86658434,
+    "tree_files": 2885,
+    "executed_source": false
+  },
+  "executed_repository_code": false,
+  "live_store_writes": false,
+  "import_status": "partial",
+  "compose_file": "docker-compose.yaml",
+  "graph": {
+    "api_snapshots": [],
+    "coverage": {
+      "byte_budget_used": 0,
+      "bytes_fetched": 0,
+      "bytes_read": 0,
+      "candidate_files": 0,
+      "coverage_schema_version": 2,
+      "discovery": {
+        "selected_manifest": "docker-compose.yaml",
+        "sources": [
+          "compose",
+          "compose_unresolved"
+        ],
+        "warnings": []
+      },
+      "excluded_source_files": 278,
+      "excluded_source_reasons": {
+        "ignored_directory": 210,
+        "minified_bundle": 68
+      },
+      "external_source_services": [
+        "wem-dev",
+        "nginx",
+        "laravel-echo-server",
+        "worker"
+      ],
+      "files_attempted": 0,
+      "files_candidates": 0,
+      "files_read": 0,
+      "indicators": {
+        "parser_support": {
+          "failed_files": 0,
+          "heuristic_files": 0,
+          "parsed_files": 0,
+          "partial_files": 0,
+          "read_files": 0,
+          "reasons": [
+            "no_source_read",
+            "service_contract_extraction_unsupported"
+          ],
+          "scope": "syntax_parsing_of_read_source",
+          "status": "unavailable",
+          "unclassified_files": 0,
+          "unsupported_contract_services": [
+            "wem-dev",
+            "worker"
+          ]
+        },
+        "runtime_verification": {
+          "reasons": [
+            "runtime_traffic_not_measured"
+          ],
+          "status": "not_measured"
+        },
+        "source_scan": {
+          "attempted_files": 0,
+          "bytes_read": 0,
+          "eligible_files": 0,
+          "excluded_source_files": 278,
+          "external_source_services": [
+            "wem-dev",
+            "nginx",
+            "laravel-echo-server",
+            "worker"
+          ],
+          "limits": {
+            "max_file_bytes": 262144,
+            "max_files": 500,
+            "max_total_bytes": 8388608
+          },
+          "missing_source_services": [
+            "wem-dev",
+            "worker"
+          ],
+          "omitted_files": 0,
+          "read_files": 0,
+          "reason_counts": {},
+          "reasons": [
+            "no_eligible_mapped_source"
+          ],
+          "scope": "eligible_mapped_source_files",
+          "status": "unavailable",
+          "unmapped_source_files": 1734
+        }
+      },
+      "invalid_tree_paths": 0,
+      "missing_source_services": [
+        "wem-dev",
+        "worker"
+      ],
+      "parser_compatibility": {},
+      "parsers": {},
+      "partial": true,
+      "per_service": {
+        "db": 0,
+        "db-dev": 0,
+        "laravel-echo-server": 0,
+        "nginx": 0,
+        "redis": 0,
+        "redis-dev": 0,
+        "wem-dev": 0,
+        "worker": 0
+      },
+      "per_service_candidates": {
+        "db": 0,
+        "db-dev": 0,
+        "laravel-echo-server": 0,
+        "nginx": 0,
+        "redis": 0,
+        "redis-dev": 0,
+        "wem-dev": 0,
+        "worker": 0
+      },
+      "per_service_parsed": {
+        "db": 0,
+        "db-dev": 0,
+        "laravel-echo-server": 0,
+        "nginx": 0,
+        "redis": 0,
+        "redis-dev": 0,
+        "wem-dev": 0,
+        "worker": 0
+      },
+      "scan_limits": {
+        "max_file_bytes": 262144,
+        "max_files": 500,
+        "max_total_bytes": 8388608
+      },
+      "scan_reason_counts": {},
+      "source": "static_source",
+      "static_partial": true,
+      "transport_evidence": {
+        "archive_sha256": "f25204966bda5b0be24921c3612474c6067c1b289259ccb91597d10f6eed77d1",
+        "download_bytes": 32204338,
+        "executed_source": false,
+        "expanded_bytes": 86658434,
+        "revision": "7595d2abbffcf1f984a6aad1eca48e7630fbf3fc",
+        "transport": "public_github_archive",
+        "tree_files": 2885
+      },
+      "unmapped_source_files": 1734,
+      "unsupported_contract_services": [
+        "wem-dev",
+        "worker"
+      ],
+      "warnings": [
+        "application_source_unavailable_for_declared_services",
+        "compose_env_file_unavailable:wem-dev",
+        "compose_uses_recorded_defaults_not_runtime_environment",
+        "compose_dependencies_are_startup_order_not_verified_calls",
+        "static_topology_is_not_complete_runtime_communication"
+      ]
+    },
+    "dependencies": [
+      {
+        "endpoint": "",
+        "evidence_kind": "compose_startup_order",
+        "from": "laravel-echo-server",
+        "source_file": "docker-compose.yaml",
+        "to": "wem-dev",
+        "type": "startup"
+      },
+      {
+        "endpoint": "",
+        "evidence_kind": "compose_startup_order",
+        "from": "nginx",
+        "source_file": "docker-compose.yaml",
+        "to": "wem-dev",
+        "type": "startup"
+      },
+      {
+        "endpoint": "",
+        "environment_variable": "DB_HOST",
+        "evidence_kind": "compose_env_reference",
+        "from": "wem-dev",
+        "source_file": "docker-compose.yaml",
+        "to": "db-dev",
+        "type": "declared"
+      },
+      {
+        "endpoint": "",
+        "evidence_kind": "compose_startup_order",
+        "from": "wem-dev",
+        "source_file": "docker-compose.yaml",
+        "to": "db-dev",
+        "type": "startup"
+      },
+      {
+        "endpoint": "",
+        "environment_variable": "REDIS_HOST",
+        "evidence_kind": "compose_env_reference",
+        "from": "wem-dev",
+        "source_file": "docker-compose.yaml",
+        "to": "redis-dev",
+        "type": "declared"
+      },
+      {
+        "endpoint": "",
+        "evidence_kind": "compose_startup_order",
+        "from": "wem-dev",
+        "source_file": "docker-compose.yaml",
+        "to": "redis-dev",
+        "type": "startup"
+      },
+      {
+        "endpoint": "",
+        "evidence_kind": "compose_startup_order",
+        "from": "worker",
+        "has_bug": true,
+        "resolution_reason": "worker requires 'db', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides.",
+        "source_file": "docker-compose.yaml",
+        "to": "db",
+        "type": "startup"
+      },
+      {
+        "endpoint": "",
+        "evidence_kind": "compose_startup_order",
+        "from": "worker",
+        "has_bug": true,
+        "resolution_reason": "worker requires 'redis', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides.",
+        "source_file": "docker-compose.yaml",
+        "to": "redis",
+        "type": "startup"
+      }
+    ],
+    "dependency_snapshots": [],
+    "file_mappings": {},
+    "project": {
+      "branch": "7595d2abbffcf1f984a6aad1eca48e7630fbf3fc",
+      "repo_url": "https://github.com/SMEWebify/WebErpMesv2",
+      "repository_key": "github:smewebify/weberpmesv2",
+      "revision": "7595d2abbffcf1f984a6aad1eca48e7630fbf3fc",
+      "source": "repository"
+    },
+    "services": [
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "is_broken": true,
+        "name": "db",
+        "node_type": "external",
+        "resilient": null,
+        "resolution_reason": "Not declared in docker-compose.yaml.",
+        "resolution_source": "docker-compose.yaml"
+      },
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "name": "db-dev",
+        "node_type": "database",
+        "resilient": null
+      },
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "name": "laravel-echo-server",
+        "node_type": "service",
+        "resilient": null
+      },
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "name": "nginx",
+        "node_type": "service",
+        "resilient": null
+      },
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "is_broken": true,
+        "name": "redis",
+        "node_type": "external",
+        "resilient": null,
+        "resolution_reason": "Not declared in docker-compose.yaml.",
+        "resolution_source": "docker-compose.yaml"
+      },
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "name": "redis-dev",
+        "node_type": "database",
+        "resilient": null
+      },
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "name": "wem-dev",
+        "node_type": "service",
+        "resilient": null
+      },
+      {
+        "api_endpoints": [],
+        "has_circuit_breaker": null,
+        "name": "worker",
+        "node_type": "service",
+        "resilient": null
+      }
+    ]
+  },
+  "broken_nodes": [
+    {
+      "api_endpoints": [],
+      "has_circuit_breaker": null,
+      "is_broken": true,
+      "name": "db",
+      "node_type": "external",
+      "resilient": null,
+      "resolution_reason": "Not declared in docker-compose.yaml.",
+      "resolution_source": "docker-compose.yaml"
+    },
+    {
+      "api_endpoints": [],
+      "has_circuit_breaker": null,
+      "is_broken": true,
+      "name": "redis",
+      "node_type": "external",
+      "resilient": null,
+      "resolution_reason": "Not declared in docker-compose.yaml.",
+      "resolution_source": "docker-compose.yaml"
+    }
+  ],
+  "broken_edges": [
+    {
+      "endpoint": "",
+      "evidence_kind": "compose_startup_order",
+      "from": "worker",
+      "has_bug": true,
+      "resolution_reason": "worker requires 'db', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides.",
+      "source_file": "docker-compose.yaml",
+      "to": "db",
+      "type": "startup"
+    },
+    {
+      "endpoint": "",
+      "evidence_kind": "compose_startup_order",
+      "from": "worker",
+      "has_bug": true,
+      "resolution_reason": "worker requires 'redis', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides.",
+      "source_file": "docker-compose.yaml",
+      "to": "redis",
+      "type": "startup"
+    }
+  ],
+  "connection_bugs": [
+    {
+      "source_service": "worker",
+      "target_service": "redis",
+      "target_url": "redis",
+      "bug_type": "UNDEFINED_COMPOSE_SERVICE",
+      "severity": "HIGH",
+      "description": "worker requires 'redis', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides.",
+      "file_path": "docker-compose.yaml",
+      "line_number": 0,
+      "suggestion": "Correct depends_on to a declared service name, or supply the missing service in the deployment configuration."
+    },
+    {
+      "source_service": "worker",
+      "target_service": "db",
+      "target_url": "db",
+      "bug_type": "UNDEFINED_COMPOSE_SERVICE",
+      "severity": "HIGH",
+      "description": "worker requires 'db', but that service is not declared in docker-compose.yaml. Check the selected Compose files and overrides.",
+      "file_path": "docker-compose.yaml",
+      "line_number": 0,
+      "suggestion": "Correct depends_on to a declared service name, or supply the missing service in the deployment configuration."
+    }
+  ],
+  "coverage": {
+    "coverage_schema_version": 2,
+    "candidate_files": 0,
+    "files_read": 0,
+    "bytes_read": 0,
+    "bytes_fetched": 0,
+    "byte_budget_used": 0,
+    "files_candidates": 0,
+    "files_attempted": 0,
+    "warnings": [
+      "application_source_unavailable_for_declared_services",
+      "compose_env_file_unavailable:wem-dev",
+      "compose_uses_recorded_defaults_not_runtime_environment",
+      "compose_dependencies_are_startup_order_not_verified_calls",
+      "static_topology_is_not_complete_runtime_communication"
+    ],
+    "source": "static_source",
+    "per_service": {
+      "wem-dev": 0,
+      "nginx": 0,
+      "db-dev": 0,
+      "redis-dev": 0,
+      "laravel-echo-server": 0,
+      "worker": 0,
+      "redis": 0,
+      "db": 0
+    },
+    "parsers": {},
+    "parser_compatibility": {},
+    "excluded_source_files": 278,
+    "unmapped_source_files": 1734,
+    "excluded_source_reasons": {
+      "minified_bundle": 68,
+      "ignored_directory": 210
+    },
+    "invalid_tree_paths": 0,
+    "scan_reason_counts": {},
+    "scan_limits": {
+      "max_files": 500,
+      "max_total_bytes": 8388608,
+      "max_file_bytes": 262144
+    },
+    "per_service_parsed": {
+      "wem-dev": 0,
+      "nginx": 0,
+      "db-dev": 0,
+      "redis-dev": 0,
+      "laravel-echo-server": 0,
+      "worker": 0,
+      "redis": 0,
+      "db": 0
+    },
+    "per_service_candidates": {
+      "wem-dev": 0,
+      "nginx": 0,
+      "db-dev": 0,
+      "redis-dev": 0,
+      "laravel-echo-server": 0,
+      "worker": 0,
+      "redis": 0,
+      "db": 0
+    },
+    "missing_source_services": [
+      "wem-dev",
+      "worker"
+    ],
+    "unsupported_contract_services": [
+      "wem-dev",
+      "worker"
+    ],
+    "external_source_services": [
+      "wem-dev",
+      "nginx",
+      "laravel-echo-server",
+      "worker"
+    ],
+    "indicators": {
+      "source_scan": {
+        "status": "unavailable",
+        "scope": "eligible_mapped_source_files",
+        "eligible_files": 0,
+        "read_files": 0,
+        "attempted_files": 0,
+        "omitted_files": 0,
+        "excluded_source_files": 278,
+        "unmapped_source_files": 1734,
+        "bytes_read": 0,
+        "limits": {
+          "max_files": 500,
+          "max_total_bytes": 8388608,
+          "max_file_bytes": 262144
+        },
+        "missing_source_services": [
+          "wem-dev",
+          "worker"
+        ],
+        "external_source_services": [
+          "wem-dev",
+          "nginx",
+          "laravel-echo-server",
+          "worker"
+        ],
+        "reason_counts": {},
+        "reasons": [
+          "no_eligible_mapped_source"
+        ]
+      },
+      "parser_support": {
+        "status": "unavailable",
+        "scope": "syntax_parsing_of_read_source",
+        "parsed_files": 0,
+        "read_files": 0,
+        "heuristic_files": 0,
+        "failed_files": 0,
+        "partial_files": 0,
+        "unclassified_files": 0,
+        "unsupported_contract_services": [
+          "wem-dev",
+          "worker"
+        ],
+        "reasons": [
+          "no_source_read",
+          "service_contract_extraction_unsupported"
+        ]
+      },
+      "runtime_verification": {
+        "status": "not_measured",
+        "reasons": [
+          "runtime_traffic_not_measured"
+        ]
+      }
+    },
+    "static_partial": true,
+    "partial": true,
+    "discovery": {
+      "sources": [
+        "compose",
+        "compose_unresolved"
+      ],
+      "warnings": [],
+      "selected_manifest": "docker-compose.yaml"
+    },
+    "transport_evidence": {
+      "transport": "public_github_archive",
+      "revision": "7595d2abbffcf1f984a6aad1eca48e7630fbf3fc",
+      "archive_sha256": "f25204966bda5b0be24921c3612474c6067c1b289259ccb91597d10f6eed77d1",
+      "download_bytes": 32204338,
+      "expanded_bytes": 86658434,
+      "tree_files": 2885,
+      "executed_source": false
+    }
+  },
+  "implementation_sha256": {
+    "services/repo_onboarding.py": "9a9b8b87cfaa827f0dc85b6338d3cab060be415b6b44e880fcbdcbe451d51a96",
+    "domain/architecture.py": "2b4483b87472396916ee861bb30d504db2c853d7cacaaed8c075c1f03afeea73",
+    "services/public_github_source.py": "8e3765de9cc8fb08d3345333f5e0e21a62dd29daa2e9f631e8d2802d8ec1d4b0"
+  }
+}
