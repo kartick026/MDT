@@ -36,7 +36,13 @@ env/
 
 # Environment files
 .env
-.env.local
+.env.*
+*.env
+*.env.*
+!.env.example
+!*.env.example
+!.env.template
+!*.env.template
 
 # Logs
 *.log
@@ -79,3 +85,4 @@ release-config.local.json
 .impeccable/
 .kiro/
 
+.neon

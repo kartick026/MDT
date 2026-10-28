@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatScore, scoreDelta, evidenceSummary, analysisExport, readableExport, readRoute, routeHash, graphEditLabel, previewChange, architectureSummary, jobResult } from '../src/utils/analysis.js';
+import { formatScore, historyScoreSummary, scoreDelta, evidenceSummary, analysisExport, readableExport, readRoute, routeHash, graphEditLabel, previewChange, architectureSummary, jobResult } from '../src/utils/analysis.js';
 import { clearAnalysisSession, attachSession, rejectsCurrentSession } from '../src/utils/session.js';
 import { AxiosHeaders } from 'axios';
 import { coverageIndicators, topologyCoverage } from '../src/utils/coverage.js';
@@ -12,6 +12,25 @@ test('debt precision survives formatting and export', () => {
   assert.equal(formatScore(100), '100');
   assert.equal(formatScore(undefined), 'Unavailable');
   assert.equal(JSON.parse(analysisExport({ architecture_smell_score: 86.936 })).analysis.architecture_smell_score, 86.936);
+});
+
+test('history distinguishes topology-only risk, missing scores and recorded zero', () => {
+  const imported = historyScoreSummary({ kind: 'import', risk_score: null, architecture_smell_score: 0, partial_results: true });
+  assert.equal(imported.risk, 'Not assessed');
+  assert.match(imported.riskReason, /no commit change/);
+  assert.equal(imported.debt, '0');
+  assert.match(imported.debtReason, /captured evidence/);
+  assert.equal(historyScoreSummary({ risk_score: 0 }).risk, '0');
+  assert.equal(historyScoreSummary({ risk_score: null }).risk, 'Unavailable');
+  assert.equal(historyScoreSummary({ risk_score: 45, architecture_smell_score: 89.573 }).debt, '89.573');
+  assert.equal(historyScoreSummary({ status: 'running' }).risk, 'Pending');
+  assert.equal(historyScoreSummary({ status: 'queued' }).debt, 'Pending');
+});
+
+test('temporary API outages do not expire the current session', () => {
+  const error = { response: { status: 503 }, config: { headers: { Authorization: 'Bearer active' } } };
+  assert.equal(rejectsCurrentSession(error, 'active'), false);
+  assert.equal(rejectsCurrentSession({ ...error, response: { status: 401 } }, 'active'), true);
 });
 
 test('counterfactual labels reflect the actual score direction and API edit fields', () => {

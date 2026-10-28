@@ -13,7 +13,7 @@ services:
     build: api
 """)
     assert all(s["port"] is None and s["url"] is None for s in services)
-    assert edges == [{"from": "web", "to": "api", "type": "startup", "endpoint": "", "evidence_kind": "compose_startup_order"}]
+    assert edges == [{"from": "web", "to": "api", "type": "startup", "endpoint": "", "evidence_kind": "compose_startup_order", "source_file": "docker-compose.yml"}]
 
 
 def test_database_resources_and_named_application_services_are_not_discarded():

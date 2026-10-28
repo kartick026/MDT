@@ -121,7 +121,9 @@ def test_seeded_demo_snapshot_discovery_and_legacy_baseline_compatibility(client
     assert any("fixture data" in warning for warning in drift["evidence"]["warnings"])
 
 
-def test_retention_preserves_pinned_baseline_and_current_capture(isolate_durable_store):
+def test_retention_preserves_pinned_baseline_and_current_capture(isolate_durable_store, monkeypatch):
+    from core.config import settings
+    monkeypatch.setattr(settings, 'JOB_RETENTION_DAYS', 30)
     store = isolate_durable_store
     value = project(store)
     pinned = snapshot("b" * 40)

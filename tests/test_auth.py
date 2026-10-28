@@ -112,8 +112,8 @@ def test_api_login_json_invalid_credentials(client):
     assert "Incorrect" in response.json()["detail"]
 
 
-def test_viewer_signup_and_login(client, tmp_path, monkeypatch):
-    """Self-service registration creates a durable, least-privilege account."""
+def test_local_signup_can_manage_own_projects_without_admin_privileges(client, tmp_path, monkeypatch):
+    """The local self-service workflow grants analyst access, never admin."""
     import uuid
     import core.auth as auth_module
     monkeypatch.setattr(auth_module, "USERS_FILE", tmp_path / "users.json")
@@ -125,7 +125,7 @@ def test_viewer_signup_and_login(client, tmp_path, monkeypatch):
     assert response.status_code == 201
     data = response.json()
     assert data["user"]["username"] == username
-    assert data["user"]["role"] == "viewer"
+    assert data["user"]["role"] == "analyst"
     assert data["access_token"]
 
     login = client.post("/auth/login", json={
@@ -133,7 +133,7 @@ def test_viewer_signup_and_login(client, tmp_path, monkeypatch):
         "password": "safe-viewer-password",
     })
     assert login.status_code == 200
-    assert login.json()["user"]["role"] == "viewer"
+    assert login.json()["user"]["role"] == "analyst"
 
 
 def test_signup_rejects_duplicate_username(client):

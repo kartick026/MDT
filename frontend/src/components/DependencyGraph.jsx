@@ -12,9 +12,9 @@ const RISK_COLOR = {
   UNKNOWN:  '#586875',
 };
 
-import { NODE_W, NODE_H, edgeLabel, fitGraph } from '../utils/graphLayout';
+import { NODE_W, NODE_H, edgeBadgeMetrics, fitGraph } from '../utils/graphLayout';
 import { startLayout } from '../utils/graphLayoutClient';
-import { groupRelations, relationDescription } from '../utils/graphRelations';
+import { groupRelations, relationDescription, endpointRoutes } from '../utils/graphRelations';
 import { snapshotGraph } from '../utils/graphData';
 
 const EdgeCurve = memo(function EdgeCurve({
@@ -123,71 +123,30 @@ const EdgeCurve = memo(function EdgeCurve({
 });
 
 /* Endpoint and Broken Link badges — Rendered in Top Layer to ALWAYS sit on top of nodes */
-const EdgeBadge = memo(function EdgeBadge({
-  edgeGeo, hasBug, endpoint, isDimmed, isHighlighted,
-  isHovered, showEndpoints
+export const EdgeBadge = memo(function EdgeBadge({
+  edge, edgeGeo, isDimmed, isHighlighted, isHovered, showEndpoints
 }) {
   const { badgePoint } = edgeGeo;
-
-  // Determine badge visibility:
-  // - Broken link ALWAYS visible
-  // - Normal edges visible on edge hover OR when showEndpoints is toggled OR when explicitly highlighted
-  const showBadge = hasBug || isHovered || showEndpoints || (isHighlighted && Boolean(endpoint));
-
-  if (!showBadge) return null;
+  const hasBug = Boolean(edge.has_bug);
+  const { lines, width, height } = edgeBadgeMetrics(edge);
+  const showBadge = hasBug || Boolean(edge.relations) || isHovered || showEndpoints || isHighlighted;
+  if (!showBadge || !lines.length) return null;
 
   return (
-    <g
-      className="graph-badge-group"
-      pointerEvents="none"
-      style={{
-        opacity: isDimmed ? 0.15 : 1,
-        transition: 'opacity 0.25s ease',
-      }}
-    >
-      {hasBug ? (
-        // Broken Link Badge (centered on the red edge)
-        <g transform={`translate(${badgePoint.x}, ${badgePoint.y})`}>
-          <rect
-            x="-50" y="-11" width="100" height="21" rx="10"
-            fill="#ac3449"
-            stroke="#ffffff"
-            strokeWidth="1"
-            style={{ filter: 'drop-shadow(0 0 10px rgba(255,45,85,0.7))' }}
-          />
-          <text
-            x="0" y="3.5" textAnchor="middle"
-            fill="#ffffff" fontSize="9.5" fontWeight="700"
-            fontFamily="'JetBrains Mono',monospace"
-          >
-            ⚠ BROKEN LINK
-          </text>
-        </g>
-      ) : (
-        // Regular Endpoint Badge (staggered at t = 0.65 to completely eliminate collision)
-        endpoint && (
-          <g transform={`translate(${badgePoint.x}, ${badgePoint.y})`}>
-            <rect
-              x={-endpoint.length * 3.4 - 10} y="-10"
-              width={endpoint.length * 6.8 + 20} height="20" rx="6"
-              fill="#edf1f4"
-              stroke={isHovered ? "#176b68" : "rgba(23,107,104,0.5)"}
-              strokeWidth={isHovered ? "1.5" : "1"}
-              style={{
-                filter: 'drop-shadow(0 2px 3px rgba(80,97,110,0.15))',
-                transition: 'all 0.15s ease'
-              }}
-            />
-            <text
-              x="0" y="3.5" textAnchor="middle"
-              fill="var(--cyan)" fontSize="9.5" fontWeight="600"
-              fontFamily="'JetBrains Mono',monospace"
-            >
-              {endpoint}
-            </text>
-          </g>
-        )
-      )}
+    <g className="graph-badge-group" pointerEvents="none"
+      data-endpoint-labels={showEndpoints && endpointRoutes(edge).length ? 'true' : undefined}
+      transform={`translate(${badgePoint.x}, ${badgePoint.y})`}
+      style={{ opacity: isDimmed ? 0.15 : 1, transition: 'opacity 0.25s ease' }}>
+      <title>{[hasBug ? 'Broken link / unresolved target' : '', ...endpointRoutes(edge)].filter(Boolean).join('\n')}</title>
+      <rect x={-width / 2} y={-height / 2} width={width} height={height} rx="6"
+        fill={hasBug ? '#ac3449' : '#edf1f4'}
+        stroke={hasBug ? '#ffffff' : isHovered ? '#176b68' : 'rgba(23,107,104,0.5)'}
+        strokeWidth={isHovered ? 1.5 : 1}
+        style={{ filter: 'drop-shadow(0 2px 3px rgba(80,97,110,0.15))' }} />
+      <text textAnchor="middle" fill={hasBug ? '#ffffff' : 'var(--cyan)'}
+        fontSize="9.5" fontWeight="600" fontFamily="'JetBrains Mono',monospace">
+        {lines.map((line, index) => <tspan key={index} x="0" y={(index - (lines.length - 1) / 2) * 16 + 3.5}>{line}</tspan>)}
+      </text>
     </g>
   );
 });
@@ -231,7 +190,12 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
   const nodes = useMemo(() => data?.nodes || [], [data]);
   const rawEdges = useMemo(() => data?.edges || [], [data]);
   const connections = useMemo(() => groupRelations(rawEdges), [rawEdges]);
-  const edges = relationView === 'connections' ? connections : rawEdges;
+  const endpointCount = useMemo(() => rawEdges.filter(edge => endpointRoutes(edge).length > 0).length, [rawEdges]);
+  const endpointLabelsEnabled = showEndpoints && endpointCount > 0;
+  const edges = useMemo(() => {
+    const visible = relationView === 'connections' ? connections : rawEdges;
+    return endpointLabelsEnabled ? visible.map(edge => ({...edge, endpointLabels: true})) : visible;
+  }, [relationView, connections, rawEdges, endpointLabelsEnabled]);
   const hasParallelRelations = connections.length < rawEdges.length;
 
   useEffect(() => {
@@ -358,11 +322,13 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
           </CustomSelect>
           <button
             onClick={() => setShowEnd(prev => !prev)}
-            title="Toggle endpoint route labels on all relation curves"
+            disabled={!endpointCount}
+            aria-pressed={endpointLabelsEnabled}
+            title={endpointCount ? 'Show captured endpoint routes on connections and individual relations' : 'No endpoint routes were captured in this graph'}
             style={{
-              background: showEndpoints ? 'rgba(0,212,255,0.18)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${showEndpoints ? 'var(--cyan)' : 'rgba(255,255,255,0.12)'}`,
-              color: showEndpoints ? 'var(--cyan)' : 'var(--text-dim)',
+              background: endpointLabelsEnabled ? 'rgba(0,212,255,0.18)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${endpointLabelsEnabled ? 'var(--cyan)' : 'rgba(255,255,255,0.12)'}`,
+              color: endpointLabelsEnabled ? 'var(--cyan)' : 'var(--text-dim)',
               padding: '5px 10px',
               borderRadius: '6px',
               fontSize: '11.5px',
@@ -371,7 +337,7 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
               transition: 'all 0.2s',
             }}
           >
-            <Tags size={13} aria-hidden="true" /> {showEndpoints ? 'Endpoints: ON' : 'Endpoints: OFF'}
+            <Tags size={13} aria-hidden="true" /> {!endpointCount ? 'Endpoints: none recorded' : endpointLabelsEnabled ? 'Endpoints: ON' : 'Endpoints: OFF'}
           </button>
 
           <CustomSelect className="form-select" aria-label="Graph direction" value={direction} onChange={e=>setDirection(e.target.value)} style={{width:'auto',fontSize:12}}>
@@ -458,6 +424,12 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
       )}
 
       {/* Relation details can wrap instead of overflowing narrow viewports. */}
+      {!endpointCount && <p className="text-dim" style={{fontSize:12, margin:'0 0 14px'}}>
+        No endpoint routes were captured in this graph. Startup dependencies describe ordering, not request paths.
+      </p>}
+      {endpointLabelsEnabled && <p className="text-dim" role="status" style={{fontSize:12, margin:'0 0 14px'}}>
+        Showing captured routes on {endpointCount} {endpointCount === 1 ? 'relation' : 'relations'}. Connections show up to 3 distinct routes; select a connection to inspect every recorded relation.
+      </p>}
       <div className="graph-context" role="region" aria-label="Connection details" tabIndex={0} style={{
         background: hoveredEdge
           ? (hoveredEdge.has_bug ? 'rgba(255,45,85,0.15)' : 'rgba(0, 212, 255, 0.1)')
@@ -688,12 +660,11 @@ export default function DependencyGraph({ snapshot = null, findingsHref = null, 
                   <EdgeBadge
                     key={`badge-${e.from}->${e.to}-${i}`}
                     edgeGeo={layout.routes[i]}
-                    hasBug={Boolean(e.has_bug)}
-                    endpoint={edgeLabel(e)}
+                    edge={e}
                     isDimmed={Boolean(connectedIds && !isRelevant)}
                     isHighlighted={Boolean(isHigh)}
                     isHovered={Boolean(isEdgeHovered)}
-                    showEndpoints={showEndpoints || Boolean(e.relations)}
+                    showEndpoints={endpointLabelsEnabled}
                   />
                 );
               })}

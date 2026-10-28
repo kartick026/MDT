@@ -1,3 +1,5 @@
+import { edgeBadgeLines } from './graphRelations.js';
+
 export const NODE_W = 190, NODE_H = 64;
 
 export function getNodeWidth(label) {
@@ -5,8 +7,13 @@ export function getNodeWidth(label) {
 }
 
 export function edgeLabel(edge) {
-  const label = edge.relations ? `${edge.relations.length} relations${edge.has_bug ? ' ⚠' : ''}` : edge.has_bug ? '⚠ BROKEN LINK' : String(edge.endpoint || '');
-  return label.length > 34 ? `${label.slice(0, 31)}…` : label;
+  return edgeBadgeLines(edge, edge.endpointLabels).join('\n');
+}
+
+export function edgeBadgeMetrics(edge) {
+  const lines = edgeBadgeLines(edge, edge.endpointLabels);
+  return { lines, width: Math.max(0, ...lines.map(line => line.length)) * 6.8 + 20,
+    height: Math.max(24, lines.length * 16 + 8) };
 }
 
 // Share the engine's routed geometry and reserved label rectangle between

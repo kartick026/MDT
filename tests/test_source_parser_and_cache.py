@@ -72,6 +72,9 @@ def test_python_new_exception_syntax_preserves_semantics_routes_and_source_posit
 
 @pytest.mark.parametrize('header', ['except ValueError, TypeError as exc:', 'except ValueError,:', 'except ValueError,, TypeError:'])
 def test_python_exception_compatibility_rejects_invalid_headers(header):
+    import sys
+    if sys.version_info >= (3, 14) and header == 'except ValueError,:':
+        pytest.skip("Python 3.14+ natively accepts trailing comma in except clause (PEP 758)")
     from services.source_parser import parse_python
     with pytest.raises(SyntaxError):
         parse_python('try:\n    pass\n' + header + '\n    pass\n')

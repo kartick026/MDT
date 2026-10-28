@@ -21,6 +21,9 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # Optional local development quota; hosted defaults remain unchanged.
       - MAX_PROJECTS_PER_USER=${MDT_LOCAL_MAX_PROJECTS_PER_USER:-5}
+      - DATABASE_URL=${DATABASE_URL:-}
+      # Keep all project history and captures unless explicitly configured otherwise.
+      - JOB_RETENTION_DAYS=0
     depends_on:
       neo4j:
         condition: service_healthy

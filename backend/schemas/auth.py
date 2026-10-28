@@ -18,7 +18,7 @@ class UserRegistration(BaseModel):
 class UserOut(BaseModel):
     """Public user identity response."""
     username: str
-    role: str = "admin"
+    role: str = "viewer"
     is_active: bool = True
 
 
@@ -33,7 +33,7 @@ class Token(BaseModel):
 class TokenPayload(BaseModel):
     """Parsed JWT token claims."""
     sub: str  # username
-    role: str = "admin"
+    role: str = "viewer"
     exp: int
     iat: Optional[int] = None
 
@@ -41,3 +41,13 @@ class TokenPayload(BaseModel):
 class RefreshTokenRequest(BaseModel):
     """Optional payload for refreshing expired/near-expiry token."""
     refresh_token: Optional[str] = None
+
+
+class OAuthLoginRequest(BaseModel):
+    """A signed provider JWT, never a browser-supplied profile."""
+    id_token: str = Field(..., min_length=20, max_length=16384)
+
+
+class SessionVerifierRequest(BaseModel):
+    """Payload to exchange a Neon Auth session verifier for an application token."""
+    verifier: str = Field(..., min_length=1, max_length=255)

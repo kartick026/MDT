@@ -60,14 +60,14 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
         "is_broken": svc.get("is_broken", False),
     }
 
-    if not svc.get("url") or RegistryManager.get_project_context().get("source") not in {"local_demo"}:
+    if not svc.get("url"):
         base["status"] = "unobserved"
         return base
 
     # Ping candidate URLs (Docker internal networking, trailing slashes, root)
     url = (svc.get("url") or f"http://localhost:{port}").rstrip("/")
     candidate_urls = [f"{url}/health/", f"{url}/health", f"{url}/"]
-    # Registry URLs use Docker DNS names.  When the backend is run directly
+    # Registry URLs use Docker DNS names. When the backend is run directly
     # on a developer machine, use the published local port as a fallback.
     if "//" in url and not os.path.exists("/.dockerenv"):
         host = url.split("//", 1)[1].split(":", 1)[0]
@@ -76,8 +76,19 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
                 f"http://localhost:{port}/health/",
                 f"http://localhost:{port}/health",
             ])
-    if ":5173" in url or port == 5173 or name in ["frontend", "web", "ui"]:
-        candidate_urls.extend(["http://frontend:80/", "http://frontend:80/health"])
+    if name == "backend" or port == 8000:
+        candidate_urls.extend([
+            "http://127.0.0.1:8000/health/ready",
+            "http://localhost:8000/health/ready",
+            "http://backend:8000/health/ready",
+        ])
+    if ":5173" in url or port in [80, 5173] or name in ["frontend", "web", "ui"]:
+        candidate_urls.extend([
+            "http://frontend:80/",
+            "http://frontend:80/health",
+            "http://127.0.0.1:5173/",
+            "http://localhost:5173/",
+        ])
 
     async def probe(target: str):
         try:
@@ -86,7 +97,7 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
             logger.debug("Health probe to %s failed: %s", target, exc)
             return None
 
-    # Probe candidates in parallel.  This prevents a missing imported service
+    # Probe candidates in parallel. This prevents a missing imported service
     # from multiplying the dashboard refresh time by every URL fallback.
     responses = await asyncio.gather(*(probe(target) for target in candidate_urls))
     last_resp = next((response for response in responses if response is not None), None)
@@ -108,8 +119,10 @@ async def _ping_service(client: httpx.AsyncClient, svc: dict) -> dict:
             logger.debug("Failed extracting api_count for %s: %s", url, exc)
     elif svc.get("is_external"):
         base["status"] = "imported"
-    else:
+    elif RegistryManager.get_project_context().get("source") in {"local_demo"}:
         base["status"] = "offline"
+    else:
+        base["status"] = "unobserved"
 
     return base
 

@@ -95,6 +95,37 @@ class Store:
             if not changed:
                 raise ValueError("That username is already in use.")
 
+    def neon_account(self, issuer, subject, profile):
+        """Bind a verified provider subject without renaming existing data owners."""
+        import hashlib
+        email = profile['email'].strip().lower()
+        with self.connection(write=True) as db:
+            self._lock_owner(db, 'auth')
+            accounts = [dict(row) for row in db.execute("SELECT id,payload FROM records WHERE kind='account' AND owner='auth'").fetchall()]
+            legacy = None
+            for row in accounts:
+                account = json.loads(row['payload'])
+                if account.get('neon_subject') == subject and account.get('neon_issuer') == issuer:
+                    return {**account, 'username': row['id']}
+                if (not account.get('neon_subject') and account.get('email', '').strip().lower() == email
+                        and account.get('provider') in {'google', 'github', 'neon'}
+                        and row['id'] not in {settings.ADMIN_USERNAME, settings.AUDITOR_USERNAME}):
+                    legacy = row, account
+            if legacy:
+                row, account = legacy
+                username = row['id']
+            else:
+                username = 'neon_' + hashlib.sha256((issuer + '\0' + subject).encode()).hexdigest()[:24]
+                account = {'username': username, 'email': email, 'name': profile.get('name') or email,
+                           'provider': 'neon', 'avatar_url': profile.get('image') or '',
+                           'role': settings.self_service_account_role, 'is_active': True, 'password_hash': ''}
+            account.update(neon_subject=subject, neon_issuer=issuer)
+            if legacy:
+                db.execute("UPDATE records SET payload=? WHERE kind='account' AND id=? AND owner='auth'", (json.dumps(account), username))
+            else:
+                db.execute("INSERT INTO records(kind,id,owner,project,payload,created) VALUES('account',?,'auth','',?,?)", (username, json.dumps(account), time.time()))
+            return {**account, 'username': username}
+
     def _lock_owner(self, db, owner):
         db.execute("INSERT INTO records(kind,id,owner,project,payload,created) VALUES('quota',?,?,?,'{}',?) ON CONFLICT(kind,id) DO NOTHING", (owner, owner, "", time.time()))
         if self.postgres:
@@ -214,7 +245,10 @@ class Store:
             return f"({column}::jsonb ->> '{key}')" if self.postgres else f"json_extract({column}, '$.{key}')"
         name, repo = field("p.payload", "name"), field("p.payload", "repo_url")
         commit, base = field("j.result", "commit_sha"), field("j.result", "base_sha")
-        where, args = ["j.owner=?"], [owner]
+        where, args = [], []
+        if owner:
+            where.append("j.owner=?")
+            args.append(owner)
         if project:
             where.append("j.project=?")
             args.append(project)
@@ -226,7 +260,7 @@ class Store:
             pattern = "%" + query.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
             where.append("(" + " OR ".join(f"LOWER(COALESCE({item},'')) LIKE ? ESCAPE '!'" for item in ("j.id", name, repo, commit, base)) + ")")
             args.extend([pattern] * 5)
-        tail = " FROM jobs j LEFT JOIN records p ON p.kind='project' AND p.id=j.project AND p.owner=j.owner WHERE " + " AND ".join(where)
+        tail = " FROM jobs j LEFT JOIN records p ON p.kind='project' AND p.id=j.project" + (" WHERE " + " AND ".join(where) if where else "")
         columns = ["j.id", "j.project", "j.status", "j.stage", "j.created", "j.updated", "j.error",
                    name + " AS project_name", repo + " AS repo_url", commit + " AS commit_sha", base + " AS base_sha"]
         columns.extend(field("j.result", key) + " AS " + key for key in ("kind", "risk_score", "architecture_smell_score", "snapshot_version", "partial_results"))
@@ -304,6 +338,10 @@ class Store:
         return self.job(ident, owner)
 
     def prune(self):
+        # Retention is explicitly opt-in. A zero limit preserves all durable data,
+        # including imported topology captures, historical jobs and review notes.
+        if settings.JOB_RETENTION_DAYS <= 0:
+            return
         with self.connection(write=True) as db:
             db.execute("DELETE FROM jobs WHERE created<? AND status NOT IN ('queued','running')", (time.time() - settings.JOB_RETENTION_DAYS*86400,))
             analysis_id = "(records.payload::jsonb ->> 'analysis_id')" if self.postgres else "json_extract(records.payload, '$.analysis_id')"

@@ -256,7 +256,13 @@ export default function CustomSelect({
                   aria-selected={isSelected}
                   aria-disabled={opt.disabled}
                   className={`custom-select-option ${isSelected ? 'is-selected' : ''} ${isHighlighted ? 'is-focused' : ''} ${opt.disabled ? 'is-disabled' : ''}`}
-                  onClick={() => selectOption(opt)}
+                  onClick={event => {
+                    // The control often lives inside a label. Do not let the
+                    // label activate its button again after choosing an item.
+                    event.preventDefault();
+                    event.stopPropagation();
+                    selectOption(opt);
+                  }}
                   onMouseEnter={() => !opt.disabled && setHighlightedIndex(index)}
                 >
                   <span className="custom-select-option-text">{opt.label}</span>

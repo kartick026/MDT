@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from api import webhook, analysis, services, health, registry, auth, projects
-from core.auth import get_current_user
+from core.auth import get_current_user, get_current_user_optional
 from core.store import get_store
 from core.config import settings
 from core.database import init_databases
@@ -92,8 +92,9 @@ app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(projects.router, prefix="/v1", tags=["Projects and jobs"])
 if settings.RUNTIME_PROFILE == "local":
     app.include_router(webhook.router, prefix="/webhook", tags=["Webhook"])
-    for router, prefix, tag in ((analysis.router, "/analysis", "Analysis"), (services.router, "/services", "Services"), (registry.router, "/registry", "Registry")):
-        app.include_router(router, prefix=prefix, tags=[tag], dependencies=[Depends(get_current_user)])
+    app.include_router(analysis.router, prefix="/analysis", tags=["Analysis"], dependencies=[Depends(get_current_user)])
+    app.include_router(registry.router, prefix="/registry", tags=["Registry"], dependencies=[Depends(get_current_user)])
+    app.include_router(services.router, prefix="/services", tags=["Services"], dependencies=[Depends(get_current_user)])
 
 
 @app.get("/")

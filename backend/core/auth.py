@@ -238,8 +238,8 @@ def get_current_user_optional(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.debug("Token validation failed: %s", exc)
-        return None
+        logger.warning('Authentication storage unavailable: %s', type(exc).__name__)
+        raise HTTPException(status_code=503, detail='Authentication storage is temporarily unavailable') from exc
 
 
 async def get_current_user(

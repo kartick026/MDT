@@ -5,6 +5,7 @@ import { PROJECT_VIEWS, readRoute, routeHash, formatScore, jobResult } from '../
 import AnalysisResult from './AnalysisResult';
 import EvidenceSummary from './EvidenceSummary';
 import CustomSelect from './CustomSelect';
+import { canManageProjects } from '../utils/access';
 import { ArrowLeft, ArrowRight, Check, ClipboardCheck, FileSearch, FolderGit2, GitCompareArrows, LayoutDashboard, Network, Play, Plus, ScanSearch, Share2, ShieldCheck } from 'lucide-react';
 
 
@@ -15,7 +16,8 @@ const TERMINAL = new Set(['succeeded', 'completed', 'partial', 'failed', 'cancel
 const message = error => typeof error.response?.data?.detail === 'string' ? error.response.data.detail : error.response?.data?.detail?.message || error.message || 'Request failed.';
 
 export default function Workspace({ onSignIn }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const canManage = isAuthenticated && canManageProjects(user);
   const [route, setRoute] = useState(() => readRoute(location.hash));
   const [projects, setProjects] = useState([]);
   const [project, setProject] = useState(null);
@@ -203,7 +205,7 @@ export default function Workspace({ onSignIn }) {
           <h2>Bring your repository</h2>
           <p>Save your projects and review code changes in your own workspace.</p>
           <button className="btn btn-secondary" onClick={onSignIn}><Plus size={17} aria-hidden="true" />Sign in to add a project<ArrowRight size={17} aria-hidden="true" /></button>
-          <p className="repository-note"><ShieldCheck size={16} aria-hidden="true" />Invited accounts only. Source is read within bounded limits and is never executed.</p>
+          <p className="repository-note"><ShieldCheck size={16} aria-hidden="true" />Projects are saved to your account. Source is read within bounded limits and is never executed.</p>
         </section>}
         {visibleProjects.map(item => (
           <article className="card workspace-account" key={item.id}>
@@ -215,7 +217,8 @@ export default function Workspace({ onSignIn }) {
         ))}
       </div>
       {loading && <p role="status">Loading your projects…</p>}
-      {isAuthenticated && (
+      {isAuthenticated && !canManage && <p className="evidence-summary" role="status">This account is read-only. You can view saved projects and history. An administrator can enable project creation and analysis.</p>}
+      {canManage && (
         <details className="card workspace-account">
           <summary>Add a public GitHub repository</summary>
           <form className="workspace-form" onSubmit={add}>
@@ -257,7 +260,7 @@ export default function Workspace({ onSignIn }) {
     ) : (
       <>
         <nav className="project-nav" aria-label="Project views">
-        {PROJECT_VIEWS.filter(v => !demoMode || !['analyze','drift'].includes(v)).map(v => {
+        {PROJECT_VIEWS.filter(v => (!demoMode || !['analyze','drift'].includes(v)) && (canManage || v !== 'analyze')).map(v => {
           const Icon = {summary: LayoutDashboard, graph: Network, findings: ScanSearch, drift: GitCompareArrows, analyze: FileSearch}[v];
           const findingsCount = (result?.findings || result?.architecture_smells || result?.smells || []).length;
           const nodesCount = graph?.nodes?.length || graph?.services?.length;
@@ -275,14 +278,15 @@ export default function Workspace({ onSignIn }) {
           );
         })}
       </nav>
-      {job && <section className="job-progress" aria-live="polite"><span><strong>{job.status}</strong> · {job.stage || 'Analysis'}{job.error && ` · ${typeof job.error === 'string' ? job.error : JSON.stringify(job.error)}`}</span>{!TERMINAL.has(job.status) && <button className="btn btn-ghost" onClick={async () => { try { setJob(await cancelAnalysisJob(route.jobId)); } catch (err) { setError(message(err)); } }}>Cancel job</button>}<button className="btn btn-ghost" onClick={() => setRetry(v => v + 1)}>Refresh</button></section>}
+      {job && <section className="job-progress" aria-live="polite"><span><strong>{job.status}</strong> · {job.stage || 'Analysis'}{job.error && ` · ${typeof job.error === 'string' ? job.error : JSON.stringify(job.error)}`}</span>{canManage && !TERMINAL.has(job.status) && <button className="btn btn-ghost" onClick={async () => { try { setJob(await cancelAnalysisJob(route.jobId)); } catch (err) { setError(message(err)); } }}>Cancel job</button>}<button className="btn btn-ghost" onClick={() => setRetry(v => v + 1)}>Refresh</button></section>}
       {!job && route.jobId && <p role="status">Loading saved analysis…</p>}
       {view === 'summary' && <>
         {result ? <AnalysisResult key={route.jobId || 'demo'} result={result} demo={demoMode} /> : demoMode ? <section className="card workspace-account"><h2>Recorded analysis</h2><p role="status">{error ? 'The recorded analysis could not be loaded. Use Refresh above to try again.' : 'Loading the recorded analysis…'}</p></section> : <section className="card workspace-account"><h2>Project summary</h2><p>{project?.ready ? `${project.snapshot?.services?.length || 0} modeled nodes. Open Analyze to review a code change, or Graph to explore the captured topology.` : 'Architecture import has not completed. Open History to find its job, or Analyze to retry the import.'}</p>{job?.result?.kind === 'import' && <><p>Architectural debt: <strong>{formatScore(job.result.architecture_health?.score)}/100</strong> · {(job.result.smells || []).length} static findings. Commit risk has not been assessed.</p><EvidenceSummary result={job.result} /></>}</section>}
         {demo?.recorded_fallback && demoMode && <p className="text-dim">Bundled recorded example; live API unavailable.</p>}
-        {!demoMode && project && <details className="card workspace-account" onToggle={event => setSettingsOpen(event.currentTarget.open)}><summary>Project settings</summary>{settingsOpen && <><p>Project ID: <code>{project.id}</code></p><p>Use this ID in the CLI hook or extension to keep analyses scoped to this project.</p><Suspense fallback={<p role="status">Loading dependency rules…</p>}><Policies project={project} /></Suspense>{confirmDelete ? <><p>Delete this project and all its saved data permanently?</p><div className="workspace-actions"><button className="btn btn-ghost" disabled={busy} onClick={remove}>Confirm deletion</button><button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>Keep project</button></div></> : <button className="btn btn-ghost" onClick={() => setConfirmDelete(true)}>Delete project and data</button>}</>}</details>}
+        {!demoMode && project && canManage && <details className="card workspace-account" onToggle={event => setSettingsOpen(event.currentTarget.open)}><summary>Project settings</summary>{settingsOpen && <><p>Project ID: <code>{project.id}</code></p><p>Use this ID in the CLI hook or extension to keep analyses scoped to this project.</p><Suspense fallback={<p role="status">Loading dependency rules…</p>}><Policies project={project} /></Suspense>{confirmDelete ? <><p>Delete this project and all its saved data permanently?</p><div className="workspace-actions"><button className="btn btn-ghost" disabled={busy} onClick={remove}>Confirm deletion</button><button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>Keep project</button></div></> : <button className="btn btn-ghost" onClick={() => setConfirmDelete(true)}>Delete project and data</button>}</>}</details>}
       </>}
-      {view === 'analyze' && <section className="card workspace-account">
+      {view === 'analyze' && !canManage && <p className="evidence-summary">This account is read-only. Ask an administrator to enable project analysis.</p>}
+      {view === 'analyze' && canManage && <section className="card workspace-account">
         <h2>Review a code change</h2>
         <form className="workspace-form" onSubmit={e => { e.preventDefault(); analyze(); }}>
           <label>

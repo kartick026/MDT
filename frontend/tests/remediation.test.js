@@ -76,7 +76,7 @@ test('legacy recommendations resolve a singular finding id for a meaningful titl
 
 test('actual preview component renders a neutral verdict, named findings and collapsed details', async () => {
   const { createServer } = await import('vite');
-  const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+  const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
   try {
     const { default: Preview, ProposedChange } = await server.ssrLoadModule('/src/components/RemediationPreview.jsx');
     const { renderToStaticMarkup } = await import('react-dom/server');

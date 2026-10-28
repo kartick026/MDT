@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupRelations, relationDescription } from '../src/utils/graphRelations.js';
-import { edgeLabel } from '../src/utils/graphLayout.js';
+import { groupRelations, relationDescription, endpointRoutes, edgeBadgeLines } from '../src/utils/graphRelations.js';
+import { edgeLabel, edgeBadgeMetrics } from '../src/utils/graphLayout.js';
 
 test('connection view preserves endpoint, method and provenance records without changing the snapshot', () => {
   const edges = [
@@ -30,4 +30,33 @@ test('connection grouping retains self loops, unresolved evidence, broken record
   assert.equal(grouped[2].has_bug,true);
   assert.match(relationDescription(grouped[0]),/endpoint not observed/);
   assert.deepEqual(groupRelations([]),[]);
+});
+
+test('endpoint labels expose grouped methods and paths while retaining broken warnings', () => {
+  const edges = [
+    {from:'web',to:'api',type:'http',method:'GET',endpoint:'/users'},
+    {from:'web',to:'api',type:'http',method:'POST',endpoint:'/users',has_bug:true},
+    {from:'web',to:'api',type:'startup'},
+  ];
+  const original = JSON.stringify(edges), [connection] = groupRelations(edges);
+  assert.deepEqual(edgeBadgeLines(connection), ['⚠ BROKEN LINK']);
+  assert.deepEqual(endpointRoutes(connection), ['GET /users', 'POST /users']);
+  assert.deepEqual(edgeBadgeLines(connection, true), ['⚠ BROKEN LINK', '3 relations', 'GET /users', 'POST /users']);
+  assert.deepEqual(edgeBadgeLines({...edges[1]}, true), ['⚠ BROKEN LINK', 'POST /users']);
+  assert.deepEqual(endpointRoutes({type:'startup'}), []);
+  assert.deepEqual(endpointRoutes({endpoint:'   '}), []);
+  assert.equal(JSON.stringify(edges), original);
+});
+
+test('long and numerous routes fit the reserved badge with remaining routes inspectable', () => {
+  const relations = Array.from({length:5}, (_,i) => ({from:'a',to:'b',method:'GET',endpoint:`/route/${i}/` + 'long'.repeat(15)}));
+  const [connection] = groupRelations([...relations, {...relations[0], source_file:'another.py'}]);
+  const metrics = edgeBadgeMetrics({...connection, endpointLabels:true});
+  assert.equal(metrics.lines[0], '6 relations');
+  assert.equal(metrics.lines.at(-1), '+2 more routes');
+  assert.equal(metrics.lines.length, 5);
+  assert.ok(metrics.lines.every(line => line.length <= 34));
+  assert.equal(endpointRoutes(connection).length, 5);
+  assert.equal(connection.relations.length, 6);
+  assert.ok(metrics.height >= metrics.lines.length * 16);
 });

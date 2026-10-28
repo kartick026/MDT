@@ -6,6 +6,7 @@ from typing import List, Union
 import logging
 import os
 import secrets
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,16 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
     RUNTIME_PROFILE: str = "local"  # local full stack or hosted deterministic alpha
-    DATABASE_URL: str = ""  # PostgreSQL in hosted mode; SQLite under data/ locally
+    DATABASE_URL: str = ""  # PostgreSQL in hosted or connected mode; SQLite under data/ locally
+    NEON_AUTH_URL: str = ""
+    NEON_JWKS_URL: str = ""
     MAX_REQUEST_BYTES: int = 5 * 1024 * 1024
     MAX_PROJECTS_PER_USER: int = 5
     MAX_ACTIVE_JOBS_PER_USER: int = 2
     MAX_JOBS_PER_DAY: int = 30
     JOB_TIMEOUT_SECONDS: int = 180
-    JOB_RETENTION_DAYS: int = 30
+    # Disabled by default: saved analyses, snapshots and reviews remain indefinitely.
+    JOB_RETENTION_DAYS: int = Field(default=0, ge=0)
     # Repository imports stay bounded; coverage records the actual scan budgets.
     REPO_SOURCE_MAX_FILES: int = Field(default=500, ge=1, le=5000)
     REPO_SOURCE_MAX_TOTAL_BYTES: int = Field(default=8 * 1024 * 1024, ge=256 * 1024, le=64 * 1024 * 1024)
@@ -40,6 +44,7 @@ class Settings(BaseSettings):
         description="JWT symmetric signing key (minimum 32 characters in production)"
     )
     JWT_ALGORITHM: str = "HS256"
+    JWT_SECRET_FILE: str = str(Path(__file__).resolve().parent.parent / 'data' / 'jwt-signing.key')
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=5, le=1440)
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
@@ -113,6 +118,11 @@ class Settings(BaseSettings):
     SMELL_DEPENDENCY_GROWTH_THRESHOLD: int = 3
     SMELL_API_CHURN_THRESHOLD: int = 3
 
+    @property
+    def self_service_account_role(self) -> str:
+        """Local self-service users can work on their own projects; hosted stays invited."""
+        return 'analyst' if self.RUNTIME_PROFILE == 'local' and self.ALLOW_SELF_SIGNUP else 'viewer'
+
     @field_validator("OPENAI_API_KEY")
     @classmethod
     def validate_api_key(cls, v: str) -> str:
@@ -172,8 +182,12 @@ class Settings(BaseSettings):
                     f"[{env_clean.upper()}] Deployment configuration must set a secure JWT_SECRET_KEY (min 32 characters). "
                     f"Insecure default or empty key is strictly rejected."
                 )
-            self.JWT_SECRET_KEY = secrets.token_urlsafe(32)
-            logger.warning("JWT_SECRET_KEY not set or using insecure default. Generated ephemeral development key.")
+            if os.environ.get('TESTING', '').lower() in {'1', 'true'}:
+                self.JWT_SECRET_KEY = secrets.token_urlsafe(32)
+            else:
+                from core.local_secrets import local_signing_key
+                self.JWT_SECRET_KEY = local_signing_key(self.JWT_SECRET_FILE)
+                logger.warning('JWT_SECRET_KEY not configured; using the persistent local development key.')
         elif is_prod and len(current_jwt) < 32:
             raise ValueError(
                 f"[{env_clean.upper()}] JWT_SECRET_KEY must be at least 32 characters long in production (got {len(current_jwt)})."

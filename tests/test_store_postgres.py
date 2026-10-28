@@ -273,3 +273,21 @@ def test_postgres_baseline_delete_and_finish_leave_no_orphaned_capture(pg_case):
     assert s.snapshot_metadata(project, owner) == []
     assert s.get("baseline", project, owner) is None
     assert s.list_jobs(owner)["total"] == 0
+
+
+def test_postgres_legacy_restore_and_provider_binding_preserve_data(pg_case, tmp_path):
+    from scripts.restore_legacy_store import restore_legacy
+    target = pg_case.store
+    legacy = Store(str(tmp_path / 'legacy.sqlite3'))
+    legacy.put('project', pg_case.project, pg_case.owner, {'id': pg_case.project, 'ready': True})
+    ident = legacy.enqueue(pg_case.owner, pg_case.project, {})
+    legacy.finish(legacy.claim(), {'risk_score': None, 'architecture_smell_score': 0})
+    assert restore_legacy(legacy.path, target, apply=True)['added']['jobs'] == 1
+    assert Store(target.url).job(ident, pg_case.owner)['result']['risk_score'] is None
+    assert restore_legacy(legacy.path, target, apply=True)['added'] == {'records': 0, 'jobs': 0}
+    target.create_account('existing-provider-user', {'email': 'owner@example.com', 'provider': 'google', 'role': 'analyst'})
+    def bind(_):
+        return target.neon_account('https://provider.example', 'same-subject', {'email': 'owner@example.com'})['username']
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        assert set(pool.map(bind, range(10))) == {'existing-provider-user'}
+    assert target.get('account', 'existing-provider-user', 'auth')['role'] == 'analyst'

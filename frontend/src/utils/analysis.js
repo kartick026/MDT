@@ -13,6 +13,22 @@ export function formatScore(value) {
     : 'Unavailable';
 }
 
+export function historyScoreSummary(item = {}) {
+  const risk = numericScore(item.risk_score);
+  const debt = numericScore(item.architecture_smell_score);
+  const pending = ['queued', 'running'].includes(item.status);
+  return {
+    risk: risk === null && pending ? 'Pending' : risk === null && item.kind === 'import' ? 'Not assessed' : formatScore(risk),
+    riskReason: pending && risk === null ? 'Analysis is processing; a score is not available yet.'
+      : risk === null ? (item.kind === 'import' ? 'Topology import; no commit change was analyzed.' : 'No risk score was produced for this run.')
+      : item.partial_results ? 'Calculated from limited evidence.' : 'Engineering indicator; not an incident probability.',
+    debt: debt === null && pending ? 'Pending' : formatScore(debt),
+    debtReason: pending && debt === null ? 'Analysis is processing; a score is not available yet.'
+      : debt === null ? 'No structural assessment was produced.' : debt === 0 ? 'No findings recorded in the captured evidence.'
+      : item.partial_results ? 'Recorded debt from limited evidence.' : 'Recorded structural debt.',
+  };
+}
+
 export function architectureSummary(result = {}) {
   const health = result.architecture_health || {};
   const score = numericScore(result.architecture_smell_score ?? health.score);

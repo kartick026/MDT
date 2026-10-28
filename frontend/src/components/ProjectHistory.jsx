@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
+import { ArrowUpRight } from 'lucide-react';
 import { listAnalyses, listProjects } from '../api';
 import { useAuth } from '../context/useAuth';
-import { formatScore, scoreDelta, readRoute, routeHash } from '../utils/analysis';
+import { formatScore, historyScoreSummary, scoreDelta, readRoute, routeHash } from '../utils/analysis';
 import CustomSelect from './CustomSelect';
 
 
@@ -218,21 +219,23 @@ export default function ProjectHistory({ onSignIn }) {
             {!loading && !!data?.analyses?.length && (
               <div className="table-scroll">
                 <table className="history-table">
-                  <caption>Select any 2 completed analyses to compare scores and structural debt.</caption>
+                  <caption>Select any 2 completed change analyses to compare. Topology imports assess structural debt only; zero means no findings in the captured evidence.</caption>
                   <thead>
                     <tr>
                       <th scope="col" style={{ width: '60px' }}>Compare</th>
                       <th scope="col">Project / Revision</th>
                       <th scope="col">Status</th>
-                      <th scope="col">Risk / Debt</th>
+                      <th scope="col">Commit risk</th>
+                      <th scope="col">Structural debt</th>
                       <th scope="col">Date</th>
-                      <th scope="col" style={{ width: '80px' }}>Action</th>
+                      <th scope="col" style={{ width: '100px', minWidth: '96px', textAlign: 'center' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.analyses.map(item => {
                       const isSelected = selected.some(entry => entry.id === item.id);
                       const isSelectable = ['succeeded', 'partial'].includes(item.status) && item.kind !== 'import';
+                      const scores = historyScoreSummary(item);
                       return (
                         <tr key={item.id} className={isSelected ? 'selected-row' : ''}>
                           <td>
@@ -263,17 +266,22 @@ export default function ProjectHistory({ onSignIn }) {
                             )}
                           </td>
                           <td>
-                            <strong>{formatScore(item.risk_score)}</strong>
-                            <span className="text-dim"> / </span>
-                            <span style={{ color: 'var(--cyan)' }}>{formatScore(item.architecture_smell_score)}</span>
+                            <strong>{scores.risk}</strong>
+                            <small className="history-score-note">{scores.riskReason}</small>
+                          </td>
+                          <td>
+                            <strong style={{ color: 'var(--cyan)' }}>{scores.debt}</strong>
+                            <small className="history-score-note">{scores.debtReason}</small>
                           </td>
                           <td>{formatDate(item.created)}</td>
-                          <td>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                             <a
                               href={routeHash('projects', { projectId: item.project, jobId: item.id })}
-                              className="btn btn-ghost btn-sm"
+                              className="btn btn-ghost btn-sm history-open-btn"
+                              aria-label={`Open analysis for ${item.project_name || 'project'}`}
                             >
-                              Open
+                              <span>Open</span>
+                              <ArrowUpRight size={13} aria-hidden="true" style={{ opacity: 0.75 }} />
                             </a>
                           </td>
                         </tr>

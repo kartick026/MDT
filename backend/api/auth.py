@@ -18,7 +18,7 @@ from core.auth import (
 )
 from core.config import settings
 from core.utils import check_rate_limit
-from schemas.auth import Token, UserLogin, UserOut, UserRegistration
+from schemas.auth import Token, UserLogin, UserOut, UserRegistration, OAuthLoginRequest, SessionVerifierRequest
 
 router = APIRouter()
 logger = logging.getLogger("mdt.api.auth")
@@ -62,16 +62,16 @@ def login_json(credentials: UserLogin, request: Request):
     return _issue_token(user)
 
 
-@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED, summary="Create a viewer account")
+@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED, summary="Create a self-service account")
 def register(credentials: UserRegistration, request: Request):
-    """Create a self-service read-only account and start a session."""
+    """Use the deployment's self-service role, never a client-supplied privilege."""
     if not settings.ALLOW_SELF_SIGNUP:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Self-service signup is disabled.")
     client_ip = request.client.host if request.client else "unknown"
     if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="signup"):
         raise HTTPException(status_code=429, detail="Too many signup attempts")
     try:
-        user = register_user(credentials.username, credentials.password)
+        user = register_user(credentials.username, credentials.password, role=settings.self_service_account_role)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -135,3 +135,37 @@ def invite(credentials: UserRegistration, current_user: UserOut = Depends(requir
         return register_user(credentials.username, credentials.password, role="analyst")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/oauth/config", summary="Public provider configuration")
+def oauth_config():
+    return {"auth_url": settings.NEON_AUTH_URL.rstrip("/"),
+            "enabled": bool(settings.NEON_AUTH_URL and settings.NEON_JWKS_URL)}
+
+
+@router.post("/oauth-login", response_model=Token, summary="Exchange a verified Neon JWT")
+def oauth_login(payload: OAuthLoginRequest, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="oauth"):
+        raise HTTPException(429, "Too many login attempts", headers={"Retry-After": "60"})
+    from core.neon_auth import verified_neon_identity
+    from core.store import get_store
+    issuer, subject, profile = verified_neon_identity(payload.id_token)
+    account = get_store().neon_account(issuer, subject, profile)
+    if not account.get("is_active", True):
+        raise HTTPException(403, "Account is unavailable")
+    return _issue_token(UserOut(username=account["username"], role=account.get("role", "viewer"), is_active=True))
+
+
+@router.post("/verify-neon-session", response_model=Token, deprecated=True)
+def verify_neon_session(payload: SessionVerifierRequest):
+    # Verifiers must be exchanged by the provider SDK with its challenge cookie.
+    # Database timestamp coincidence is not proof of session ownership.
+    raise HTTPException(410, "Use the Neon SDK and exchange its signed token at /auth/oauth-login")
+
+
+@router.get("/oauth/neon-url", deprecated=True)
+def get_neon_oauth_url():
+    # Starting social sign-in in the browser lets the provider set its HttpOnly
+    # challenge cookie. A backend-only redirect request loses that binding.
+    raise HTTPException(410, "Start social sign-in with the Neon SDK using /auth/oauth/config")

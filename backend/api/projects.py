@@ -139,11 +139,24 @@ def _analyst(user):
     return user.username
 
 
-def _project(ident, owner):
-    project = get_store().get("project", ident, owner)
+def _project(ident, owner, user=None):
+    store = get_store()
+    project = store.get("project", ident, owner)
     if not project:
         raise HTTPException(404, "Project not found")
     return project
+
+
+def _resource_owner(ident, user, *, job=False, write=False):
+    """Global administrators act on the actual owner; names confer no privileges."""
+    if write:
+        _analyst(user)
+    query = 'SELECT owner FROM jobs WHERE id=?' if job else "SELECT owner FROM records WHERE kind='project' AND id=?"
+    with get_store().connection() as db:
+        row = db.execute(query, (ident,)).fetchone()
+    if not row or (row['owner'] != user.username and getattr(user, 'role', '') != 'admin'):
+        raise HTTPException(404, 'Analysis not found' if job else 'Project not found')
+    return row['owner']
 
 
 def _public_project(project):
@@ -151,7 +164,8 @@ def _public_project(project):
 
 
 def _captured_snapshot(project, version, owner):
-    record = get_store().get("snapshot", project["id"] + ":" + version, owner)
+    store = get_store()
+    record = store.get("snapshot", project["id"] + ":" + version, owner)
     if record:
         return record
     # Read compatibility for projects imported before immutable archives existed.
@@ -207,7 +221,12 @@ def public_demo():
 
 @router.get("/projects")
 def list_projects(user=Depends(get_current_user)):
-    return {"projects": [_public_project(p) for p in get_store().list("project", _owner(user))]}
+    store = get_store()
+    if getattr(user, "role", "") == "admin":
+        with store.connection() as db:
+            rows = db.execute("SELECT payload FROM records WHERE kind='project' ORDER BY created DESC").fetchall()
+            return {"projects": [_public_project(json.loads(row["payload"])) for row in rows]}
+    return {"projects": [_public_project(p) for p in store.list("project", _owner(user))]}
 
 
 @router.post("/projects", status_code=201)
@@ -240,12 +259,12 @@ def create_project(body: ProjectCreate, user=Depends(get_current_user)):
 
 @router.get("/projects/{project_id}")
 def read_project(project_id: str, user=Depends(get_current_user)):
-    return _project(project_id, _owner(user))
+    return _project(project_id, _resource_owner(project_id, user, job=False, write=False))
 
 
 @router.get("/projects/{project_id}/snapshots")
 def list_snapshots(project_id: str, user=Depends(get_current_user)):
-    owner = _owner(user)
+    owner = _resource_owner(project_id, user, job=False, write=False)
     project = _project(project_id, owner)
     store = get_store()
     baseline = store.get("baseline", project_id, owner)
@@ -265,7 +284,7 @@ def list_snapshots(project_id: str, user=Depends(get_current_user)):
 
 @router.put("/projects/{project_id}/baseline")
 def select_baseline(project_id: str, body: BaselineInput, user=Depends(get_current_user)):
-    owner = _analyst(user)
+    owner = _resource_owner(project_id, user, job=False, write=True)
     try:
         return get_store().set_project_baseline(project_id, owner, body.snapshot_version)
     except ProjectNotFound as exc:
@@ -277,7 +296,7 @@ def select_baseline(project_id: str, body: BaselineInput, user=Depends(get_curre
 @router.get("/projects/{project_id}/drift")
 def project_drift(project_id: str, base_version: str | None = Query(default=None, max_length=100),
                   target_version: str | None = Query(default=None, max_length=100), user=Depends(get_current_user)):
-    owner = _owner(user)
+    owner = _resource_owner(project_id, user, job=False, write=False)
     project = _project(project_id, owner)
     if base_version is None:
         baseline = get_store().get("baseline", project_id, owner)
@@ -297,14 +316,14 @@ def project_drift(project_id: str, base_version: str | None = Query(default=None
 
 @router.delete("/projects/{project_id}", status_code=204)
 def delete_project(project_id: str, user=Depends(get_current_user)):
-    owner = _analyst(user)
+    owner = _resource_owner(project_id, user, job=False, write=True)
     _project(project_id, owner)
     get_store().delete_project(project_id, owner)
 
 
 @router.get("/projects/{project_id}/policies")
 def read_policies(project_id: str, user=Depends(get_current_user)):
-    owner = _owner(user)
+    owner = _resource_owner(project_id, user, job=False, write=False)
     project = _project(project_id, owner)
     rules = (get_store().get("policy", project_id, owner) or {}).get("rules", [])
     return {"rules": rules, "evaluation": evaluate_policies(project["snapshot"], rules)}
@@ -312,7 +331,7 @@ def read_policies(project_id: str, user=Depends(get_current_user)):
 
 @router.put("/projects/{project_id}/policies")
 def save_policies(project_id: str, body: PolicyInput, user=Depends(get_current_user)):
-    owner = _analyst(user)
+    owner = _resource_owner(project_id, user, job=False, write=True)
     project = _project(project_id, owner)
     rules = [rule.model_dump() for rule in body.rules]
     data = {"rules": rules, "version": policy_version(rules), "updated_at": time.time()}
@@ -325,7 +344,7 @@ def save_policies(project_id: str, body: PolicyInput, user=Depends(get_current_u
 
 @router.post("/projects/{project_id}/analyses", status_code=202)
 def submit_analysis(project_id: str, body: AnalysisInput, user=Depends(get_current_user), idempotency_key: str | None = Header(default=None, max_length=200)):
-    owner = _analyst(user)
+    owner = _resource_owner(project_id, user, job=False, write=True)
     project = _project(project_id, owner)
     if body.source != "import" and not project["ready"]:
         raise HTTPException(409, "Wait for architecture import to finish")
@@ -354,15 +373,15 @@ def list_analyses(project_id: str | None = Query(default=None, max_length=100),
                   status: Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"] | None = None,
                   q: str = Query(default="", max_length=200), limit: int = Query(default=20, ge=1, le=100),
                   offset: int = Query(default=0, ge=0, le=100000), user=Depends(get_current_user)):
-    owner = _owner(user)
-    if project_id:
-        _project(project_id, owner)
+    owner = _resource_owner(project_id, user) if project_id else _owner(user)
+    if not project_id and getattr(user, "role", "") == "admin":
+        owner = None
     return get_store().list_jobs(owner, project_id, status, q.strip(), limit, offset)
 
 
 @router.get("/analyses/{job_id}/snapshot")
 def get_analysis_snapshot(job_id: str, user=Depends(get_current_user)):
-    owner = _owner(user)
+    owner = _resource_owner(job_id, user, job=True, write=False)
     job = get_store().job(job_id, owner)
     result = job.get("result") if job else None
     if not result:
@@ -376,7 +395,7 @@ def get_analysis_snapshot(job_id: str, user=Depends(get_current_user)):
 
 @router.get("/analyses/{job_id}/reviews")
 def finding_reviews(job_id: str, user=Depends(get_current_user)):
-    store, owner = get_store(), _owner(user)
+    store, owner = get_store(), _resource_owner(job_id, user, job=True, write=False)
     job = store.job(job_id, owner)
     if not job:
         raise HTTPException(404, "Analysis not found")
@@ -387,7 +406,7 @@ def finding_reviews(job_id: str, user=Depends(get_current_user)):
 
 @router.put("/analyses/{job_id}/reviews/{finding_id}")
 def review_finding(job_id: str, finding_id: str, body: FindingReviewInput, user=Depends(get_current_user)):
-    store, owner = get_store(), _analyst(user)
+    store, owner = get_store(), _resource_owner(job_id, user, job=True, write=True)
     job = store.job(job_id, owner)
     if not job:
         raise HTTPException(404, "Analysis not found")
@@ -397,7 +416,7 @@ def review_finding(job_id: str, finding_id: str, body: FindingReviewInput, user=
         raise HTTPException(404, "Finding not present in this saved analysis")
     now = time.time()
     record = {"analysis_id": job_id, "finding_id": finding_id, "classification": body.classification,
-              "reason": body.reason, "reviewed_by": owner, "updated_at": now,
+              "reason": body.reason, "reviewed_by": user.username, "updated_at": now,
               "expires_at": now + body.expires_days * 86400, "score_effect": "none"}
     try:
         store.put_project_record("finding_review:" + job_id, job_id + ":" + finding_id, owner, job["project"], record)
@@ -409,7 +428,7 @@ def review_finding(job_id: str, finding_id: str, body: FindingReviewInput, user=
 @router.get("/jobs/{job_id}")
 @router.get("/analyses/{job_id}")
 def get_job(job_id: str, user=Depends(get_current_user)):
-    job = get_store().job(job_id, _owner(user))
+    job = get_store().job(job_id, _resource_owner(job_id, user, job=True, write=False))
     if not job:
         raise HTTPException(404, "Analysis not found")
     _expose_captured_coverage(job)
@@ -431,7 +450,7 @@ def _expose_captured_coverage(job):
 
 @router.delete("/jobs/{job_id}")
 def cancel_job(job_id: str, user=Depends(get_current_user)):
-    owner = _analyst(user)
+    owner = _resource_owner(job_id, user, job=True, write=True)
     job = get_store().cancel(job_id, owner)
     if not job:
         raise HTTPException(404, "Analysis not found")
@@ -441,7 +460,7 @@ def cancel_job(job_id: str, user=Depends(get_current_user)):
 
 @router.post("/analyses/{job_id}/previews")
 async def preview(job_id: str, body: PreviewInput, user=Depends(get_current_user)):
-    owner = _analyst(user)
+    owner = _resource_owner(job_id, user, job=True, write=True)
     job = await asyncio.to_thread(get_store().job, job_id, owner)
     if not job or not job.get("result") or job["result"].get("kind") == "import":
         raise HTTPException(404, "Completed analysis not found")

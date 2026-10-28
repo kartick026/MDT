@@ -15,7 +15,7 @@ const Diagnostics = lazy(() => import('./components/Diagnostics'));
 const LoginModal = lazy(() => import('./components/LoginModal'));
 
 function MainDashboard() {
-  const { user, isAuthenticated, loginModalOpen } = useAuth();
+  const { user, isAuthenticated, loginModalOpen, sessionError } = useAuth();
   const [route, setRoute] = useState(() => readRoute(location.hash));
   const [diagnostics, setDiagnostics] = useState(false);
   useEffect(() => {
@@ -39,6 +39,7 @@ function MainDashboard() {
       <a className="session-label" href={routeHash('account', route)}><span className="session-avatar"><UserRound size={18} aria-hidden="true" /></span><span>{isAuthenticated ? user.username : 'Guest workspace'}<small>{isAuthenticated ? 'Manage your account' : 'Sign in to save projects'}</small></span></a>
     </header>
     <main id="main-content" className="content" tabIndex={-1}>
+      {sessionError && <p className="form-error" role="status">{sessionError}</p>}
       <ErrorBoundary key={route.tab}><Suspense fallback={<p role="status">Loading view…</p>}>
         {route.tab === 'projects' && <Workspace onSignIn={() => navigate('account')} />}
         {route.tab === 'history' && <History onSignIn={() => navigate('account')} />}

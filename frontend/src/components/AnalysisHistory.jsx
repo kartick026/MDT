@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getHistory } from '../api';
-import { downloadAnalysis, formatScore } from '../utils/analysis';
+import { downloadAnalysis, formatScore, numericScore } from '../utils/analysis';
 
 const RISK_COLORS = {
   LOW: 'var(--green)', MEDIUM: 'var(--yellow)', HIGH: 'var(--orange)', CRITICAL: 'var(--red)',
@@ -50,8 +50,8 @@ export default function AnalysisHistory() {
 
       <div className="history-list">
         {history.map((item, i) => {
-          const score  = item.risk_score ?? 0;
-          const level  = (item.risk_level || item.severity || 'LOW').toUpperCase();
+          const score  = numericScore(item.risk_score);
+          const level  = (score === null ? 'UNKNOWN' : item.risk_level || item.severity || 'UNKNOWN').toUpperCase();
           const color  = RISK_COLORS[level] || 'var(--text-faint)';
           const icon   = RISK_ICONS[level]  || '⚪';
           const repoName = item.repo_url

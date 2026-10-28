@@ -179,7 +179,7 @@ export default function SystemHealthModal({ isOpen, onClose }) {
             <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div>Indexed Semantic Chunks: <strong style={{ color: '#00ff88' }}>{health?.chroma_indexed_chunks ?? 0} Chunks</strong></div>
               <div>Client Mode: <strong style={{ color: '#cbd5e1' }}>{chromaDetails.mode || 'Unavailable'}</strong></div>
-              <div>Heartbeat: <strong style={{ color: '#00d4ff' }}>Active (Auto-recovered)</strong></div>
+              <div>Heartbeat: <strong style={{ color: '#00d4ff' }}>{chromaDetails.connected ? 'Active' : 'Unavailable'}</strong></div>
             </div>
           </div>
 
@@ -199,13 +199,13 @@ export default function SystemHealthModal({ isOpen, onClose }) {
                 color: llmDetails.configured ? '#c084fc' : '#fbbf24',
                 border: `1px solid ${llmDetails.configured ? 'rgba(168, 85, 247, 0.3)' : 'rgba(251, 191, 36, 0.3)'}`
               }}>
-                {llmDetails.status === 'ready' ? 'Ready' : 'Fallback Mode'}
+                {llmDetails.configured ? 'Configured · availability unverified' : 'Deterministic fallback'}
               </span>
             </div>
             <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div>Primary Model: <strong style={{ color: '#c084fc' }}>{llmDetails.model || 'gemini-3.8-flash'}</strong></div>
-              <div>Fallback Chain: <strong style={{ color: '#cbd5e1' }}>3.7 Flash → 2.5 Lite → Deterministic</strong></div>
-              <div>Provider: <strong style={{ color: '#00d4ff' }}>Google Generative AI</strong></div>
+              <div>Fallback: <strong style={{ color: '#cbd5e1' }}>Deterministic explanation</strong></div>
+              <div>Saved project analyses: <strong style={{ color: '#00d4ff' }}>Deterministic · no external model calls</strong></div>
             </div>
           </div>
 

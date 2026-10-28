@@ -2151,6 +2151,9 @@ summary:focus-visible {
 .table-scroll { overflow-x: auto; }
 .history-table { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; }
 .history-table th, .history-table td { padding: 14px 12px; border-bottom: 1px solid var(--border); }
+.history-table th:last-child, .history-table td:last-child { text-align: center; width: 100px; min-width: 96px; white-space: nowrap; }
+.history-table .btn, .history-table a.btn { white-space: nowrap !important; }
+.btn-sm { min-height: 32px !important; padding: 5px 14px !important; font-size: 12px !important; line-height: 1.2 !important; border-radius: 8px !important; white-space: nowrap !important; }
 .history-table caption { text-align: left; color: var(--text-dim); padding: 12px 0; }
 .history-table small { display: block; color: var(--text-dim); margin-top: 6px; }
 .history-table input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--cyan); }

@@ -4,6 +4,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { layoutGraph } from '../src/utils/graphLayoutEngine.js';
 import { fitGraph } from '../src/utils/graphLayout.js';
 import { groupRelations } from '../src/utils/graphRelations.js';
+import { edgeBadgeMetrics } from '../src/utils/graphLayout.js';
 
 const intersects = (a,b) => a.x < b.x+b.w-0.01 && a.x+a.w > b.x+0.01 && a.y < b.y+b.h-0.01 && a.y+a.h > b.y+0.01;
 
@@ -56,6 +57,27 @@ function routeCrossings(layout) {
   }
   return {overlapping_edge_segments:overlaps,edge_crossings:crossings};
 }
+
+test('enabled endpoint badges reserve space for grouped and broken route labels', async () => {
+  const nodes = ['web','api','missing'].map(id => ({id,label:id}));
+  const captured = [
+    {from:'web',to:'api',method:'GET',endpoint:'/users'},
+    {from:'web',to:'api',method:'POST',endpoint:'/users'},
+    {from:'web',to:'api',type:'startup'},
+    {from:'api',to:'missing',method:'GET',endpoint:'/missing',has_bug:true},
+  ];
+  for (const grouped of [captured, groupRelations(captured)]) for (const direction of ['DOWN','RIGHT']) {
+    const edges = grouped.map(edge => ({...edge,endpointLabels:true}));
+    const layout = await layoutGraph(nodes, edges, direction);
+    verify(layout,nodes,edges);
+    edges.forEach((edge,i) => {
+      const metrics = edgeBadgeMetrics(edge), label = layout.routes[i].label;
+      if (!metrics.lines.length) return;
+      assert.equal(label.width, metrics.width);
+      assert.equal(label.height, metrics.height);
+    });
+  }
+});
 
 test('renaming services leaves geometry unchanged, including reverse edges, loops and parallel relations', async()=>{
   const nodes=['user-service','order-service','notification-service'].map(id=>({id,label:'same width'}));

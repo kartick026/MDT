@@ -9,7 +9,7 @@ const api = axios.create({ baseURL: BASE, timeout: 60000, withCredentials: true 
 // A future same-origin BFF can use HttpOnly sessions; sessionStorage is still XSS-readable.
 api.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('mdt_token');
-  attachSession(config.headers, token);
+  if (!config.skipSession) attachSession(config.headers, token);
   return config;
 }, (error) => Promise.reject(error));
 
@@ -31,10 +31,10 @@ api.interceptors.response.use(
 
 // Auth endpoints
 export const loginUser = (username, password) =>
-  api.post('/auth/login', { username, password }).then(r => r.data);
+  api.post('/auth/login', { username, password }, { skipSession: true }).then(r => r.data);
 
 export const registerUser = (username, password) =>
-  api.post('/auth/register', { username, password }).then(r => r.data);
+  api.post('/auth/register', { username, password }, { skipSession: true }).then(r => r.data);
 
 export const getCurrentUser = () =>
   api.get('/auth/me').then(r => r.data);
@@ -44,6 +44,11 @@ export const refreshToken = () =>
 
 export const revokeSession = token =>
   api.post('/auth/logout', {}, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.data);
+
+export const getOAuthConfig = () => api.get('/auth/oauth/config').then(r => r.data);
+
+export const loginWithOAuth = (payload) =>
+  api.post('/auth/oauth-login', payload, { skipSession: true }).then(r => r.data);
 
 export const listProjects = (options = {}) => api.get('/v1/projects', options).then(r => r.data.projects || []);
 export const getProject = (id, options = {}) => api.get(`/v1/projects/${encodeURIComponent(id)}`, options).then(r => r.data);

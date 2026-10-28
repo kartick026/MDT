@@ -1,4 +1,4 @@
-import { NODE_H, getNodeWidth, edgeLabel, sectionGeometry } from './graphLayout.js';
+import { NODE_H, getNodeWidth, edgeLabel, edgeBadgeMetrics, sectionGeometry } from './graphLayout.js';
 
 export function layoutRequest(nodes, edges, direction = 'DOWN') {
   const ids = new Set(nodes.map(n=>n.id));
@@ -20,7 +20,7 @@ export function layoutRequest(nodes, edges, direction = 'DOWN') {
     },
     children:nodes.map(n=>({id:internalIds.get(n.id),width:getNodeWidth(n.label||n.id),height:NODE_H})),
     edges:validEdges.map(e=>({id:`edge-${e.index}`,sources:[internalIds.get(e.from)],targets:[internalIds.get(e.to)],
-      labels:edgeLabel(e) ? [{text:edgeLabel(e),width:edgeLabel(e).length*6.8+20,height:24,
+      labels:edgeLabel(e) ? [{text:edgeLabel(e),width:edgeBadgeMetrics(e).width,height:edgeBadgeMetrics(e).height,
         layoutOptions:{'elk.edgeLabels.placement':'CENTER'}}] : []})),
   };
 }

@@ -162,7 +162,8 @@ def test_expired_lease_cannot_publish_after_job_is_reclaimed(store):
     assert store.job(ident, "alice")["result"] == {"result": "current"}
 
 
-def test_revocation_retention_uses_expiry_not_record_age(store):
+def test_revocation_retention_uses_expiry_not_record_age(store, monkeypatch):
+    monkeypatch.setattr(settings, 'JOB_RETENTION_DAYS', 30)
     store.put("revoked", "long-session", "auth", {"expires": time.time() + 30 * 86400})
     store.put("revoked", "expired-session", "auth", {"expires": time.time() - 1})
     with store.connection(write=True) as db:
