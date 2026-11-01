@@ -1,10 +1,13 @@
 # Microservice Drift Tracker (MDT)
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Render-46E3B7.svg?logo=render)](https://mdt-br50.onrender.com/)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/Frontend-React%2019%20%2B%20Vite-61DAFB.svg?logo=react)](https://react.dev/)
 [![Neo4j](https://img.shields.io/badge/Local%20Graph-Neo4j%205-008CC1.svg?logo=neo4j)](https://neo4j.com/)
 [![ChromaDB](https://img.shields.io/badge/Local%20VectorDB-ChromaDB-FF6B6B.svg)](https://www.trychroma.com/)
 [![Docker](https://img.shields.io/badge/Orchestration-Docker%20Compose-2496ED.svg?logo=docker)](https://www.docker.com/)
+
+> 🌐 **Live Application:** [https://mdt-br50.onrender.com/](https://mdt-br50.onrender.com/)
 
 MDT is an academic alpha for cross-service change impact and architectural-debt analysis. It connects exact Git revisions or deliberately submitted source snapshots to a service graph, explains the available evidence, and evaluates proposed graph edits. Scores are engineering indicators, not calibrated incident probabilities or guarantees that a deployment is safe.
 
@@ -35,13 +38,15 @@ If configuration is needed, copy `backend/.env.example` to `backend/.env`, then 
 
 The root `render.yaml` builds `Dockerfile.render`, which serves the React site and hosted API from one HTTPS origin. Neon PostgreSQL retains projects/history and supplies the verified Google identities. The blueprint keeps automatic deployment off and saved-history retention disabled. Follow [the deployment guide](docs/RENDER_NEON_PUBLICATION.md) to supply private settings, replace Google's shared development keys, and register the final Render domain in Neon. Preparing these files does not push or publish the repository.
 
-| Local service | Address |
-| --- | --- |
-| Web UI | http://localhost:5173 |
-| API and interactive OpenAPI reference | http://localhost:8000/docs |
-| Neo4j browser | http://localhost:7474 |
-| ChromaDB | http://localhost:8005 |
-| Four runnable example services | Ports 8001–8004 |
+| Service | Environment | Address |
+| --- | --- | --- |
+| **Hosted App** | **Render (Live)** | [https://mdt-br50.onrender.com/](https://mdt-br50.onrender.com/) |
+| **Hosted API Docs** | **Render (Live)** | [https://mdt-br50.onrender.com/docs](https://mdt-br50.onrender.com/docs) |
+| Local Web UI | Development | http://localhost:5173 |
+| Local API & OpenAPI reference | Development | http://localhost:8000/docs |
+| Local Neo4j browser | Development | http://localhost:7474 |
+| Local ChromaDB | Development | http://localhost:8005 |
+| Four runnable example services | Development | Ports 8001–8004 |
 
 To rebuild only the application while keeping the existing databases and demo services:
 
