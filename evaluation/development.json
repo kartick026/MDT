@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "split": "development",
+  "provenance": {
+    "kind": "assistant_authored_synthetic_controls",
+    "independent": false,
+    "reviewers": [],
+    "note": "Regression controls, not human ground truth or held-out repository accuracy."
+  },
+  "cases": [
+    {
+      "id": "python-comment",
+      "family": "semantic_change",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "app.py",
+          "old_content": "x = 1\n",
+          "new_content": "# explanation\nx = 1\n"
+        }
+      ]
+    },
+    {
+      "id": "python-body",
+      "family": "semantic_change",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "app.py",
+          "old_content": "def f():\n return 1\n",
+          "new_content": "def f():\n return 2\n"
+        }
+      ]
+    },
+    {
+      "id": "ts-comment",
+      "family": "semantic_change",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "app.ts",
+          "old_content": "export const value = 1;",
+          "new_content": "// comment\nexport const value = 1;"
+        }
+      ]
+    },
+    {
+      "id": "ts-value",
+      "family": "semantic_change",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "app.ts",
+          "old_content": "export const value = 1;",
+          "new_content": "export const value = 2;"
+        }
+      ]
+    },
+    {
+      "id": "invalid-python",
+      "family": "semantic_change",
+      "expected": null,
+      "changes": [
+        {
+          "file_path": "app.py",
+          "old_content": "def broken(:",
+          "new_content": "def broken(:"
+        }
+      ]
+    },
+    {
+      "id": "unparsed-language",
+      "family": "semantic_change",
+      "expected": null,
+      "changes": [
+        {
+          "file_path": "main.custom",
+          "old_content": "value 1",
+          "new_content": "value 2"
+        }
+      ]
+    },
+    {
+      "id": "route-remove",
+      "family": "breaking_route",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "main.py",
+          "old_content": "@app.get(\"/widgets\")\ndef widgets():\n return []\n",
+          "new_content": ""
+        }
+      ]
+    },
+    {
+      "id": "route-rename",
+      "family": "breaking_route",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "main.py",
+          "old_content": "@app.get(\"/widgets\")\ndef widgets():\n return []\n",
+          "new_content": "@app.get(\"/items\")\ndef widgets():\n return []\n"
+        }
+      ]
+    },
+    {
+      "id": "route-add",
+      "family": "breaking_route",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "main.py",
+          "old_content": "",
+          "new_content": "@app.get(\"/widgets\")\ndef widgets():\n return []\n"
+        }
+      ]
+    },
+    {
+      "id": "route-body",
+      "family": "breaking_route",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "main.py",
+          "old_content": "@app.get(\"/widgets\")\ndef widgets():\n return []\n",
+          "new_content": "@app.get(\"/widgets\")\ndef widgets():\n return [1]\n"
+        }
+      ]
+    },
+    {
+      "id": "js-route-remove",
+      "family": "breaking_route",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "routes.js",
+          "old_content": "app.get(\"/widgets\", (req, res) => res.send(\"ok\"));",
+          "new_content": ""
+        }
+      ]
+    },
+    {
+      "id": "js-route-body",
+      "family": "breaking_route",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "routes.js",
+          "old_content": "app.get(\"/widgets\", (req, res) => res.send(\"ok\"));",
+          "new_content": "app.get(\"/widgets\", (req, res) => res.send(\"new\"));"
+        }
+      ]
+    },
+    {
+      "id": "model-required",
+      "family": "schema_change",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "models.py",
+          "old_content": "from pydantic import BaseModel\nclass Widget(BaseModel):\n name: str\n",
+          "new_content": "from pydantic import BaseModel\nclass Widget(BaseModel):\n name: str\n quantity: int\n"
+        }
+      ]
+    },
+    {
+      "id": "model-type",
+      "family": "schema_change",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "models.py",
+          "old_content": "from pydantic import BaseModel\nclass Widget(BaseModel):\n name: str\n",
+          "new_content": "from pydantic import BaseModel\nclass Widget(BaseModel):\n name: int\n"
+        }
+      ]
+    },
+    {
+      "id": "model-comment",
+      "family": "schema_change",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "models.py",
+          "old_content": "from pydantic import BaseModel\nclass Widget(BaseModel):\n name: str\n",
+          "new_content": "# explanation\nfrom pydantic import BaseModel\nclass Widget(BaseModel):\n name: str\n"
+        }
+      ]
+    },
+    {
+      "id": "helper-field",
+      "family": "schema_change",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "helpers.py",
+          "old_content": "class Cache:\n size: int\n",
+          "new_content": "class Cache:\n size: str\n"
+        }
+      ]
+    },
+    {
+      "id": "compose-image",
+      "family": "deployment_change",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "compose.yaml",
+          "old_content": "services:\n  api:\n    image: acme/api:1\n",
+          "new_content": "services:\n  api:\n    image: acme/api:2\n"
+        }
+      ]
+    },
+    {
+      "id": "compose-env",
+      "family": "deployment_change",
+      "expected": true,
+      "changes": [
+        {
+          "file_path": "compose.yaml",
+          "old_content": "services:\n  api:\n    image: acme/api:1\n",
+          "new_content": "services:\n  api:\n    image: acme/api:1\n    environment:\n      DEBUG: 'false'\n"
+        }
+      ]
+    },
+    {
+      "id": "compose-comment",
+      "family": "deployment_change",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "compose.yaml",
+          "old_content": "services:\n  api:\n    image: acme/api:1\n",
+          "new_content": "# explanation\nservices:\n  api:\n    image: acme/api:1\n"
+        }
+      ]
+    },
+    {
+      "id": "compose-indent",
+      "family": "deployment_change",
+      "expected": false,
+      "changes": [
+        {
+          "file_path": "compose.yaml",
+          "old_content": "services:\n  api:\n    image: acme/api:1\n",
+          "new_content": "services:\n    api:\n        image: acme/api:1\n"
+        }
+      ]
+    }
+  ]
+}

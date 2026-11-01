@@ -1,0 +1,146 @@
+{
+  "date": "2026-10-26",
+  "status": "passed",
+  "scope": [
+    "Disposable synthetic Git fixture and local API only; no deployed service, other OS or marketplace acceptance",
+    "Harness prefills the native password field and selects only its own fixture project. The human submits credentials and answers actual upload dialogs."
+  ],
+  "current": {
+    "vscode": "1.141.0",
+    "checks": [
+      "native API/web/token input authenticates against local API; token absent from settings JSON",
+      "native upload cancellation submits no analysis",
+      "native upload approval sends exact mode-specific before/after fixture once and displays actual server result",
+      "disconnect clears view and credential; subsequent source command makes no network call"
+    ],
+    "limitations": [
+      "Disposable synthetic Git fixture and local API only; no deployed service, other OS or marketplace acceptance",
+      "Harness prefills the native password field and selects only its own fixture project. The human submits credentials and answers actual upload dialogs."
+    ],
+    "consent": [
+      {
+        "message": "Send full before/after source for 1 staged files (1 KiB) to http://localhost:8000? Untracked files are excluded.",
+        "detail": "service.py",
+        "selection": null
+      },
+      {
+        "message": "Send full before/after source for 1 saved tracked files (1 KiB) to http://localhost:8000? Untracked files are excluded.",
+        "detail": "service.py",
+        "selection": "Send and analyze"
+      }
+    ],
+    "errors": [
+      "MDT: Run MDT: Connect to Server first."
+    ],
+    "projectSelections": [
+      {
+        "label": "Disposable VS Code consent check",
+        "selection": "harness setup"
+      },
+      {
+        "label": "Disposable VS Code consent check",
+        "selection": "harness setup"
+      }
+    ],
+    "runs": [
+      {
+        "mode": "staged",
+        "selection": null
+      },
+      {
+        "mode": "working",
+        "pairedSourceVerified": true,
+        "jobId": "ccee2f301203455b89963599cc7df326",
+        "jobStatus": "partial",
+        "hasResult": true,
+        "riskScore": 5,
+        "partialResults": true,
+        "selection": "Send and analyze"
+      }
+    ],
+    "passed": 4,
+    "requests": [
+      {
+        "path": "/v1/projects",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/v1/projects",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/v1/projects",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/v1/projects/e06fe01f07f342ccb37534bf8970d6c3/analyses",
+        "method": "POST",
+        "status": 202
+      },
+      {
+        "path": "/v1/jobs/ccee2f301203455b89963599cc7df326",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/v1/jobs/ccee2f301203455b89963599cc7df326",
+        "method": "GET",
+        "status": 200
+      }
+    ]
+  },
+  "cleanup": {
+    "runner_exit_code": 0,
+    "temporary_profile_removed": true,
+    "project_delete_http_status": 204,
+    "session_logout_http_status": 204,
+    "evidence": "Runner completed with no cleanup errors; local backend access log confirms deletion of the submitted test project and logout; no temporary native-test profiles remain"
+  },
+  "interpretation": "The Connect-first message is the expected post-disconnect rejection. Partial results retain their real score and evidence limits; no value is substituted. Native choices were made by the user.",
+  "remaining": [
+    "Deployed HTTPS/CORS and full cross-client result parity",
+    "Another desktop operating system",
+    "Deployed vscode.dev and marketplace distribution"
+  ],
+  "previous_incomplete_attempt": {
+    "date": "2026-10-26",
+    "status": "incomplete_harness_terminal_status",
+    "scope": "Native Windows input and source-upload checks against the local API using a synthetic Git fixture; no deployed service or store acceptance",
+    "completed_native_checks": [
+      "native API/web/token input authenticates against local API; token absent from settings JSON",
+      "native upload cancellation submits no analysis"
+    ],
+    "observed_output": {
+      "job_id": "db92d12312f54febb0eefd6602a22f7d",
+      "status": "partial",
+      "risk_score": 5,
+      "partial_results": true,
+      "assessment_status": "insufficient_evidence",
+      "confidence": 0,
+      "explanation": "Deterministic analysis of 1 changed files identifies 0 affected services and a heuristic risk score of 5.0/100. This score is not a measured failure probability. Source content was not sent to an LLM. Evidence coverage is incomplete; the risk score is provisional.",
+      "source": "Actual extension output channel after the real analysis request",
+      "raw_output_sha256": "719e7051dc0ee1beeb8d97a811635d93b4e6a33c6b134e301ea5eb30a1c44118"
+    },
+    "approval_evidence": "The real API accepted one analysis and the extension displayed its result. The executing harness asserted exact mode-specific before/after source before forwarding the request. Its on-disk checkpoint predates approval, so that checkpoint is not claimed as a persisted native selection.",
+    "harness_bug": "Terminal observer recognized succeeded/failed/cancelled but omitted partial/completed. The product recognized partial and displayed the real result; the observer remained waiting.",
+    "fix": "Use the shared client terminal classifier, require an actual result and retain partial-evidence flags; reject failed/cancelled jobs; persist choice/submission/terminal progress and wait briefly for the view to consume the result.",
+    "regression_checks": {
+      "passed": 2,
+      "vscode_suite_passed": 18
+    },
+    "remaining": [
+      "Complete the corrected native run including disconnect; its release flag remains false"
+    ],
+    "corrected_run": {
+      "status": "incomplete_inactivity_timeout",
+      "last_phase": "Native input: MDT API URL \u2014 accept the prefilled value with Enter.",
+      "completed_checks": 0,
+      "consent_dialogs_reached": 0,
+      "temporary_profile_removed": true,
+      "cleanup_errors_logged": false
+    }
+  }
+}

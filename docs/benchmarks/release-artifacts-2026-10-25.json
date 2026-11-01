@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-25",
+  "refreshed_on": "2026-10-26",
+  "publication": "Local review only; not public-release cleared",
+  "web_profile": "/api same-origin proxy; diagnostics/signup disabled; rebuild with actual HTTPS API URL for standalone static hosting",
+  "artifacts": [
+    {
+      "path": "extensions/browser/mdt-browser-alpha-0.1.0.zip",
+      "bytes": 11473,
+      "sha256": "187e845eff8736b0118dd5c6abae4fc3df5563e1fb6b0c824e716f3878dd3a90",
+      "entries": [
+        "background.js",
+        "client.js",
+        "manifest.json",
+        "popup.css",
+        "popup.html",
+        "popup.js",
+        "PRIVACY.md"
+      ]
+    },
+    {
+      "path": "extensions/vscode/mdt-architecture-review-0.1.0.vsix",
+      "bytes": 26671,
+      "sha256": "34a7b851b083e4d9ea28ee27b5b119b9e64310722812056ac6e0b2e6caee8016",
+      "entries": [
+        "extension.vsixmanifest",
+        "[Content_Types].xml",
+        "extension/package.json",
+        "extension/readme.md",
+        "extension/dist/client.js",
+        "extension/dist/extension.js",
+        "extension/dist/git.js",
+        "extension/dist/results.js",
+        "extension/dist/web-extension.js"
+      ]
+    },
+    {
+      "path": "scratch/release-2026-10-25/mdt-web-alpha.zip",
+      "bytes": 620473,
+      "sha256": "c3afb719caa4faf8bf64618cbdb98dae2756c5c966a78877bf959da92751e3de",
+      "entries": [
+        "assets/AuthPage-rVUEUCJ3.js",
+        "assets/DependencyGraph-D0-j_sPj.js",
+        "assets/Diagnostics-CFusZ4Gn.js",
+        "assets/elk-worker.min-r_yRvuMO.js",
+        "assets/index-8TlwJoHU.js",
+        "assets/index-B-vE1U4y.css",
+        "assets/LoginModal-CoOhEqWm.js",
+        "assets/ProjectDrift-D7wE0wsi.js",
+        "assets/ProjectHistory-DxYbrbqF.js",
+        "assets/ProjectPolicies-CtEhk0pC.js",
+        "assets/Workspace-BQ1npqHu.js",
+        "demo.json",
+        "favicon.svg",
+        "icons.svg",
+        "index.html",
+        "third-party-notices.txt"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "proposed_acceptance_targets_not_measured_guarantees",
+  "max_evidence_age_days": 14,
+  "accuracy": {
+    "families": ["semantic_change", "breaking_route", "schema_change", "deployment_change"],
+    "min_precision": 0.9,
+    "min_recall": 0.8,
+    "min_prediction_coverage": 0.9,
+    "min_positive_cases_per_family": 50,
+    "min_negative_cases_per_family": 50,
+    "min_holdout_repositories": 10
+  },
+  "operations": {
+    "pilot_concurrency": 5,
+    "test_concurrency_multiplier": 2,
+    "min_success_rate": 0.99,
+    "max_api_p95_ms": 1000,
+    "max_restore_seconds": 3600,
+    "max_data_loss_seconds": 86400
+  },
+  "clients": ["web", "chrome", "edge", "vscode_desktop", "vscode_web"],
+  "pilot": {"min_days": 30, "min_external_users": 5},
+  "required_evidence": ["accuracy", "security", "operations", "clients", "pilot", "approval"]
+}

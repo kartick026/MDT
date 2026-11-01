@@ -1,0 +1,2 @@
+# Use the same compatible pytest/httpx versions as local validation and CI.
+-r ../requirements-test.txt

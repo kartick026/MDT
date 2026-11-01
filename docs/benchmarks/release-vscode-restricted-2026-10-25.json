@@ -1,0 +1,14 @@
+{
+  "vscode": "1.141.0",
+  "trusted": false,
+  "passed": 4,
+  "checks": [
+    "actual untrusted workspace",
+    "limited activation",
+    "findings view available",
+    "both source commands make no Git or network calls"
+  ],
+  "limitations": [
+    "Native upload consent and credential UI require separate acceptance"
+  ]
+}

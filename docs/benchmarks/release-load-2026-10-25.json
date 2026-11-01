@@ -1,0 +1,35 @@
+{
+  "scope": "Synthetic source-tree stress, 100 services; not production throughput or GitHub network latency",
+  "results": [
+    {
+      "candidate_files": 1000,
+      "read": 500,
+      "seconds": 0.7439,
+      "max_rss_kib": 103520,
+      "services": 100,
+      "omitted": {
+        "source_file_limit_reached": 500
+      }
+    },
+    {
+      "candidate_files": 10000,
+      "read": 500,
+      "seconds": 0.5934,
+      "max_rss_kib": 108260,
+      "services": 100,
+      "omitted": {
+        "source_file_limit_reached": 9500
+      }
+    },
+    {
+      "candidate_files": 50000,
+      "read": 500,
+      "seconds": 2.7488,
+      "max_rss_kib": 119012,
+      "services": 100,
+      "omitted": {
+        "source_file_limit_reached": 49500
+      }
+    }
+  ]
+}

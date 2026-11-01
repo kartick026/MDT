@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "reason": "Previously used for fixes or diagnostic controls; exclude from a new independent holdout.",
+  "repositories": [
+    "DietrichGebert/ponytail",
+    "GoogleCloudPlatform/microservices-demo",
+    "fastapi/full-stack-fastapi-template",
+    "dockersamples/example-voting-app",
+    "microservices-demo/microservices-demo",
+    "spring-petclinic/spring-petclinic-microservices",
+    "open-telemetry/opentelemetry-demo",
+    "dotnet/eShop",
+    "saleor/saleor-platform",
+    "expressjs/express",
+    "fastapi/fastapi",
+    "SMEWebify/WebErpMesv2"
+  ]
+}

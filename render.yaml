@@ -1,0 +1,48 @@
+# Prepared deployment blueprint. Applying it is a separate, explicit publish step.
+services:
+  - type: web
+    name: mdt-alpha-api
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health/ready
+    autoDeployTrigger: "off"
+    envVars:
+      - key: RUNTIME_PROFILE
+        value: hosted
+      - key: ENVIRONMENT
+        value: production
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: PASSWORD_AUTH_ENABLED
+        value: "false"
+      - key: SOCIAL_SIGNUP_ROLE
+        value: analyst
+      - key: ALLOW_SELF_SIGNUP
+        value: "false"
+      - key: ENABLE_DEFAULT_VIEWER
+        value: "false"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: GITHUB_WEBHOOK_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: ""
+      - key: DATABASE_URL
+        sync: false
+      - key: NEON_AUTH_URL
+        sync: false
+      - key: NEON_JWKS_URL
+        sync: false
+      - key: JOB_RETENTION_DAYS
+        value: "0"
+      - key: STATIC_FRONTEND_DIR
+        value: /app/web
+      - key: OPENAI_API_KEY
+        value: ""
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: MAX_JOBS_PER_DAY
+        value: "30"

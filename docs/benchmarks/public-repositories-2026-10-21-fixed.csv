@@ -1,0 +1,17 @@
+repo,case,analysis_scope,risk,debt,confidence,assessment_status,expected_api_change,api_change_flag,api_flag_correct,breaking_api_risk_flag,contract_compatibility,schema_compatibility,semantic_change_count,partial,repeatable,source_bytes,error
+fastapi/full-stack-fastapi-template,identical_snapshot,imported_project_core,0.0,35.294,0.0,no_changes,False,False,True,False,[],[],0,True,True,6892,
+fastapi/full-stack-fastapi-template,python_comment_only,imported_project_core,0.0,35.294,1.0,no_semantic_change,False,False,True,False,['unchanged'],['unchanged'],0,True,True,6921,
+fastapi/full-stack-fastapi-template,python_route_renamed,imported_project_core,30.0,35.294,0.975,partial,True,True,True,True,['breaking'],['unchanged'],1,True,True,6909,
+fastapi/full-stack-fastapi-template,python_route_file_deleted,imported_project_core,30.0,35.294,0.975,partial,True,True,True,True,['breaking'],['unchanged'],1,True,True,3446,
+fastapi/full-stack-fastapi-template,cross_file_model_type_changed,imported_project_core,45.0,35.294,0.975,partial,True,True,True,True,['unchanged'],['breaking'],1,True,True,6954,
+fastapi/full-stack-fastapi-template,cross_file_model_type_changed_with_context,imported_project_core,45.0,35.294,0.975,partial,True,True,True,True,"['breaking', 'unchanged']",['breaking'],1,True,True,13846,
+fastapi/full-stack-fastapi-template,cross_file_optional_field_added,imported_project_core,20.0,35.294,0.975,partial,True,True,True,False,"['uncertain', 'unchanged']",['additive'],1,True,True,13887,
+fastapi/full-stack-fastapi-template,cross_file_required_field_added,imported_project_core,45.0,35.294,0.975,partial,True,True,True,True,"['breaking', 'unchanged']",['breaking'],1,True,True,13873,
+expressjs/express,javascript_comment_only,source_only_core_evaluation,0.0,,1.0,no_semantic_change,False,False,True,False,['unchanged'],['not_reported'],0,True,True,568,
+expressjs/express,javascript_route_renamed,source_only_core_evaluation,30.0,,0.0,insufficient_evidence,True,True,True,True,['breaking'],['not_reported'],1,True,True,555,
+expressjs/express,javascript_route_file_deleted,source_only_core_evaluation,30.0,,0.0,insufficient_evidence,True,True,True,True,['breaking'],['not_reported'],1,True,True,269,
+expressjs/express,real_upstream_4_21_2_to_pinned_HEAD,source_only_core_evaluation,,,,,,,,,,,,,,1302658,At most 100 changed files may be submitted.
+expressjs/express,real_upstream_core_subset,source_only_core_evaluation,30.0,,0.0,insufficient_evidence,,False,,False,['unchanged'],['not_reported'],12,True,True,159588,
+fastapi/fastapi,large_python_comment_only,source_only_core_evaluation,0.0,,1.0,no_semantic_change,False,False,True,False,['unchanged'],['unchanged'],0,True,True,520815,
+fastapi/fastapi,hundred_real_files_comment_only,source_only_core_evaluation,0.0,,1.0,no_semantic_change,False,False,True,False,['unchanged'],['unchanged'],0,True,True,37972,
+fastapi/fastapi,hundred_larger_files_comment_only,source_only_core_evaluation,0.0,,1.0,no_semantic_change,False,False,True,False,['unchanged'],['unchanged'],0,True,True,1426664,

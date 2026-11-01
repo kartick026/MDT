@@ -1,0 +1,36 @@
+[
+  {
+    "browser": "Chrome",
+    "version": "155.0.8059.85",
+    "loaded": true,
+    "checks": [
+      "unmodified MV3 package loads",
+      "popup initializes disconnected",
+      "unauthenticated worker request rejected",
+      "unaccepted connection request persists no credential",
+      "popup reload stays disconnected"
+    ],
+    "connectError": "",
+    "limitations": [
+      "Native permission acceptance and authenticated remote workflow require interactive acceptance",
+      "No store installation or public-host CORS acceptance"
+    ]
+  },
+  {
+    "browser": "Edge",
+    "version": "155.0.4283.62",
+    "loaded": true,
+    "checks": [
+      "unmodified MV3 package loads",
+      "popup initializes disconnected",
+      "unauthenticated worker request rejected",
+      "unaccepted connection request persists no credential",
+      "popup reload stays disconnected"
+    ],
+    "connectError": "",
+    "limitations": [
+      "Native permission acceptance and authenticated remote workflow require interactive acceptance",
+      "No store installation or public-host CORS acceptance"
+    ]
+  }
+]

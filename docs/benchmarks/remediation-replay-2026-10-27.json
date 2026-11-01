@@ -1,0 +1,1181 @@
+{
+  "scope": "Offline replay of saved graphs, not new GitHub fetches or independent accuracy labels",
+  "input": "backend-evidence-2026-10-22.json",
+  "input_sha256": "a0a4f32ebaca5cf82a893f0119235fefdcb01e9b71b72f8fb333f4fcb69cb474",
+  "results": [
+    {
+      "repository": "DietrichGebert/ponytail",
+      "proposals": [],
+      "without_automatic_edits": 0,
+      "status": "no_captured_topology"
+    },
+    {
+      "repository": "GoogleCloudPlatform/microservices-demo",
+      "proposals": [
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "productcatalogservice"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 78.0,
+          "after": 75.0,
+          "delta": {
+            "score_reduction": 3.0,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 2,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "Hub-and-Spoke Centralization",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "frontend"
+          ],
+          "edits": 4,
+          "outcome": "improved",
+          "before": 78.0,
+          "after": 75.0,
+          "delta": {
+            "score_reduction": 3.0,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "Hub-and-Spoke Centralization",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "checkoutservice"
+          ],
+          "edits": 4,
+          "outcome": "improved",
+          "before": 78.0,
+          "after": 75.0,
+          "delta": {
+            "score_reduction": 3.0,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "Hub-and-Spoke Centralization",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "checkoutservice"
+          ],
+          "edits": 14,
+          "outcome": "improved",
+          "before": 78.0,
+          "after": 75.0,
+          "delta": {
+            "score_reduction": 3.0,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 3,
+            "smells_introduced": 2,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "Hub-and-Spoke Centralization",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "frontend"
+          ],
+          "edits": 16,
+          "outcome": "improved",
+          "before": 78.0,
+          "after": 75.0,
+          "delta": {
+            "score_reduction": 3.0,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 4,
+            "smells_introduced": 3,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "Hub-and-Spoke Centralization",
+              "weight": 20,
+              "resolved": 2,
+              "introduced": 1,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        }
+      ],
+      "without_automatic_edits": 2,
+      "status": "checked"
+    },
+    {
+      "repository": "fastapi/full-stack-fastapi-template",
+      "proposals": [],
+      "without_automatic_edits": 0,
+      "status": "checked"
+    },
+    {
+      "repository": "dockersamples/example-voting-app",
+      "proposals": [],
+      "without_automatic_edits": 0,
+      "status": "checked"
+    },
+    {
+      "repository": "microservices-demo/microservices-demo",
+      "proposals": [],
+      "without_automatic_edits": 0,
+      "status": "checked"
+    },
+    {
+      "repository": "spring-petclinic/spring-petclinic-microservices",
+      "proposals": [],
+      "without_automatic_edits": 0,
+      "status": "checked"
+    },
+    {
+      "repository": "open-telemetry/opentelemetry-demo",
+      "proposals": [
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "cart"
+          ],
+          "edits": 6,
+          "outcome": "improved",
+          "before": 89.573,
+          "after": 88.945,
+          "delta": {
+            "score_reduction": 0.628,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "frontend"
+          ],
+          "edits": 4,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 0,
+            "smells_introduced": 0,
+            "measurable_change": false,
+            "message": "No measurable change in tracked architectural smells"
+          },
+          "score_explanation": []
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "checkout"
+          ],
+          "edits": 4,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 0,
+            "smells_introduced": 0,
+            "measurable_change": false,
+            "message": "No measurable change in tracked architectural smells"
+          },
+          "score_explanation": []
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "product-catalog"
+          ],
+          "edits": 8,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 1,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "shipping"
+          ],
+          "edits": 6,
+          "outcome": "improved",
+          "before": 89.573,
+          "after": 88.945,
+          "delta": {
+            "score_reduction": 0.628,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "flagd"
+          ],
+          "edits": 24,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 1,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "otel-collector"
+          ],
+          "edits": 38,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 2,
+            "smells_introduced": 2,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "Hub-and-Spoke Centralization",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "frontend-proxy"
+          ],
+          "edits": 6,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 0,
+            "smells_introduced": 0,
+            "measurable_change": false,
+            "message": "No measurable change in tracked architectural smells"
+          },
+          "score_explanation": []
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "frontend-proxy"
+          ],
+          "edits": 16,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 2,
+            "smells_introduced": 2,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "shipping"
+          ],
+          "edits": 10,
+          "outcome": "improved",
+          "before": 89.573,
+          "after": 89.331,
+          "delta": {
+            "score_reduction": 0.242,
+            "raw_debt_reduction": 8.0,
+            "smells_resolved": 2,
+            "smells_introduced": 2,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "Missing Circuit Breaker",
+              "weight": 12,
+              "resolved": 0,
+              "introduced": 1,
+              "raw_debt_reduction": -12
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "load-generator"
+          ],
+          "edits": 8,
+          "outcome": "worse",
+          "before": 89.573,
+          "after": 89.918,
+          "delta": {
+            "score_reduction": -0.345,
+            "raw_debt_reduction": -12.0,
+            "smells_resolved": 1,
+            "smells_introduced": 2,
+            "measurable_change": true,
+            "message": "Warning: Proposed edit increases architectural risk."
+          },
+          "score_explanation": [
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "Missing Circuit Breaker",
+              "weight": 12,
+              "resolved": 0,
+              "introduced": 1,
+              "raw_debt_reduction": -12
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "checkout"
+          ],
+          "edits": 18,
+          "outcome": "worse",
+          "before": 89.573,
+          "after": 89.918,
+          "delta": {
+            "score_reduction": -0.345,
+            "raw_debt_reduction": -12.0,
+            "smells_resolved": 2,
+            "smells_introduced": 3,
+            "measurable_change": true,
+            "message": "Warning: Proposed edit increases architectural risk."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "Missing Circuit Breaker",
+              "weight": 12,
+              "resolved": 0,
+              "introduced": 1,
+              "raw_debt_reduction": -12
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "frontend"
+          ],
+          "edits": 22,
+          "outcome": "worse",
+          "before": 89.573,
+          "after": 89.918,
+          "delta": {
+            "score_reduction": -0.345,
+            "raw_debt_reduction": -12.0,
+            "smells_resolved": 2,
+            "smells_introduced": 3,
+            "measurable_change": true,
+            "message": "Warning: Proposed edit increases architectural risk."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "Missing Circuit Breaker",
+              "weight": 12,
+              "resolved": 0,
+              "introduced": 1,
+              "raw_debt_reduction": -12
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "recommendation"
+          ],
+          "edits": 8,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 1,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "product-catalog"
+          ],
+          "edits": 8,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 1,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "otel-collector"
+          ],
+          "edits": 8,
+          "outcome": "unchanged",
+          "before": 89.573,
+          "after": 89.573,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 1,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "cart"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 89.573,
+          "after": 88.945,
+          "delta": {
+            "score_reduction": 0.628,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 2,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        }
+      ],
+      "without_automatic_edits": 1,
+      "status": "checked"
+    },
+    {
+      "repository": "dotnet/eShop",
+      "proposals": [
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "webapp"
+          ],
+          "edits": 4,
+          "outcome": "unchanged",
+          "before": 82.677,
+          "after": 82.677,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 0,
+            "smells_introduced": 0,
+            "measurable_change": false,
+            "message": "No measurable change in tracked architectural smells"
+          },
+          "score_explanation": []
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "ordering-api"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 82.677,
+          "after": 80.87,
+          "delta": {
+            "score_reduction": 1.807,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "basket-api"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 82.677,
+          "after": 80.87,
+          "delta": {
+            "score_reduction": 1.807,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "identity-api"
+          ],
+          "edits": 12,
+          "outcome": "worse",
+          "before": 82.677,
+          "after": 84.173,
+          "delta": {
+            "score_reduction": -1.496,
+            "raw_debt_reduction": -20.0,
+            "smells_resolved": 0,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Warning: Proposed edit increases architectural risk."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 0,
+              "introduced": 1,
+              "raw_debt_reduction": -20
+            }
+          ]
+        },
+        {
+          "finding": "God / Bottleneck Service",
+          "services": [
+            "webhooks-api"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 82.677,
+          "after": 80.87,
+          "delta": {
+            "score_reduction": 1.807,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "basket-api"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 82.677,
+          "after": 80.87,
+          "delta": {
+            "score_reduction": 1.807,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 2,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "webapp"
+          ],
+          "edits": 18,
+          "outcome": "worse",
+          "before": 82.677,
+          "after": 83.607,
+          "delta": {
+            "score_reduction": -0.93,
+            "raw_debt_reduction": -12.0,
+            "smells_resolved": 2,
+            "smells_introduced": 3,
+            "measurable_change": true,
+            "message": "Warning: Proposed edit increases architectural risk."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "Missing Circuit Breaker",
+              "weight": 12,
+              "resolved": 0,
+              "introduced": 1,
+              "raw_debt_reduction": -12
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "webhooks-api"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 82.677,
+          "after": 80.87,
+          "delta": {
+            "score_reduction": 1.807,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 2,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "ordering-api"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 82.677,
+          "after": 80.87,
+          "delta": {
+            "score_reduction": 1.807,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 2,
+            "smells_introduced": 1,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "identity-api"
+          ],
+          "edits": 14,
+          "outcome": "worse",
+          "before": 82.677,
+          "after": 84.173,
+          "delta": {
+            "score_reduction": -1.496,
+            "raw_debt_reduction": -20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 2,
+            "measurable_change": true,
+            "message": "Warning: Proposed edit increases architectural risk."
+          },
+          "score_explanation": [
+            {
+              "type": "God / Bottleneck Service",
+              "weight": 20,
+              "resolved": 0,
+              "introduced": 1,
+              "raw_debt_reduction": -20
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        }
+      ],
+      "without_automatic_edits": 0,
+      "status": "checked"
+    },
+    {
+      "repository": "saleor/saleor-platform",
+      "proposals": [
+        {
+          "finding": "High Coupling",
+          "services": [
+            "worker"
+          ],
+          "edits": 10,
+          "outcome": "unchanged",
+          "before": 65.625,
+          "after": 65.625,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 3,
+            "smells_introduced": 3,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "Shared Database",
+              "weight": 20,
+              "resolved": 2,
+              "introduced": 2,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "High Coupling",
+          "services": [
+            "api"
+          ],
+          "edits": 10,
+          "outcome": "unchanged",
+          "before": 65.625,
+          "after": 65.625,
+          "delta": {
+            "score_reduction": 0.0,
+            "raw_debt_reduction": 0.0,
+            "smells_resolved": 3,
+            "smells_introduced": 3,
+            "measurable_change": true,
+            "message": "Findings changed, but their weighted total is unchanged; no modeled debt improvement."
+          },
+          "score_explanation": [
+            {
+              "type": "Shared Database",
+              "weight": 20,
+              "resolved": 2,
+              "introduced": 2,
+              "raw_debt_reduction": 0
+            },
+            {
+              "type": "High Coupling",
+              "weight": 15,
+              "resolved": 1,
+              "introduced": 1,
+              "raw_debt_reduction": 0
+            }
+          ]
+        },
+        {
+          "finding": "Shared Database",
+          "services": [
+            "api",
+            "worker"
+          ],
+          "edits": 8,
+          "outcome": "improved",
+          "before": 65.625,
+          "after": 57.692,
+          "delta": {
+            "score_reduction": 7.933,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "Shared Database",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        },
+        {
+          "finding": "Shared Database",
+          "services": [
+            "api",
+            "worker"
+          ],
+          "edits": 6,
+          "outcome": "improved",
+          "before": 65.625,
+          "after": 57.692,
+          "delta": {
+            "score_reduction": 7.933,
+            "raw_debt_reduction": 20.0,
+            "smells_resolved": 1,
+            "smells_introduced": 0,
+            "measurable_change": true,
+            "message": "Risk reduction verified for graph-level smells; application behavior is not verified."
+          },
+          "score_explanation": [
+            {
+              "type": "Shared Database",
+              "weight": 20,
+              "resolved": 1,
+              "introduced": 0,
+              "raw_debt_reduction": 20
+            }
+          ]
+        }
+      ],
+      "without_automatic_edits": 0,
+      "status": "checked"
+    },
+    {
+      "repository": "expressjs/express",
+      "proposals": [],
+      "without_automatic_edits": 0,
+      "status": "no_captured_topology"
+    }
+  ],
+  "errors": [],
+  "proposal_count": 36,
+  "outcomes": {
+    "improved": 17,
+    "unchanged": 13,
+    "worse": 6
+  }
+}

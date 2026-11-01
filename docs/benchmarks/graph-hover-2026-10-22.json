@@ -1,0 +1,834 @@
+{
+  "date": "2026-10-22",
+  "method": "Stationary pointer placed with coordinate clicks on observed SVG routes; six DOM geometry/text samples per relation, 100 ms apart. All 11 demo relations checked. This is not an FPS or hardware-hover benchmark.",
+  "defaultViewport": {
+    "height": 678,
+    "width": 897
+  },
+  "checks": [
+    {
+      "edge": "notification-service to local-demo-postgres, postgresql: postgresql://local-demo-postgres:5432/notifications",
+      "point": [
+        455.2263767887323,
+        406.97214079894314
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(postgresql: postgresql://local-demo-postgres:5432/notifications)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(postgresql: postgresql://local-demo-postgres:5432/notifications)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(postgresql: postgresql://local-demo-postgres:5432/notifications)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(postgresql: postgresql://local-demo-postgres:5432/notifications)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(postgresql: postgresql://local-demo-postgres:5432/notifications)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(postgresql: postgresql://local-demo-postgres:5432/notifications)──►local-demo-postgres"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "notification-service to notification-service, http: /internal/dispatch",
+      "point": [
+        107.30426598141733,
+        424.6670169962471
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /internal/dispatch)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /internal/dispatch)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /internal/dispatch)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /internal/dispatch)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /internal/dispatch)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /internal/dispatch)──►notification-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "notification-service to order-service, http: /orders/{order_id}",
+      "point": [
+        213.66504544583296,
+        438.22053918992674
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /orders/{order_id})──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /orders/{order_id})──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /orders/{order_id})──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /orders/{order_id})──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /orders/{order_id})──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /orders/{order_id})──►order-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "notification-service to user-service, http: /users/{user_id}",
+      "point": [
+        323.52725942005054,
+        492.8111146922475
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:notification-service──(http: /users/{user_id})──►user-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "order-service to inventory-service, http: /api/v1/inventory/reserve",
+      "point": [
+        426.31130470778675,
+        423.53755681344046
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "order-service to notification-service, http: /notifications/order",
+      "point": [
+        221.94800880235383,
+        446.5032471971754
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /notifications/order)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /notifications/order)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /notifications/order)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /notifications/order)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /notifications/order)──►notification-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /notifications/order)──►notification-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "order-service to order-service, http: /internal/order-sync",
+      "point": [
+        316.4490907335691,
+        426.54945063425816
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /internal/order-sync)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /internal/order-sync)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /internal/order-sync)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /internal/order-sync)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /internal/order-sync)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /internal/order-sync)──►order-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "order-service to user-service, http: /users/{user_id}",
+      "point": [
+        424.0523147014629,
+        440.10297282793783
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id})──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id})──►user-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "order-service to user-service, http: /users/{user_id}/profile",
+      "point": [
+        429.3232913828852,
+        456.66838884243515
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id}/profile)──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id}/profile)──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id}/profile)──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id}/profile)──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id}/profile)──►user-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:order-service──(http: /users/{user_id}/profile)──►user-service"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "user-service to local-demo-postgres, postgresql: postgresql://local-demo-postgres:5432/users",
+      "point": [
+        657.3306826878413,
+        470.598397763717
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(postgresql: postgresql://local-demo-postgres:5432/users)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(postgresql: postgresql://local-demo-postgres:5432/users)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(postgresql: postgresql://local-demo-postgres:5432/users)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(postgresql: postgresql://local-demo-postgres:5432/users)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(postgresql: postgresql://local-demo-postgres:5432/users)──►local-demo-postgres"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(postgresql: postgresql://local-demo-postgres:5432/users)──►local-demo-postgres"
+        }
+      ],
+      "distinctFrames": 1
+    },
+    {
+      "edge": "user-service to order-service, http: /orders/status",
+      "point": [
+        426.31130470778675,
+        473.23380485693247
+      ],
+      "samples": [
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(http: /orders/status)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(http: /orders/status)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(http: /orders/status)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(http: /orders/status)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(http: /orders/status)──►order-service"
+        },
+        {
+          "contextHeight": 72,
+          "viewportY": 325.6000061035156,
+          "svgX": 54.40625,
+          "svgY": 353.88751220703125,
+          "svgWidth": 788.3875122070312,
+          "svgHeight": 163.0187530517578,
+          "text": "RELATION:user-service──(http: /orders/status)──►order-service"
+        }
+      ],
+      "distinctFrames": 1
+    }
+  ],
+  "endpointBadges": [
+    {
+      "label": "postgresql://local-demo-postgre…",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/internal/dispatch",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/orders/{order_id}",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/users/{user_id}",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/api/v1/inventory/reserve",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/notifications/order",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/internal/order-sync",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/users/{user_id}",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/users/{user_id}/profile",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "postgresql://local-demo-postgre…",
+      "pointerEvents": "none"
+    },
+    {
+      "label": "/orders/status",
+      "pointerEvents": "none"
+    }
+  ],
+  "narrowCheck": {
+    "cssViewport": {
+      "width": 390,
+      "height": 844
+    },
+    "point": [
+      192.27932187201526,
+      630.6224764940645
+    ],
+    "samples": [
+      {
+        "contextHeight": 72,
+        "viewportY": 550.4000244140625,
+        "svgX": 54.40625,
+        "svgY": 612.3624877929688,
+        "svgWidth": 271.1875,
+        "svgHeight": 56.07500076293945,
+        "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+      },
+      {
+        "contextHeight": 72,
+        "viewportY": 550.4000244140625,
+        "svgX": 54.40625,
+        "svgY": 612.3624877929688,
+        "svgWidth": 271.1875,
+        "svgHeight": 56.07500076293945,
+        "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+      },
+      {
+        "contextHeight": 72,
+        "viewportY": 550.4000244140625,
+        "svgX": 54.40625,
+        "svgY": 612.3624877929688,
+        "svgWidth": 271.1875,
+        "svgHeight": 56.07500076293945,
+        "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+      },
+      {
+        "contextHeight": 72,
+        "viewportY": 550.4000244140625,
+        "svgX": 54.40625,
+        "svgY": 612.3624877929688,
+        "svgWidth": 271.1875,
+        "svgHeight": 56.07500076293945,
+        "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+      },
+      {
+        "contextHeight": 72,
+        "viewportY": 550.4000244140625,
+        "svgX": 54.40625,
+        "svgY": 612.3624877929688,
+        "svgWidth": 271.1875,
+        "svgHeight": 56.07500076293945,
+        "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+      },
+      {
+        "contextHeight": 72,
+        "viewportY": 550.4000244140625,
+        "svgX": 54.40625,
+        "svgY": 612.3624877929688,
+        "svgWidth": 271.1875,
+        "svgHeight": 56.07500076293945,
+        "text": "RELATION:order-service──(http: /api/v1/inventory/reserve)──►inventory-service"
+      }
+    ],
+    "distinctFrames": 1
+  },
+  "directions": {
+    "down": "0 0 1373.8 1000",
+    "right": "0 0 2094 433"
+  },
+  "consoleErrors": [],
+  "finalRelation": "RELATION:order-service──(http: /users/{user_id}/profile)──►user-service",
+  "viewportOverrideReset": true
+}

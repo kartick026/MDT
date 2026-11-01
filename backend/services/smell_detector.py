@@ -1,25 +1,61 @@
 """Evidence-backed architectural-smell detection for the service graph."""
 import hashlib
 import logging
+import asyncio
+import math
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import httpx
 
 from core.config import settings
 from core.database import get_neo4j_driver
+from core.utils import now_iso
 from services.dependency_graph import _run_query
 
 logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_iso()
+
+
+def calculate_circuit_breaker_threshold(
+    total_services: int, outbound_counts: Optional[List[int]] = None
+) -> int:
+    """
+    Dynamically calculate missing circuit breaker threshold using graph vulnerability percolation:
+    In dependency networks, systemic cascading failure risk transitions when a node's
+    unshielded fan-out exceeds the sub-linear network percolation scale:
+        theta_percolation = max(2, ceil(sqrt(N)))
+    When outbound counts across the fleet are available, modulates against statistical outlier bounds:
+        theta_stat = ceil(mean + std)
+        threshold = min(theta_percolation, max(2, theta_stat))
+    """
+    from domain.architecture import circuit_breaker_threshold
+    return circuit_breaker_threshold(total_services, outbound_counts)
+
+
+def calculate_hub_and_spoke_threshold(total_services: int) -> int:
+    """
+    Dynamically calculate the hub-and-spoke centralization threshold based on
+    Freeman network degree centrality with an upper cap:
+      tau(N) = min(0.85, max(0.60, 1.0 - 1.0 / sqrt(N)))
+      threshold = max(2, ceil(tau(N) * (N - 1)))
+
+    The 0.85 cap prevents the threshold from becoming unreachable at scale.
+    Without it, tau(200) = 0.929 demands 185/199 connectivity (93%) — a service
+    would need to connect to nearly every other service to be flagged. With the
+    cap, the threshold stays at ~85% of the fleet, still strict but reachable
+    by genuine central hubs.
+    """
+    from domain.architecture import hub_threshold
+    return hub_threshold(total_services)
 
 
 class SmellDetector:
-    """Detect structural smells and compare persisted topology/API snapshots."""
+    """Detect structural smells across 10 architectural heuristics."""
 
     def __init__(self):
         self.driver = get_neo4j_driver()
@@ -45,9 +81,15 @@ class SmellDetector:
         )
         edges = [f"{record['source']}->{record['target']}" for record in edge_records]
         signature = hashlib.sha256("\n".join(edges).encode()).hexdigest()
+        # A snapshot represents a topology version, not an application start.
+        # Keeping one per signature makes drift comparison meaningful and
+        # prevents the graph growing forever on unchanged deployments.
         await _run_query(
             self.driver,
-            "CREATE (:DependencySnapshot {signature: $signature, edges: $edges, created_at: $timestamp})",
+            """
+            MERGE (snapshot:DependencySnapshot {signature: $signature})
+            ON CREATE SET snapshot.edges = $edges, snapshot.created_at = $timestamp
+            """,
             signature=signature,
             edges=edges,
             timestamp=timestamp,
@@ -57,25 +99,29 @@ class SmellDetector:
             self.driver,
             "MATCH (s:Service) RETURN s.name AS name, s.url AS url",
         )
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            for service in services:
-                endpoints = await self._fetch_openapi_endpoints(client, service.get("url"))
-                if endpoints is None:
-                    continue
-                endpoint_signature = hashlib.sha256("\n".join(endpoints).encode()).hexdigest()
-                await _run_query(
-                    self.driver,
-                    """
-                    CREATE (:ApiSnapshot {
-                        service: $service, signature: $signature,
-                        endpoints: $endpoints, created_at: $timestamp
-                    })
-                    """,
-                    service=service["name"],
-                    signature=endpoint_signature,
-                    endpoints=endpoints,
-                    timestamp=timestamp,
-                )
+        # Probe all services concurrently.  Service URLs can legitimately be
+        # unavailable during startup, so these must not delay API readiness.
+        async with httpx.AsyncClient(timeout=0.75) as client:
+            endpoint_sets = await asyncio.gather(
+                *(self._fetch_openapi_endpoints(client, service.get("url")) for service in services),
+                return_exceptions=True,
+            )
+
+        for service, endpoints in zip(services, endpoint_sets):
+            if isinstance(endpoints, BaseException) or endpoints is None:
+                continue
+            endpoint_signature = hashlib.sha256("\n".join(endpoints).encode()).hexdigest()
+            await _run_query(
+                self.driver,
+                """
+                MERGE (snapshot:ApiSnapshot {service: $service, signature: $signature})
+                ON CREATE SET snapshot.endpoints = $endpoints, snapshot.created_at = $timestamp
+                """,
+                service=service["name"],
+                signature=endpoint_signature,
+                endpoints=endpoints,
+                timestamp=timestamp,
+            )
 
     async def _fetch_openapi_endpoints(
         self, client: httpx.AsyncClient, base_url: str | None
@@ -96,141 +142,53 @@ class SmellDetector:
             logger.debug("OpenAPI snapshot unavailable for %s: %s", base_url, exc)
             return None
 
-    async def detect_all_smells(self) -> List[Dict[str, Any]]:
-        self._refresh_driver()
-        return [
-            *await self._detect_circular_dependencies(),
-            *await self._detect_bottleneck_services(),
-            *await self._detect_high_coupling(),
-            *await self._detect_isolated_services(),
-            *await self._detect_dependency_explosion(),
-            *await self._detect_api_instability(),
-        ]
+    def _is_mock(self) -> bool:
+        from core.database import MockNeo4jDriver
+        return isinstance(self.driver, MockNeo4jDriver) or self.driver is None
 
-    async def _detect_circular_dependencies(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH path = (s:Service)-[:DEPENDS_ON*2..8]->(s)
-            WITH [node IN nodes(path) | node.name] AS cycle
-            RETURN DISTINCT cycle
-        """)
-        findings, seen = [], set()
-        for record in records:
-            cycle = record.get("cycle", [])
-            services = sorted(set(cycle))
-            key = tuple(services)
-            if len(services) > 1 and key not in seen:
-                seen.add(key)
-                findings.append({
-                    "type": "Circular Dependency", "severity": "CRITICAL",
-                    "confidence": "high", "services": services,
-                    "evidence": {"cycle": cycle},
-                    "description": f"Circular dependency detected: {' → '.join(cycle)}.",
-                })
+    def current_snapshot(self):
+        from domain.architecture import registry_snapshot
+        return registry_snapshot()
+
+    async def detect_all_smells(self, snapshot=None) -> List[Dict[str, Any]]:
+        """Read-only evaluation of one immutable snapshot in every runtime mode."""
+        from domain.architecture import detect_smells, configured_thresholds
+        return detect_smells(snapshot or self.current_snapshot(), configured_thresholds())
+
+    async def _detect_category(self, category):
+        return [finding for finding in await self.detect_all_smells() if finding["type"] == category]
+
+    async def _detect_circular_dependencies(self):
+        return await self._detect_category("Circular Dependency")
+
+    async def _detect_bottleneck_services(self):
+        return await self._detect_category("God / Bottleneck Service")
+
+    async def _detect_high_coupling(self):
+        return await self._detect_category("High Coupling")
+
+    async def _detect_isolated_services(self):
+        return await self._detect_category("Dead / Isolated Service")
+
+    async def _detect_dependency_explosion(self):
+        return await self._detect_category("Dependency Explosion")
+
+    async def _detect_api_instability(self):
+        return await self._detect_category("API Instability")
+
+    async def _detect_shared_database(self):
+        return await self._detect_category("Shared Database")
+
+    async def _detect_chatty_communication(self, exclude_pairs=None):
+        # Deduplication against two-node cycles is part of the canonical detector.
+        findings = await self._detect_category("Chatty Communication")
+        if exclude_pairs:
+            findings = [f for f in findings if tuple(sorted(f["services"])) not in exclude_pairs
+                        or f["evidence"].get("edge_count", 0) >= 3]
         return findings
 
-    async def _detect_bottleneck_services(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (s:Service)
-            OPTIONAL MATCH (incoming:Service)-[:DEPENDS_ON]->(s)
-            OPTIONAL MATCH (s)-[:DEPENDS_ON]->(outgoing:Service)
-            WITH s, count(DISTINCT incoming) AS incoming_count,
-                 count(DISTINCT outgoing) AS outgoing_count
-            WHERE incoming_count >= $inbound OR incoming_count + outgoing_count >= $total
-            RETURN s.name AS name, incoming_count, outgoing_count
-        """, inbound=settings.SMELL_BOTTLENECK_INBOUND_THRESHOLD,
-             total=settings.SMELL_BOTTLENECK_TOTAL_DEGREE_THRESHOLD)
-        return [{
-            "type": "God / Bottleneck Service", "severity": "HIGH",
-            "confidence": "medium", "services": [record["name"]],
-            "evidence": {"incoming": record["incoming_count"], "outgoing": record["outgoing_count"]},
-            "description": f"{record['name']} is a dependency bottleneck "
-                           f"(incoming: {record['incoming_count']}, outgoing: {record['outgoing_count']}).",
-        } for record in records]
+    async def _detect_missing_circuit_breaker(self):
+        return await self._detect_category("Missing Circuit Breaker")
 
-    async def _detect_high_coupling(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (s:Service)-[:DEPENDS_ON]->(dependency:Service)
-            WITH s, count(DISTINCT dependency) AS dependency_count
-            WHERE dependency_count >= $threshold
-            RETURN s.name AS name, dependency_count
-        """, threshold=settings.SMELL_HIGH_COUPLING_THRESHOLD)
-        return [{
-            "type": "High Coupling", "severity": "MEDIUM", "confidence": "high",
-            "services": [record["name"]],
-            "evidence": {"direct_dependencies": record["dependency_count"]},
-            "description": f"{record['name']} has {record['dependency_count']} direct dependencies.",
-        } for record in records]
-
-    async def _detect_isolated_services(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (s:Service)
-            WHERE NOT (s)-[:DEPENDS_ON]->() AND NOT ()-[:DEPENDS_ON]->(s)
-            RETURN s.name AS name
-        """)
-        return [{
-            "type": "Dead / Isolated Service", "severity": "LOW", "confidence": "medium",
-            "services": [record["name"]], "evidence": {"degree": 0},
-            "description": f"{record['name']} has no dependency-graph callers or dependencies.",
-        } for record in records]
-
-    async def _detect_dependency_explosion(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (snapshot:DependencySnapshot)
-            RETURN snapshot.edges AS edges, snapshot.created_at AS created_at
-            ORDER BY created_at DESC LIMIT 2
-        """)
-        if len(records) < 2:
-            return []
-        current, previous = set(records[0]["edges"]), set(records[1]["edges"])
-        added = sorted(current - previous)
-        if len(added) < settings.SMELL_DEPENDENCY_GROWTH_THRESHOLD:
-            return []
-        by_service: Dict[str, List[str]] = defaultdict(list)
-        for edge in added:
-            by_service[edge.split("->", 1)[0]].append(edge)
-        return [{
-            "type": "Dependency Explosion", "severity": "HIGH", "confidence": "high",
-            "services": sorted(by_service),
-            "evidence": {"added_edges": added, "previous_snapshot": records[1]["created_at"], "current_snapshot": records[0]["created_at"]},
-            "description": f"{len(added)} dependencies were added since the previous topology snapshot.",
-        }]
-
-    async def _detect_api_instability(self) -> List[Dict[str, Any]]:
-        if not self.driver:
-            return []
-        records = await _run_query(self.driver, """
-            MATCH (snapshot:ApiSnapshot)
-            RETURN snapshot.service AS service, snapshot.endpoints AS endpoints,
-                   snapshot.created_at AS created_at
-            ORDER BY service, created_at DESC
-        """)
-        snapshots: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        for record in records:
-            if len(snapshots[record["service"]]) < 2:
-                snapshots[record["service"]].append(record)
-        findings = []
-        for service, values in snapshots.items():
-            if len(values) < 2:
-                continue
-            current, previous = set(values[0]["endpoints"]), set(values[1]["endpoints"])
-            removed, added = sorted(previous - current), sorted(current - previous)
-            churn = len(removed) + len(added)
-            if removed or churn >= settings.SMELL_API_CHURN_THRESHOLD:
-                findings.append({
-                    "type": "API Instability", "severity": "HIGH" if removed else "MEDIUM",
-                    "confidence": "high", "services": [service],
-                    "evidence": {"removed_endpoints": removed, "added_endpoints": added,
-                                 "previous_snapshot": values[1]["created_at"], "current_snapshot": values[0]["created_at"]},
-                    "description": f"{service} changed {churn} OpenAPI endpoint definitions since the previous snapshot.",
-                })
-        return findings
+    async def _detect_hub_and_spoke(self):
+        return await self._detect_category("Hub-and-Spoke Centralization")

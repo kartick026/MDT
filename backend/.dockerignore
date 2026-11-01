@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+data/
+chroma_db/
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+.git/
+*.log
+*.sqlite3

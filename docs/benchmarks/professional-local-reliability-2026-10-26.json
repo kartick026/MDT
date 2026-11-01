@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "kind": "local_reliability",
+  "created_at": "2026-10-26T18:26:55.322612+00:00",
+  "source": {
+    "sha256": "f4e59d23d325de29160e728575f0d501bf2a74e245885110ea6aa95c28f4c5cb",
+    "files": 213
+  },
+  "environment": "disposable_local_sqlite",
+  "status": "passed",
+  "checks": [
+    {
+      "name": "each admitted job claimed and finished exactly once",
+      "passed": true
+    },
+    {
+      "name": "concurrent admission respects account quota",
+      "passed": true
+    },
+    {
+      "name": "simultaneous retries create one job",
+      "passed": true
+    },
+    {
+      "name": "restart recovers expired lease",
+      "passed": true
+    },
+    {
+      "name": "stale worker cannot publish",
+      "passed": true
+    },
+    {
+      "name": "recovered worker can publish",
+      "passed": true
+    },
+    {
+      "name": "other owner cannot cancel or read",
+      "passed": true
+    },
+    {
+      "name": "cancel fences active worker",
+      "passed": true
+    },
+    {
+      "name": "interrupted job retains identity",
+      "passed": true
+    },
+    {
+      "name": "interrupted job retains identity",
+      "passed": true
+    },
+    {
+      "name": "interrupted job retains identity",
+      "passed": true
+    },
+    {
+      "name": "repeated interruption terminates",
+      "passed": true
+    },
+    {
+      "name": "terminal jobs discard uploaded source",
+      "passed": true
+    },
+    {
+      "name": "quiescent backup restores every row",
+      "passed": true
+    },
+    {
+      "name": "restored store remains writable",
+      "passed": true
+    }
+  ],
+  "concurrency": 10,
+  "jobs_completed": 40,
+  "cycle_seconds": 1.6304352999432012,
+  "enqueue_p95_ms": 371.5196999255568,
+  "backup_restore_seconds": 0.00947479996830225,
+  "restored_digest": "85b4d7f72ff98204151faa6ed5140fb227b50c1d384045f28f4b639fd91d263d",
+  "scope": "Store-level synthetic workload only; no HTTP load, deployed database, infrastructure outage, or live-data recovery verified"
+}
