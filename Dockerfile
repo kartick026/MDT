@@ -25,6 +25,7 @@ RUN --mount=type=bind,from=dependencies,source=/wheels,target=/wheels \
 RUN addgroup -g 10001 mdt && adduser -D -u 10001 -G mdt mdt
 COPY --chown=mdt:mdt backend/ ./
 COPY --from=frontend --chown=mdt:mdt /web/dist/ ./web/
+RUN mkdir -p /app/data && chown -R mdt:mdt /app
 USER mdt
 EXPOSE 10000
 CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --no-server-header"]
