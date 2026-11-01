@@ -1,6 +1,13 @@
 import sys
 import os
 os.environ.setdefault("TESTING", "true")
+os.environ.setdefault("PASSWORD_AUTH_ENABLED", "true")
+os.environ.setdefault("ALLOW_SELF_SIGNUP", "true")
+os.environ.setdefault("ENABLE_DEFAULT_VIEWER", "true")
+os.environ.setdefault("ADMIN_USERNAME", "admin")
+os.environ.setdefault("ADMIN_PASSWORD", "ci-disposable-admin-password")
+os.environ.setdefault("AUDITOR_USERNAME", "auditor")
+os.environ.setdefault("AUDITOR_PASSWORD", "ci-disposable-auditor-password")
 from pathlib import Path
 import pytest
 

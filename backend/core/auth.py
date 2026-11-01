@@ -53,13 +53,11 @@ def _init_default_users():
     """Load persisted viewer accounts and seed the development identities."""
     global _USERS_INITIALIZED
     with _USERS_LOCK:
-        if _USERS_INITIALIZED:
-            return
         if not settings.PASSWORD_AUTH_ENABLED:
             _USERS_INITIALIZED = True
             return
 
-        if USERS_FILE.exists():
+        if not _USERS_INITIALIZED and USERS_FILE.exists():
             try:
                 accounts = json.loads(USERS_FILE.read_text(encoding="utf-8"))
                 if isinstance(accounts, list):
@@ -77,7 +75,7 @@ def _init_default_users():
                 logger.warning("Unable to load registered users: %s", exc)
 
         admin_user = settings.ADMIN_USERNAME.strip()
-        if admin_user not in _USERS_DB:
+        if admin_user and admin_user not in _USERS_DB and settings.ADMIN_PASSWORD.strip():
             _USERS_DB[admin_user] = {
                 "password_hash": hash_password(settings.ADMIN_PASSWORD.strip()),
                 "role": "admin",
@@ -85,7 +83,7 @@ def _init_default_users():
             }
         if settings.ENABLE_DEFAULT_VIEWER:
             auditor_user = settings.AUDITOR_USERNAME.strip()
-            if auditor_user and auditor_user not in _USERS_DB:
+            if auditor_user and auditor_user not in _USERS_DB and settings.AUDITOR_PASSWORD.strip():
                 _USERS_DB[auditor_user] = {
                     "password_hash": hash_password(settings.AUDITOR_PASSWORD.strip()),
                     "role": "viewer",

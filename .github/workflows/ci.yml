@@ -40,6 +40,8 @@ jobs:
     env:
       TESTING: "true"
       PASSWORD_AUTH_ENABLED: "true"
+      ALLOW_SELF_SIGNUP: "true"
+      ENABLE_DEFAULT_VIEWER: "true"
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: ci-disposable-admin-password
       AUDITOR_USERNAME: auditor
