@@ -24,10 +24,10 @@ router = APIRouter()
 logger = logging.getLogger("mdt.api.auth")
 
 
-def _issue_token(user: UserOut) -> Token:
+def _issue_token(user: UserOut, auth_method="password") -> Token:
     expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role},
+        data={"sub": user.username, "role": user.role, "auth_method": auth_method},
         expires_delta=expires_delta,
     )
     return Token(
@@ -38,9 +38,15 @@ def _issue_token(user: UserOut) -> Token:
     )
 
 
+def _require_password_test_mode():
+    if not settings.PASSWORD_AUTH_ENABLED:
+        raise HTTPException(403, "Password authentication is disabled. Continue with Google.")
+
+
 @router.post("/login", response_model=Token, summary="User login with JSON credentials")
 def login_json(credentials: UserLogin, request: Request):
     """Authenticate user with username and password, returning a JWT bearer token."""
+    _require_password_test_mode()
     client_ip = request.client.host if request.client else "unknown"
     if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="login"):
         logger.warning("Login rate limit exceeded for client IP %s", client_ip)
@@ -65,6 +71,7 @@ def login_json(credentials: UserLogin, request: Request):
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED, summary="Create a self-service account")
 def register(credentials: UserRegistration, request: Request):
     """Use the deployment's self-service role, never a client-supplied privilege."""
+    _require_password_test_mode()
     if not settings.ALLOW_SELF_SIGNUP:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Self-service signup is disabled.")
     client_ip = request.client.host if request.client else "unknown"
@@ -82,6 +89,7 @@ def register(credentials: UserRegistration, request: Request):
 @router.post("/token", response_model=Token, summary="OAuth2 standard form login (Swagger UI compatible)")
 def login_form(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """OAuth2 compatible token login for documentation and OpenAPI client generators."""
+    _require_password_test_mode()
     client_ip = request.client.host if request.client else "unknown"
     if not check_rate_limit(client_ip, settings.RATE_LIMIT_LOGIN_PER_MINUTE, window_seconds=60, scope="login"):
         logger.warning("Login form rate limit exceeded for client IP %s", client_ip)
@@ -111,7 +119,7 @@ async def read_current_user(current_user: UserOut = Depends(get_current_user)):
 @router.post("/refresh", response_model=Token, summary="Refresh existing JWT access token")
 def refresh_token(current_user: UserOut = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
     """Issue a fresh JWT token for an already authenticated active user session."""
-    result = _issue_token(current_user)
+    result = _issue_token(current_user, decode_access_token(token).get("auth_method", "password"))
     _revoke(token)
     return result
 
@@ -131,6 +139,7 @@ def logout(current_user: UserOut = Depends(get_current_user), token: str = Depen
 @router.post("/invite", response_model=UserOut, status_code=201)
 def invite(credentials: UserRegistration, current_user: UserOut = Depends(require_admin)):
     """Provision a private-beta analyst; hand credentials to the user separately."""
+    _require_password_test_mode()
     try:
         return register_user(credentials.username, credentials.password, role="analyst")
     except ValueError as exc:
@@ -140,6 +149,7 @@ def invite(credentials: UserRegistration, current_user: UserOut = Depends(requir
 @router.get("/oauth/config", summary="Public provider configuration")
 def oauth_config():
     return {"auth_url": settings.NEON_AUTH_URL.rstrip("/"),
+            "providers": ["google"], "password_enabled": settings.PASSWORD_AUTH_ENABLED,
             "enabled": bool(settings.NEON_AUTH_URL and settings.NEON_JWKS_URL)}
 
 
@@ -154,7 +164,7 @@ def oauth_login(payload: OAuthLoginRequest, request: Request):
     account = get_store().neon_account(issuer, subject, profile)
     if not account.get("is_active", True):
         raise HTTPException(403, "Account is unavailable")
-    return _issue_token(UserOut(username=account["username"], role=account.get("role", "viewer"), is_active=True))
+    return _issue_token(UserOut(username=account["username"], role=account.get("role", "viewer"), is_active=True), "google")
 
 
 @router.post("/verify-neon-session", response_model=Token, deprecated=True)

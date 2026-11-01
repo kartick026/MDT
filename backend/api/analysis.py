@@ -256,8 +256,8 @@ async def analyze_impact(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as e:
-        logger.error("Analysis failed: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Analysis failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Analysis failed. Please try again later.") from None
 
 
 @router.get("/history", response_model=HistoryResponse, summary="Return historical analysis results")
@@ -357,5 +357,5 @@ async def preview_fix(
     except ValueError as exc:
         raise HTTPException(status_code=409 if "stale" in str(exc).lower() else 422, detail=str(exc)) from exc
     except Exception as e:
-        logger.error("Preview fix simulation failed: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Preview fix simulation failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Preview simulation failed. Please try again later.") from None

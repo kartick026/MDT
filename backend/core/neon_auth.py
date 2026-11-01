@@ -38,9 +38,16 @@ def verified_neon_identity(token):
         raise HTTPException(503, 'Neon identity storage is unavailable')
     try:
         with store.connection() as db:
-            row = db.execute('SELECT id, name, email, image, "emailVerified" FROM neon_auth."user" WHERE id=?', (subject,)).fetchone()
+            row = db.execute('SELECT u.id, u.name, u.email, u.image, u."emailVerified", u.banned, '
+                             'EXISTS (SELECT 1 FROM neon_auth.account a WHERE a."userId"=u.id '
+                             'AND a."providerId"=\'google\') AS google_linked, '
+                             'EXISTS (SELECT 1 FROM neon_auth.account a WHERE a."userId"=u.id '
+                             'AND a."providerId"<>\'google\') AS other_provider_linked '
+                             'FROM neon_auth."user" u WHERE u.id=?', (subject,)).fetchone()
     except Exception as exc:
         raise HTTPException(503, 'Identity storage is temporarily unavailable') from exc
     if not row or not row['emailVerified'] or not row['email']:
         raise HTTPException(401, 'A verified provider account is required')
-    return issuer, subject, dict(row)
+    if row['banned'] or not row['google_linked'] or row['other_provider_linked']:
+        raise HTTPException(403, 'An active Google-only account is required')
+    return issuer, subject, {key: row[key] for key in ('id', 'name', 'email', 'image', 'emailVerified')}

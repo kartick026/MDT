@@ -1,22 +1,11 @@
-from core.store import get_store
-import json
+"""Inspect saved MDT data without changing any records."""
+from pathlib import Path
+import sys
 
-store = get_store()
-with store.connection() as db:
-    records = db.execute("SELECT kind, id, owner, project, payload FROM records").fetchall()
-    print("Total records:", len(records))
-    for r in records:
-        print(f"[{r['kind']}] id={r['id']} owner={r['owner']} project={r['project']}")
-        if r['kind'] == 'project':
-            data = json.loads(r['payload'])
-            print(f"   Project Name: {data.get('name')} | Repo: {data.get('repo_url')}")
-    
-    jobs = db.execute("SELECT id, owner, project, status, stage, payload FROM jobs").fetchall()
-    print("\nTotal jobs:", len(jobs))
-    for j in jobs:
-        print(f"[job] id={j['id']} owner={j['owner']} status={j['status']}")
-        try:
-            data = json.loads(j['payload'])
-            print(f"   Job Repo: {data.get('repo_url')}")
-        except Exception:
-            pass
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._inspection import run
+
+
+if __name__ == "__main__":
+    raise SystemExit(run("database"))

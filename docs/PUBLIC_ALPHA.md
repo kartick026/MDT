@@ -1,5 +1,7 @@
 # MDT academic alpha: implementation and release runbook
 
+**29 October update:** use [Render + Neon publication setup](RENDER_NEON_PUBLICATION.md) for the current single-service deployment and Google-only authentication. Password endpoints and seeded credentials described by older audit evidence are disabled by default. Existing accounts and saved data remain intact.
+
 Updated 25 October 2026. The detailed report-to-code audit and phased backlog are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Current checks, package hashes and unresolved security/acceptance requirements are in [RELEASE_READINESS_2026-10-25.md](RELEASE_READINESS_2026-10-25.md). This document describes the implemented alpha, not every future item in that plan. No cloud account, GitHub push, or store publication is performed by these files.
 
 ## Delivered architecture
@@ -28,7 +30,7 @@ Revise the paper's experiment section after rerunning the final implementation: 
 ## API and operational limits
 
 - `/v1/demo` is public and explicitly illustrative. `frontend/public/demo.json` is a bundled fallback when the API is asleep.
-- `/auth/login`, `/auth/refresh`, `/auth/logout` issue/rotate/revoke bearer sessions. `/auth/invite` is administrator-only and provisions an analyst with supplied credentials; it sends no messages.
+- `/auth/oauth-login`, `/auth/refresh`, `/auth/logout` issue/rotate/revoke Google-authenticated bearer sessions. Password login, registration and invitation are disabled by default; published configuration rejects password mode.
 - `POST /v1/projects` creates an owned project and returns an import `job_id`. Wait for the import job and the project's `ready` flag. GET/DELETE project operations enforce ownership.
 - `POST /v1/projects/{id}/analyses` accepts commit/PR input or paired full source snapshots. Patch-only input is rejected. Use `base_ref` for patch inputs, and `comparison_mode=merge_base` for PR comparisons. Optional `pull_request` resolves the immutable GitHub base/head SHAs server-side.
 - `GET /v1/jobs/{id}` returns queued/running/succeeded/partial/failed/cancelled plus the full saved result. `DELETE` cancels. `/v1/analyses/{id}` is an alias. `/v1/analyses/{id}/previews` uses the saved analysis snapshot.
@@ -42,12 +44,12 @@ Revise the paper's experiment section after rerunning the final implementation: 
 
 Before deployment, complete the [release gates](RELEASE_READINESS_2026-10-25.md). Hosting accounts, publisher, support and license are undecided. Copy [the metadata template](../release-config.example.json) to `release-config.local.json` when those decisions are made; `python scripts/release_preflight.py --config release-config.local.json` checks recorded readiness without publishing. Use [the hosted environment template](../backend/hosted.env.example) for private deployment secrets and complete [the privacy draft](PRIVACY_RELEASE_TEMPLATE.md) with actual operating details.
 
-Use Cloudflare Pages Free for the UI, Render Free for the single API process, and Supabase Free PostgreSQL for durable state. Keep paid model providers disabled. This is a limited academic alpha, not an always-on production commitment.
+Use one Render service for the site and API, with the existing Neon PostgreSQL database and managed Google authentication. Keep paid model providers disabled unless deliberately configured. This is a limited academic alpha, not an always-on production commitment.
 
-1. Create a Supabase Free project. Use the IPv4-compatible session pooler connection string when required by your host, with TLS (`sslmode=require`). Set it only in the API's `DATABASE_URL`. The store creates its own `mdt` schema; do not add that schema to the Data API's exposed schemas. Never put database passwords, service-role keys, JWT secrets or GitHub tokens in `VITE_*` variables. Export the `mdt` schema periodically; free-tier backup guarantees are insufficient for important research data.
-2. Create the Render API from [../render.yaml](../render.yaml) using the **Free** plan. It uses `backend/Dockerfile.hosted`, a non-root runtime, `$PORT`, one API worker and `/health/ready`. Set a strong admin password, persistent generated signing secret, database URL, and exact frontend origin in `ALLOWED_ORIGINS` (JSON list is supported). Signup and default auditor must remain disabled. Auto-deploy is off. Refresh security package layers for each release: local/CI builds use `docker build --pull --no-cache-filter runtime -f backend/Dockerfile.hosted backend`; a separately rebuilt platform image needs its own current scan and acceptance. See the [27 October cache-related security fix](RUNTIME_VALIDATION_2026-10-27.md).
-3. Build the frontend with root directory `frontend`, command `npm ci && npm run build`, output `dist`, Node 22.12 or newer within Node 22. Set `VITE_API_URL` to the HTTPS API URL, `VITE_ENABLE_LOCAL_DASHBOARD=false` and `VITE_ALLOW_SIGNUP=false`. Publish the static result to Cloudflare Pages; use its free subdomain initially. Rebuild after changing Vite variables because they are build-time values. A static host does not use the Docker Nginx `/api` proxy automatically.
-4. Log in as administrator, provision a small number of analysts using `/auth/invite`, and hand credentials to each tester through your chosen private channel. Confirm one user cannot read another user's project/job/preview. Do not post administrator credentials publicly.
+1. Use the existing Neon PostgreSQL database and Neon Auth branch. Set the database URL privately in the API only, preserve both `mdt` and `neon_auth` schemas, and back up important data. Never put database credentials or signing keys in `VITE_*` variables.
+2. Create the single Render web service from [../render.yaml](../render.yaml). It builds the root `Dockerfile.render`, includes the frontend, runs as a non-root user on `$PORT`, and checks `/health/ready`. Supply private Neon database/Auth/JWKS URLs; the blueprint generates signing secrets, disables password authentication and keeps auto-deploy off.
+3. The Render image builds the frontend with a same-origin API. Register the final HTTPS Render origin in Neon trusted domains, configure your own Google OAuth client privately in Neon, then follow [the current publication guide](RENDER_NEON_PUBLICATION.md).
+4. Sign in with Google. Existing roles and owners are preserved; new verified Google users can create their own projects as analysts. Confirm one user cannot read another user's project/job/preview.
 5. Run release smoke tests: anonymous demo, login, public-repo import, exact revision analysis, saved-job reopen after API restart, preview, cancellation, data deletion, logout rejection, offline-demo fallback and CORS. Inspect the service's memory and outbound usage before increasing quotas.
 6. After the extension-host checks below pass, distribute the browser ZIP for extraction and Load unpacked, plus the installable VSIX. Replace the VSIX's local placeholder publisher ID only after choosing an actual publisher. Add the verified support contact/privacy URL and resolve code licensing with all project owners before a store submission. The packaged extensions contain no database/model credentials.
 
@@ -59,7 +61,7 @@ Free service limitations verified against primary documentation: [Render Free](h
 docker compose up -d --build backend frontend
 ```
 
-Open `http://localhost:5173`. The frontend proxies `/api` to the backend. The four runnable service ports remain 8001–8004. Local development credentials are configured by `backend/.env` or documented development defaults; they are rejected by hosted configuration.
+Open `http://localhost:5173`. The frontend proxies `/api` to the backend. The four runnable service ports remain 8001–8004 and bind to localhost. Google OAuth is the sign-in method; no seeded password credentials are available.
 
 For isolated tests with Python 3.11 preferred:
 

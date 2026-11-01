@@ -12,11 +12,16 @@ import subprocess
 import sys
 import tempfile
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._runtime import ensure_runtime
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
+    ensure_runtime(("dotenv", "psycopg", "pydantic_settings", "fastapi", "git", "tree_sitter"))
     root = Path(__file__).resolve().parents[1]
     output = root / 'frontend' / 'public' / 'demo.json'
     with tempfile.TemporaryDirectory(prefix='mdt-demo-') as directory:
@@ -26,7 +31,7 @@ def main():
         # Preserve only runtime/OS variables. Do not inherit engine overrides,
         # credentials, local repository paths or user-specific demo settings.
         env = {key: value for key, value in os.environ.items() if key.upper() in {
-            'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'PYTHONHOME'}}
+            'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL'}}
         env.update(TESTING='true', ENVIRONMENT='test', RUNTIME_PROFILE='local',
                    OPENAI_API_KEY='', GITHUB_TOKEN='', GITHUB_APP_ID='', GITHUB_APP_PRIVATE_KEY='',
                    DATABASE_URL=str(target / 'demo.sqlite3'), NEO4J_URI='bolt://127.0.0.1:1',

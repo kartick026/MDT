@@ -1,0 +1,3 @@
+# Shared native-runner dependencies. Service containers keep their own pins.
+-r ../backend/requirements-hosted.txt
+email-validator>=2.2,<3

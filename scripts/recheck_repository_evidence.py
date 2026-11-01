@@ -10,10 +10,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
-import tempfile
 import time
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._runtime import ensure_runtime, isolated_backend
 
 
 async def replay(args):
@@ -116,17 +118,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--imports-only", action="store_true", help="Replay cached topology imports without fetching parent commits")
     args = parser.parse_args()
+    ensure_runtime(("dotenv", "psycopg", "pydantic_settings", "git", "tree_sitter"))
     args.root = Path(__file__).resolve().parents[1]
     args.baseline, args.archives, args.output = args.baseline.resolve(), args.archives.resolve(), args.output.resolve()
-    with tempfile.TemporaryDirectory(prefix="mdt-evidence-replay-") as directory:
-        clean = Path(directory)
-        shutil.copytree(args.root / "backend", clean / "backend",
-                        ignore=shutil.ignore_patterns(".env", ".env.*", "data", "__pycache__", "*.pyc", "chroma_db"))
-        os.environ.update(TESTING="true", ENVIRONMENT="test", RUNTIME_PROFILE="local", OPENAI_API_KEY="",
-                          GITHUB_TOKEN="", GITHUB_APP_ID="", GITHUB_APP_PRIVATE_KEY="", DATABASE_URL=str(clean / "store.sqlite3"),
-                          NEO4J_URI="bolt://127.0.0.1:1", CHROMA_HOST="127.0.0.1")
-        os.chdir(clean)
-        sys.path.insert(0, str(clean / "backend"))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with isolated_backend():
         asyncio.run(replay(args))
 
 

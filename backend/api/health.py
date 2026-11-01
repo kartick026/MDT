@@ -1,7 +1,7 @@
 """Health check endpoints"""
 import logging
 from fastapi import APIRouter, Depends, HTTPException
-from core.auth import get_current_user_optional
+from core.auth import get_current_user
 from core.config import settings
 from core.database import check_neo4j_health, check_chroma_health
 
@@ -40,7 +40,7 @@ def readiness():
 
 
 @router.get("/detailed", summary="Detailed component health")
-async def detailed_health(user=Depends(get_current_user_optional)):
+async def detailed_health(user=Depends(get_current_user)):
     """Check connectivity and readiness of all backend components."""
 
     # 1. Neo4j connectivity
@@ -65,7 +65,6 @@ async def detailed_health(user=Depends(get_current_user_optional)):
         "availability": "not_probed",
         "project_analysis_mode": "deterministic",
         "model": settings.LLM_MODEL,
-        "base_url": settings.LLM_BASE_URL or "default",
         "configured": llm_configured
     }
 

@@ -39,6 +39,11 @@ jobs:
           --health-interval 10s --health-timeout 10s --health-retries 20
     env:
       TESTING: "true"
+      PASSWORD_AUTH_ENABLED: "true"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: ci-disposable-admin-password
+      AUDITOR_USERNAME: auditor
+      AUDITOR_PASSWORD: ci-disposable-auditor-password
       OPENAI_API_KEY: ""
       GITHUB_TOKEN: ""
       NEO4J_URI: bolt://127.0.0.1:1
@@ -94,6 +99,8 @@ jobs:
             dockerfile: backend/Dockerfile.hosted
           - context: frontend
             dockerfile: frontend/Dockerfile
+          - context: .
+            dockerfile: Dockerfile.render
     steps:
       - uses: actions/checkout@v4
       - name: Build the release runtime

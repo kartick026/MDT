@@ -157,7 +157,7 @@ def test_inactive_social_account_cannot_sign_in(isolate_durable_store, monkeypat
     assert TestClient(app).post('/auth/oauth-login', json={'id_token': 'signed-token-placeholder'}).status_code == 403
 
 
-@pytest.mark.parametrize('case', ['valid', 'tampered', 'wrong_issuer', 'expired', 'unsigned', 'unknown_user', 'unverified'])
+@pytest.mark.parametrize('case', ['valid', 'tampered', 'wrong_issuer', 'expired', 'unsigned', 'unknown_user', 'unverified', 'banned', 'not_google', 'mixed_provider'])
 def test_provider_jwt_requires_signature_issuer_expiry_and_verified_user(case, monkeypatch):
     import core.neon_auth as provider
     import core.store as store_module
@@ -165,7 +165,8 @@ def test_provider_jwt_requires_signature_issuer_expiry_and_verified_user(case, m
     monkeypatch.setattr(settings, 'NEON_AUTH_URL', 'https://provider.example/neondb/auth')
     monkeypatch.setattr(settings, 'NEON_JWKS_URL', 'https://provider.example/neondb/auth/jwks')
     monkeypatch.setattr(provider, '_jwks_client', lambda url: SimpleNamespace(get_signing_key_from_jwt=lambda token: SimpleNamespace(key=private.public_key())))
-    row = {'id': 's', 'name': 'User', 'email': 'user@example.com', 'image': None, 'emailVerified': case != 'unverified'}
+    profile = {'id': 's', 'name': 'User', 'email': 'user@example.com', 'image': None, 'emailVerified': case != 'unverified'}
+    row = {**profile, 'banned': case == 'banned', 'google_linked': case != 'not_google', 'other_provider_linked': case == 'mixed_provider'}
     class DB:
         def __enter__(self): return self
         def __exit__(self, *args): pass
@@ -179,7 +180,7 @@ def test_provider_jwt_requires_signature_issuer_expiry_and_verified_user(case, m
     if case == 'tampered': token = jwt.encode({**claims, 'sub': 'admin'}, ed25519.Ed25519PrivateKey.generate(), algorithm='EdDSA')
     if case == 'unsigned': token = jwt.encode(claims, None, algorithm='none')
     if case == 'valid':
-        assert provider.verified_neon_identity(token) == ('https://provider.example', 's', row)
+        assert provider.verified_neon_identity(token) == ('https://provider.example', 's', profile)
     else:
         with pytest.raises(HTTPException) as error: provider.verified_neon_identity(token)
-        assert error.value.status_code == 401
+        assert error.value.status_code == (403 if case in {'banned', 'not_google', 'mixed_provider'} else 401)

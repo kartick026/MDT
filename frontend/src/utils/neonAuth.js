@@ -6,7 +6,7 @@ async function getClient() {
   if (!clientPromise) {
     clientPromise = Promise.all([getOAuthConfig(), import('@neondatabase/auth')])
       .then(([config, sdk]) => {
-        if (!config.enabled || !config.auth_url) throw new Error('Social sign-in is not configured. Use your password to sign in.');
+        if (!config.enabled || !config.auth_url) throw new Error('Google sign-in is not configured. Please try again later.');
         // This SDK wrapper retrieves the JWT injected into provider session
         // responses; the plain Better Auth /token endpoint is not universal.
         return sdk.createInternalNeonAuth(config.auth_url);
@@ -15,10 +15,10 @@ async function getClient() {
   return clientPromise;
 }
 
-export async function startNeonSignIn(provider = 'google') {
+export async function startNeonSignIn() {
   const client = await getClient();
   sessionStorage.setItem('mdt_oauth_pending', String(Date.now()));
-  const result = await client.adapter.signIn.social({ provider, callbackURL: window.location.href });
+  const result = await client.adapter.signIn.social({ provider: 'google', callbackURL: window.location.href });
   if (result.error) {
     sessionStorage.removeItem('mdt_oauth_pending');
     throw new Error(result.error.message || 'Social sign-in failed.');

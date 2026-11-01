@@ -21,7 +21,6 @@ import os
 import platform
 from pathlib import Path
 import re
-import resource
 import subprocess
 import sys
 import tarfile
@@ -29,10 +28,14 @@ import time
 import urllib.request
 from unittest.mock import patch
 
-os.environ.update(OPENAI_API_KEY="", GITHUB_TOKEN="", GITHUB_APP_ID="", GITHUB_APP_PRIVATE_KEY="",
-                  RUNTIME_PROFILE="local", ENVIRONMENT="development", TESTING="true")
-sys.path.insert(0, "/app")
-logging.basicConfig(level=logging.ERROR)
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._runtime import ROOT, backend_source, ensure_runtime, isolated_backend
+
+try:
+    import resource
+except ImportError:  # Windows does not expose the POSIX resource module.
+    resource = None
 
 REPOSITORIES = ["GoogleCloudPlatform/microservices-demo", "fastapi/full-stack-fastapi-template",
                 "expressjs/express", "fastapi/fastapi"]
@@ -182,7 +185,7 @@ def write_results(output, results):
 async def run(output, cache):
     from api.projects import evaluate_job
     from core.registry import RegistryManager
-    from services.git_analyzer import GitAnalyzer, is_supported_file
+    from services.git_analyzer import GitAnalyzer, is_supported_file, MAX_CHANGE_FILES
     from services.impact_engine import ImpactEngine
     from services.remediation_simulator import RemediationSimulator, compute_architecture_health, breakdown_smells
     from domain.architecture import GraphSnapshot, detect_smells, configured_thresholds
@@ -193,7 +196,7 @@ async def run(output, cache):
                "limitations": ["Source-only controls bypass ready-project HTTP admission after architecture abstention; no microservice debt is assigned",
                                "Compatibility labels are diagnostic synthetic mutations of public source, not held-out incident probabilities"],
                "python": platform.python_version(), "platform": platform.platform(), "cpu_limit": 2, "memory_limit_mib": 1024,
-               "implementation_sha256": {path: hashlib.sha256((Path('/app') / path).read_bytes()).hexdigest() for path in
+               "implementation_sha256": {path: hashlib.sha256((backend_source() / path).read_bytes()).hexdigest() for path in
                    ['api/projects.py','services/git_analyzer.py','services/impact_engine.py','services/repo_onboarding.py',
                     'services/source_parser.py','services/analysis_evidence.py','domain/architecture.py']},
                "repositories": [], "experiments": [], "fetch_errors": [], "limits": {"files": 100, "source_bytes": 2097152, "per_file_bytes": 262144}}
@@ -326,29 +329,47 @@ async def run(output, cache):
                         result_sha256=hashlib.sha256(json.dumps({key:first[key] for key in stable_fields}, sort_keys=True).encode()).hexdigest())
                     print(json.dumps({key: measurement[key] for key in ("repo", "case", "risk", "debt", "partial", "api_flag_correct", "repeatable")}), flush=True)
                 except Exception as error:
-                    measurement["error"] = str(error)
-                    print(json.dumps({"case_failed": name, "error": str(error)}), flush=True)
+                    changed_count = sum(before.get(path) != after.get(path) for path in before.keys() | after.keys())
+                    if isinstance(error, ValueError) and changed_count > MAX_CHANGE_FILES and str(error) == f"At most {MAX_CHANGE_FILES} changed files may be submitted.":
+                        measurement.update(assessment_status="abstained_input_limit", risk=None, debt=None,
+                            changed_files=changed_count, max_change_files=MAX_CHANGE_FILES,
+                            abstention_reason="Full upstream comparison exceeds the application's change-file limit; no score was computed.")
+                        print(json.dumps({"case": name, "status": measurement["assessment_status"], "changed_files": changed_count}), flush=True)
+                    else:
+                        measurement["error"] = str(error)
+                        print(json.dumps({"case_failed": name, "error": str(error)}), flush=True)
                 results["experiments"].append(measurement)
                 write_results(output, results)
     results["registry_unchanged"] = RegistryManager.load() == original
-    results['peak_process_rss_mib'] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 3)
+    results['peak_process_rss_mib'] = (round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024 if sys.platform == 'darwin' else 1024), 3)
+                                       if resource is not None else None)
     results["completed_at"] = datetime.now(timezone.utc).isoformat()
     write_results(output, results)
     if not results["registry_unchanged"]:
         raise AssertionError("The global registry changed during the benchmark")
-    print(json.dumps({"completed": True, "repositories": len(results["repositories"]), "experiments": len(results["experiments"]),
+    failures = len(results["fetch_errors"]) + sum(bool(row.get("error") or row.get("setup_error")) for row in results["experiments"])
+    print(json.dumps({"completed": True, "successful": failures == 0, "unexpected_errors": failures,
+                      "repositories": len(results["repositories"]), "experiments": len(results["experiments"]),
                       "registry_unchanged": results["registry_unchanged"]}), flush=True)
+    return failures == 0
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path("/benchmark-output"))
+    parser.add_argument("--output", type=Path, default=ROOT / "scratch" / "benchmark-public")
     parser.add_argument("--cache", type=Path, help="Existing immutable archive cache; defaults to output")
     parser.add_argument("--overwrite", action="store_true", help="Explicitly replace result files in the output directory")
     arguments = parser.parse_args()
+    ensure_runtime(("dotenv", "psycopg", "pydantic_settings", "git", "tree_sitter"))
+    logging.basicConfig(level=logging.ERROR)
+    arguments.output = arguments.output.resolve()
+    if arguments.cache:
+        arguments.cache = arguments.cache.resolve()
     arguments.output.mkdir(parents=True, exist_ok=True)
     if (arguments.output / "results.json").exists() and not arguments.overwrite:
         parser.error("Result file already exists; select a new --output directory to preserve the prior run")
     archive_cache = arguments.cache or arguments.output
     archive_cache.mkdir(parents=True, exist_ok=True)
-    asyncio.run(run(arguments.output, archive_cache))
+    with isolated_backend():
+        successful = asyncio.run(run(arguments.output, archive_cache))
+    raise SystemExit(0 if successful else 1)

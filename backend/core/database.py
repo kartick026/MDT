@@ -101,14 +101,14 @@ async def init_databases():
             )
             driver.verify_connectivity()
             neo4j_driver = driver
-            logger.info("Neo4j connected successfully: %s (pool_size=50)", settings.NEO4J_URI)
+            logger.info("Neo4j connected successfully (pool_size=50)")
             break
         except Exception as exc:
             if attempt < retries - 1:
-                logger.info("Neo4j connection attempt %d failed (%s). Retrying in 2s...", attempt + 1, exc)
+                logger.info("Neo4j connection attempt %d failed (%s). Retrying in 2s...", attempt + 1, type(exc).__name__)
                 await asyncio.sleep(2.0)
             else:
-                logger.warning("Real Neo4j connection failed after %d attempts (%s). Using MockNeo4jDriver.", retries, exc)
+                logger.warning("Real Neo4j connection failed after %d attempts (%s). Using MockNeo4jDriver.", retries, type(exc).__name__)
                 neo4j_driver = MockNeo4jDriver()
 
     # --- ChromaDB ---
@@ -128,7 +128,7 @@ async def init_databases():
         chroma_client.heartbeat()
         logger.info("ChromaDB connected (%s)", client_description)
     except Exception as exc:
-        logger.warning("ChromaDB initialization failed: %s", exc)
+        logger.warning("ChromaDB initialization failed (%s)", type(exc).__name__)
 
 
 def _try_reconnect_neo4j() -> bool:
@@ -150,10 +150,10 @@ def _try_reconnect_neo4j() -> bool:
         )
         driver.verify_connectivity()
         neo4j_driver = driver
-        logger.info("Successfully reconnected to live Neo4j: %s", settings.NEO4J_URI)
+        logger.info("Successfully reconnected to live Neo4j")
         return True
     except Exception as exc:
-        logger.debug("Neo4j reconnect attempt failed: %s", exc)
+        logger.debug("Neo4j reconnect attempt failed (%s)", type(exc).__name__)
         return False
 
 
@@ -199,11 +199,11 @@ def check_neo4j_health() -> Dict[str, Any]:
         return {"status": "mock_mode", "is_mock": True, "connected": False, "note": "Local mock active"}
     try:
         neo4j_driver.verify_connectivity()
-        return {"status": "healthy", "is_mock": False, "connected": True, "uri": settings.NEO4J_URI}
+        return {"status": "healthy", "is_mock": False, "connected": True}
     except Exception as exc:
         if _try_reconnect_neo4j():
-            return {"status": "healthy", "is_mock": False, "connected": True, "uri": settings.NEO4J_URI}
-        return {"status": "unhealthy", "is_mock": False, "connected": False, "error": str(exc)}
+            return {"status": "healthy", "is_mock": False, "connected": True}
+        return {"status": "unhealthy", "is_mock": False, "connected": False, "error": type(exc).__name__}
 
 
 def check_chroma_health() -> Dict[str, Any]:
@@ -215,7 +215,7 @@ def check_chroma_health() -> Dict[str, Any]:
         hb = chroma_client.heartbeat()
         return {"status": "healthy", "connected": True, "heartbeat": hb}
     except Exception as exc:
-        return {"status": "unhealthy", "connected": False, "error": str(exc)}
+        return {"status": "unhealthy", "connected": False, "error": type(exc).__name__}
 
 
 async def close_databases():
@@ -226,5 +226,5 @@ async def close_databases():
             neo4j_driver.close()
             logger.info("Neo4j connection closed")
         except Exception as exc:
-            logger.debug("Error closing Neo4j driver: %s", exc)
+            logger.debug("Error closing Neo4j driver (%s)", type(exc).__name__)
         neo4j_driver = None

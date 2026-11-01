@@ -3483,3 +3483,18 @@ summary:focus-visible {
   border-radius: 2px;
   transition: width 0.5s ease;
 }
+.google-sign-in {
+  width: 100%;
+  min-height: 48px;
+  justify-content: center;
+  gap: 12px;
+}
+
+.google-sign-in svg {
+  padding: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  flex-shrink: 0;
+}

@@ -12,12 +12,13 @@ import time
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, "/app")
-from core.config import settings
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._smoke import authenticate, options
 
-assert settings.RUNTIME_PROFILE == "hosted"
-base = "http://127.0.0.1:" + os.getenv("PORT", "8000")
-state_path = Path("/tmp/mdt-hosted-smoke.json")
+base = None
+state_path = None
+job_timeout = 180
 token = None
 
 
@@ -33,7 +34,7 @@ def request(path, body=None, method=None):
 
 
 def completed(ident):
-    deadline = time.monotonic() + settings.JOB_TIMEOUT_SECONDS + 30
+    deadline = time.monotonic() + job_timeout + 30
     while time.monotonic() < deadline:
         job = request("/v1/jobs/" + ident)
         if job["status"] in {"succeeded", "partial", "failed", "cancelled"}:
@@ -43,46 +44,76 @@ def completed(ident):
     raise AssertionError("Job did not terminate within its deadline")
 
 
-assert request("/health/ready")["status"] == "ready"
-token = request("/auth/login", {"username": settings.ADMIN_USERNAME, "password": settings.ADMIN_PASSWORD})["access_token"]
-mode = sys.argv[1] if len(sys.argv) > 1 else "prepare"
-if mode == "prepare":
-    paths = request("/openapi.json")["paths"]
-    assert all(p.startswith(("/v1/", "/health", "/auth/")) or p == "/" for p in paths), sorted(paths)
-    project = request("/v1/projects", {"name": "Disposable hosted persistence validation", "repo_url": settings.DEMO_REPO_URL, "branch": settings.DEMO_REPO_BRANCH})
-    state = {"project_id": project["id"]}
-    state_path.write_text(json.dumps(state))
-    try:
-        imported = completed(project["job_id"])
-        saved = request("/v1/projects/" + project["id"])
-        assert saved["ready"]
-        revision = saved["snapshot"]["project"]["revision"]
-        assert len(revision) == 40 and all(c in "0123456789abcdef" for c in revision)
-        submitted = request(f"/v1/projects/{project['id']}/analyses", {"source": "commit", "head_ref": revision})
-        analysis = completed(submitted["job_id"])
-        assert analysis["result"]["commit_sha"] == revision
-        assert analysis["result"]["evidence"]["semantic_used"] is False
-        state.update(job_id=submitted["job_id"], snapshot_version=analysis["result"]["snapshot_version"], revision=revision)
+def verify_hosted_boundaries():
+    ready = request("/health/ready")
+    assert ready["status"] == "ready" and ready["profile"] == "hosted"
+    # Published deployments intentionally hide OpenAPI and the legacy fleet API.
+    for path in ("/openapi.json", "/registry/context", "/services/graph"):
+        try:
+            request(path)
+        except urllib.error.HTTPError as error:
+            assert error.code == 404, "Unexpected hosted route response"
+        else:
+            raise AssertionError("A disabled research/documentation route was exposed")
+
+
+def main():
+    global base, token, state_path, job_timeout
+    args = options(__doc__, hosted=True)
+    base, state_path, job_timeout = args.base_url, args.state, args.job_timeout
+    verify_hosted_boundaries()
+    token = authenticate(args)
+    mode = args.mode
+    if mode == "prepare":
+        if state_path.exists():
+            raise SystemExit("State file already exists; select a new --state path to preserve the prior run.")
+        project = request("/v1/projects", {"name": "Disposable hosted persistence validation", "repo_url": args.repo_url, "branch": args.branch})
+        state = {"project_id": project["id"], "base_url": base, "name": project["name"]}
+        state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps(state))
-        print(json.dumps({"public_import": imported["status"], "services": len(saved["snapshot"]["services"]),
-                          "commit_analysis": analysis["status"], "revision": revision,
-                          "next": "Restart the validation container, then run this script with verify"}))
-    except BaseException:
-        request("/v1/projects/" + project["id"], method="DELETE")
-        state_path.unlink(missing_ok=True)
-        raise
-elif mode == "verify":
-    state = json.loads(state_path.read_text())
-    try:
-        project = request("/v1/projects/" + state["project_id"])
-        job = request("/v1/jobs/" + state["job_id"])
-        assert project["ready"] and job["result"]["commit_sha"] == state["revision"]
-        preview = request(f"/v1/analyses/{state['job_id']}/previews", {"edits": [], "snapshot_version": state["snapshot_version"]})
-        assert preview["before"] == preview["after"]
-        print("Owned project, full result and immutable preview survived the API restart")
-    finally:
-        request("/v1/projects/" + state["project_id"], method="DELETE")
-        state_path.unlink(missing_ok=True)
-else:
-    raise ValueError("Use prepare or verify")
-request("/auth/logout", {}, method="POST")
+        try:
+            imported = completed(project["job_id"])
+            saved = request("/v1/projects/" + project["id"])
+            assert saved["ready"]
+            revision = saved["snapshot"]["project"]["revision"]
+            assert len(revision) == 40 and all(c in "0123456789abcdef" for c in revision)
+            submitted = request(f"/v1/projects/{project['id']}/analyses", {"source": "commit", "head_ref": revision})
+            analysis = completed(submitted["job_id"])
+            assert analysis["result"]["commit_sha"] == revision
+            assert analysis["result"]["evidence"]["semantic_used"] is False
+            state.update(job_id=submitted["job_id"], snapshot_version=analysis["result"]["snapshot_version"], revision=revision)
+            state_path.write_text(json.dumps(state))
+            print(json.dumps({"public_import": imported["status"], "services": len(saved["snapshot"]["services"]),
+                              "commit_analysis": analysis["status"], "revision": revision,
+                              "next": "Restart the validation container, then run this script with verify"}))
+        except BaseException:
+            request("/v1/projects/" + project["id"], method="DELETE")
+            state_path.unlink(missing_ok=True)
+            raise
+    elif mode == "verify":
+        state = json.loads(state_path.read_text())
+        if state.get("base_url") != base or not state.get("name", "").startswith("Disposable hosted persistence validation"):
+            raise SystemExit("State file does not belong to this smoke test/API; no project was changed.")
+        cleanup = False
+        try:
+            project = request("/v1/projects/" + state["project_id"])
+            if project["name"] != state["name"]:
+                raise SystemExit("Saved project does not match the disposable smoke state; no project was changed.")
+            cleanup = True
+            job = request("/v1/jobs/" + state["job_id"])
+            assert project["ready"] and job["result"]["commit_sha"] == state["revision"]
+            preview = request(f"/v1/analyses/{state['job_id']}/previews", {"edits": [], "snapshot_version": state["snapshot_version"]})
+            assert preview["before"] == preview["after"]
+            print("Owned project, full result and immutable preview survived the API restart")
+        finally:
+            if cleanup:
+                request("/v1/projects/" + state["project_id"], method="DELETE")
+                state_path.unlink(missing_ok=True)
+    else:
+        raise ValueError("Use prepare or verify")
+    if args.revoke_token:
+        request("/auth/logout", {}, method="POST")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

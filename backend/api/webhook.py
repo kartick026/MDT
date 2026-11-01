@@ -176,8 +176,7 @@ async def _process_push_background(push, x_github_delivery):
             x_github_delivery,
             getattr(push, "repo_url", "unknown"),
             getattr(push, "commit_sha", "unknown"),
-            exc,
-            exc_info=True,
+            type(exc).__name__,
         )
         c_sha = getattr(push, "commit_sha", "unknown")
         fail_payload = {
@@ -189,7 +188,7 @@ async def _process_push_background(push, x_github_delivery):
             "severity": "UNKNOWN",
             "impacted_services": [],
             "confidence": 0.0,
-            "explanation": f"Background analysis failed: {str(exc)}",
+            "explanation": "Background analysis failed. Verify repository access and try again.",
             "suggested_fixes": [],
             "affected_files": [],
             "timestamp": now_iso(),

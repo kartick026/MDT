@@ -17,6 +17,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.readiness_common import ROOT, evidence, write_report
+from scripts._runtime import ensure_runtime, isolated_backend
 
 
 def database_digest(store):
@@ -28,7 +29,7 @@ def database_digest(store):
 
 def exercise(directory, concurrency):
     os.environ.setdefault("TESTING", "true")
-    sys.path.insert(0, str(ROOT / "backend"))
+    sys.path.insert(0, os.environ.get("MDT_ISOLATED_BACKEND", str(ROOT / "backend")))
     from core.config import settings
     from core.store import Store
 
@@ -131,11 +132,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    ensure_runtime(("dotenv", "psycopg", "pydantic_settings"))
+    args.output = args.output.resolve()
     policy = json.loads((ROOT / "readiness-policy.json").read_text())["operations"]
     concurrency = policy["pilot_concurrency"] * policy["test_concurrency_multiplier"]
     with TemporaryDirectory(prefix="mdt-readiness-") as directory:
         try:
-            result = exercise(directory, concurrency)
+            with isolated_backend():
+                result = exercise(directory, concurrency)
         except Exception as error:
             result = {"status": "failed", "failure": type(error).__name__ + ": " + str(error)}
     report = evidence("local_reliability", environment="disposable_local_sqlite", **result,

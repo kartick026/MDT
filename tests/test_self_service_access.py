@@ -8,7 +8,7 @@ from core.auth import create_access_token
 
 
 @pytest.mark.parametrize('profile,signup,expected', [
-    ('local', True, 'analyst'), ('local', False, 'viewer'), ('hosted', False, 'viewer'),
+    ('local', True, 'analyst'), ('local', False, 'analyst'), ('hosted', False, 'analyst'),
 ])
 def test_new_social_role_follows_deployment_policy(isolate_durable_store, monkeypatch, profile, signup, expected):
     monkeypatch.setattr(settings, 'RUNTIME_PROFILE', profile)
@@ -16,6 +16,12 @@ def test_new_social_role_follows_deployment_policy(isolate_durable_store, monkey
     account = isolate_durable_store.neon_account('https://provider.example', 'new-user', {'email':'new@example.com'})
     assert account['role'] == expected
     assert account['role'] != 'admin'
+
+
+def test_social_signup_can_be_explicitly_read_only(isolate_durable_store, monkeypatch):
+    monkeypatch.setattr(settings, 'SOCIAL_SIGNUP_ROLE', 'viewer')
+    account = isolate_durable_store.neon_account('https://provider.example', 'new-read-only', {'email': 'new@example.com'})
+    assert account['role'] == 'viewer'
 
 
 def test_existing_read_only_account_is_not_implicitly_promoted(isolate_durable_store):

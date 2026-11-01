@@ -12,6 +12,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.readiness_common import ROOT, digest_file, evidence, write_report
+from scripts._runtime import ensure_runtime, isolated_backend
 
 
 def wilson(successes, total):
@@ -60,7 +61,7 @@ def summarize(rows, families, targets):
 
 def predict(case):
     os.environ.setdefault("TESTING", "true")
-    sys.path.insert(0, str(ROOT / "backend"))
+    sys.path.insert(0, os.environ.get("MDT_ISOLATED_BACKEND", str(ROOT / "backend")))
     from services.git_analyzer import GitAnalyzer
     from services.impact_engine import ImpactEngine
 
@@ -120,9 +121,12 @@ def main():
     parser.add_argument("--dataset", type=Path, default=ROOT / "evaluation/development.json")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    ensure_runtime(("dotenv", "psycopg", "pydantic_settings", "git", "tree_sitter"))
+    args.dataset, args.output = args.dataset.resolve(), args.output.resolve()
     targets = json.loads((ROOT / "readiness-policy.json").read_text())["accuracy"]
     dataset = json.loads(args.dataset.read_text(encoding="utf-8-sig"))
-    result = evaluate(dataset, targets)
+    with isolated_backend():
+        result = evaluate(dataset, targets)
     passed = result["controls_passed"] if result["split"] == "development" else result["meets_statistical_targets"]
     dataset_path = args.dataset.resolve().relative_to(ROOT).as_posix()
     report = evidence("accuracy", status="passed" if passed else "failed", dataset_sha256=digest_file(args.dataset),

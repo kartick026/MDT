@@ -8,6 +8,7 @@ from typing import Optional, List
 from datetime import datetime
 import uuid
 import httpx
+import os
 
 app = FastAPI(title="Order Service", version="1.0.0")
 
@@ -16,9 +17,9 @@ orders_db = {}
 order_counter = 1000
 
 # Service URLs
-USER_SERVICE_URL = "http://user-service:8001"
-NOTIFICATION_SERVICE_URL = "http://notification-service:8004"
-PAYMENT_SERVICE_URL = "http://payment-service:8003"
+USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://user-service:8001")
+NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://notification-service:8004")
+PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://payment-service:8003")
 
 
 class OrderItem(BaseModel):

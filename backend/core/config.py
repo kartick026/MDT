@@ -7,6 +7,7 @@ import logging
 import os
 import secrets
 from pathlib import Path
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""  # PostgreSQL in hosted or connected mode; SQLite under data/ locally
     NEON_AUTH_URL: str = ""
     NEON_JWKS_URL: str = ""
+    STATIC_FRONTEND_DIR: str = ""
+    RENDER_EXTERNAL_URL: str = ""
     MAX_REQUEST_BYTES: int = 5 * 1024 * 1024
     MAX_PROJECTS_PER_USER: int = 5
     MAX_ACTIVE_JOBS_PER_USER: int = 2
@@ -39,6 +42,9 @@ class Settings(BaseSettings):
 
     # Authentication & JWT
     AUTH_REQUIRED: bool = True
+    # Password auth exists only for explicit disposable local test environments.
+    PASSWORD_AUTH_ENABLED: bool = False
+    SOCIAL_SIGNUP_ROLE: str = "analyst"
     JWT_SECRET_KEY: str = Field(
         default="",
         description="JWT symmetric signing key (minimum 32 characters in production)"
@@ -47,11 +53,11 @@ class Settings(BaseSettings):
     JWT_SECRET_FILE: str = str(Path(__file__).resolve().parent.parent / 'data' / 'jwt-signing.key')
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=5, le=1440)
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "admin123"
-    ALLOW_SELF_SIGNUP: bool = True
-    ENABLE_DEFAULT_VIEWER: bool = True
+    ADMIN_PASSWORD: str = ""
+    ALLOW_SELF_SIGNUP: bool = False
+    ENABLE_DEFAULT_VIEWER: bool = False
     AUDITOR_USERNAME: str = "auditor"
-    AUDITOR_PASSWORD: str = "auditor123"
+    AUDITOR_PASSWORD: str = ""
 
     # Neo4j
     NEO4J_URI: str = "bolt://localhost:7687"
@@ -120,8 +126,12 @@ class Settings(BaseSettings):
 
     @property
     def self_service_account_role(self) -> str:
-        """Local self-service users can work on their own projects; hosted stays invited."""
-        return 'analyst' if self.RUNTIME_PROFILE == 'local' and self.ALLOW_SELF_SIGNUP else 'viewer'
+        """Google signup policy never grants administration or changes existing roles."""
+        return self.SOCIAL_SIGNUP_ROLE
+
+    @property
+    def published_deployment(self) -> bool:
+        return self.RUNTIME_PROFILE == "hosted" or self.ENVIRONMENT.lower().strip() in {"production", "prod", "staging", "stg", "uat"}
 
     @field_validator("OPENAI_API_KEY")
     @classmethod
@@ -130,7 +140,7 @@ class Settings(BaseSettings):
         if not cleaned:
             logger.warning("OPENAI_API_KEY is empty. LLM analysis will use deterministic fallback.")
         elif any(placeholder in cleaned.lower() for placeholder in ("your_", "sk-proj-your", "placeholder")):
-            logger.warning("OPENAI_API_KEY appears to be a placeholder: %s...", cleaned[:10])
+            logger.warning("OPENAI_API_KEY appears to be a placeholder; deterministic fallback may be used.")
         return cleaned
 
     @field_validator("ALLOWED_ORIGINS")
@@ -148,6 +158,8 @@ class Settings(BaseSettings):
         is_prod = env_clean in {"production", "prod", "staging", "stg", "uat"}
         if self.RUNTIME_PROFILE not in {"local", "hosted"}:
             raise ValueError("RUNTIME_PROFILE must be local or hosted")
+        if self.SOCIAL_SIGNUP_ROLE not in {"analyst", "viewer"}:
+            raise ValueError("SOCIAL_SIGNUP_ROLE must be analyst or viewer")
         if self.RUNTIME_PROFILE == "hosted":
             if not self.AUTH_REQUIRED:
                 raise ValueError("Hosted mode requires authentication")
@@ -158,6 +170,32 @@ class Settings(BaseSettings):
             if "*" in self.ALLOWED_ORIGINS:
                 raise ValueError("Hosted mode requires explicit ALLOWED_ORIGINS")
             is_prod = True
+        if is_prod and self.PASSWORD_AUTH_ENABLED:
+            raise ValueError("Published deployments require Google OAuth; password authentication must be disabled")
+        if is_prod:
+            if not self.ALLOWED_ORIGINS:
+                if not self.RENDER_EXTERNAL_URL:
+                    raise ValueError("Published deployments require explicit ALLOWED_ORIGINS or RENDER_EXTERNAL_URL")
+                self.ALLOWED_ORIGINS = [self.RENDER_EXTERNAL_URL.rstrip("/")]
+            if "*" in self.ALLOWED_ORIGINS:
+                raise ValueError("Published deployments require explicit ALLOWED_ORIGINS")
+            for origin in self.ALLOWED_ORIGINS:
+                parsed = urlsplit(origin)
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+                    raise ValueError("Published ALLOWED_ORIGINS must contain HTTPS origins without credentials, paths or query strings")
+            auth, jwks = urlsplit(self.NEON_AUTH_URL), urlsplit(self.NEON_JWKS_URL)
+            if (auth.scheme != "https" or not auth.hostname or jwks.scheme != "https" or auth.hostname != jwks.hostname
+                    or auth.username or auth.password or jwks.username or jwks.password):
+                raise ValueError("Published deployments require HTTPS Neon Auth and JWKS URLs on the same provider host")
+        if not self.PASSWORD_AUTH_ENABLED and not self.AUTH_REQUIRED:
+            raise ValueError("Google-only mode requires authentication")
+        if self.PASSWORD_AUTH_ENABLED and (not self.ADMIN_USERNAME.strip() or not self.ADMIN_PASSWORD.strip()):
+            raise ValueError("Explicit local password test mode requires ADMIN_USERNAME and ADMIN_PASSWORD")
+        if self.STATIC_FRONTEND_DIR:
+            frontend = Path(self.STATIC_FRONTEND_DIR).expanduser().resolve()
+            if not frontend.is_dir() or not (frontend / "index.html").is_file():
+                raise ValueError("STATIC_FRONTEND_DIR must point to a built frontend containing index.html")
+            self.STATIC_FRONTEND_DIR = str(frontend)
 
         known_insecure_jwt = {
             "mdt-production-super-secret-jwt-key-minimum-32-chars!",
@@ -210,15 +248,9 @@ class Settings(BaseSettings):
 
         # 3. Prevent development passwords in production
         if is_prod:
-            if len(self.ADMIN_PASSWORD.encode("utf-8")) < 12:
-                raise ValueError("Production administrator password must contain at least 12 bytes")
-            insecure = {
-                "ADMIN_PASSWORD": "admin123",
-            }
+            insecure = {}
             if self.RUNTIME_PROFILE == "local":
                 insecure["NEO4J_PASSWORD"] = "password"
-            if self.ENABLE_DEFAULT_VIEWER:
-                insecure["AUDITOR_PASSWORD"] = "auditor123"
 
             unsafe_fields = [field for field, value in insecure.items() if getattr(self, field) == value]
             if unsafe_fields:
@@ -234,7 +266,8 @@ class Settings(BaseSettings):
             "backend/.env",
             ".env",
         ),
-        extra="ignore"
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { loginUser, registerUser, getCurrentUser, revokeSession } from '../api';
+import { getCurrentUser, revokeSession } from '../api';
 import { exchangeNeonSession, signOutNeon } from '../utils/neonAuth';
 import { clearAnalysisSession } from '../utils/session';
 import { AuthContext } from './useAuth';
@@ -15,7 +15,7 @@ export function AuthProvider({ children }) {
   const [sessionError, setSessionError] = useState('');
   const sessionVersion = useRef(0);
 
-  const acceptSession = useCallback((data, provider = 'password') => {
+  const acceptSession = useCallback((data, provider = 'neon') => {
     sessionVersion.current += 1;
     clearAnalysisSession();
     window.dispatchEvent(new CustomEvent('mdt_session_cleared'));
@@ -86,8 +86,6 @@ export function AuthProvider({ children }) {
     return () => { mounted = false; window.removeEventListener('mdt_auth_expired', handleExpired); };
   }, [logout, acceptSession]);
 
-  const login = async (username, password) => acceptSession(await loginUser(username, password));
-  const register = async (username, password) => acceptSession(await registerUser(username, password));
   const loginOAuth = async () => acceptSession(await exchangeNeonSession(), 'neon');
   const replaceToken = useCallback(accessToken => {
     sessionVersion.current += 1;
@@ -96,7 +94,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return <AuthContext.Provider value={{ token, user, isAuthenticated: !!token && !!user, isLoading,
-    login, register, loginOAuth, replaceToken, logout, sessionError, loginModalOpen,
+    loginOAuth, replaceToken, logout, sessionError, loginModalOpen,
     openLoginModal: () => setLoginModalOpen(true), closeLoginModal: () => setLoginModalOpen(false),
   }}>{children}</AuthContext.Provider>;
 }

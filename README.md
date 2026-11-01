@@ -9,6 +9,7 @@
 MDT is an academic alpha for cross-service change impact and architectural-debt analysis. It connects exact Git revisions or deliberately submitted source snapshots to a service graph, explains the available evidence, and evaluates proposed graph edits. Scores are engineering indicators, not calibrated incident probabilities or guarantees that a deployment is safe.
 
 - [Current implementation and zero-cost release runbook](docs/PUBLIC_ALPHA.md)
+- [Render and Neon publication setup, Google-only sign-in and security review](docs/RENDER_NEON_PUBLICATION.md)
 - [25 October release checks, local packages and outstanding gates](docs/RELEASE_READINESS_2026-10-25.md)
 - [Professional support scope, measurable acceptance gates and remaining evidence](docs/PROFESSIONAL_READINESS.md)
 - [27 October running-backend checks and refreshed hosted-image security scan](docs/RUNTIME_VALIDATION_2026-10-27.md)
@@ -26,9 +27,13 @@ Requirements: Docker Desktop with Compose v2, and Git. Model-provider credential
 docker compose up -d --build
 ```
 
-Open [MDT in your browser](http://localhost:5173). The public example works without signing in. The local development defaults are `admin` / `admin123` unless overridden by `backend/.env`. Hosted configuration rejects those defaults.
+Open [MDT in your browser](http://localhost:5173). The public example works without signing in. Saved projects use **Continue with Google** through Neon Auth. Password login, password registration and seeded administrator credentials are disabled by default, including for existing password accounts. Existing users, ownership, roles and history are preserved.
 
-If configuration is needed, copy `backend/.env.example` to `backend/.env`, then edit that local file. Never commit credentials. The default development JWT key is ephemeral, so restarting the backend ends those sessions; set a persistent strong key for a controlled environment.
+If configuration is needed, copy `backend/.env.example` to `backend/.env`, then set your Neon PostgreSQL, Auth and JWKS URLs privately. Never commit credentials. Local development uses a persistent signing key in the protected data volume; production requires an explicit strong `JWT_SECRET_KEY`.
+
+## Publish to Render with Neon
+
+The root `render.yaml` builds `Dockerfile.render`, which serves the React site and hosted API from one HTTPS origin. Neon PostgreSQL retains projects/history and supplies the verified Google identities. The blueprint keeps automatic deployment off and saved-history retention disabled. Follow [the deployment guide](docs/RENDER_NEON_PUBLICATION.md) to supply private settings, replace Google's shared development keys, and register the final Render domain in Neon. Preparing these files does not push or publish the repository.
 
 | Local service | Address |
 | --- | --- |
@@ -109,7 +114,7 @@ The running [OpenAPI reference](http://localhost:8000/docs) is the authoritative
 | GET | `/health/ready` | Database readiness |
 | GET | `/v1/demo` | Public illustrative snapshot |
 | POST | `/auth/login`, `/auth/refresh`, `/auth/logout` | Start, rotate or revoke a session |
-| POST | `/auth/invite` | Administrator provisions an analyst; no email is sent |
+| POST | `/auth/oauth-login` | Exchanges a verified Google-linked Neon identity for an application session |
 | GET / POST | `/v1/projects` | List or create owned projects |
 | GET / DELETE | `/v1/projects/{id}` | Read or delete an owned project and its jobs |
 | POST | `/v1/projects/{id}/analyses` | Queue import, revision, PR or source-snapshot analysis |
@@ -147,7 +152,18 @@ npm.cmd --prefix frontend run lint
 npm.cmd --prefix frontend run build
 ```
 
-PostgreSQL and Neo4j integration tests require explicit test connection settings. See [validation evidence](docs/VALIDATION.md) and the [runbook](docs/PUBLIC_ALPHA.md) for scope and commands. The local CI workflow also validates the shared client and both extensions; it does not publish anything.
+The scripts automatically use an existing `.venv-alpha` or `.venv` when the selected Python is missing dependencies. Run these commands from the project folder; the application does not need to be running for unit tests:
+
+```powershell
+python scripts/test_isolated.py -q
+python scripts/test_neon_db.py
+python scripts/inspect_db.py
+python scripts/inspect_deps.py
+```
+
+The Neon and inspection commands are read-only. `test_neon_db.py` loads `DATABASE_URL` from the process environment, then root `.env`, then `backend/.env`; credentials are never printed. `inspect_sqlite.py` and `dump_sqlite_repos.py` inspect legacy files, with `--sqlite PATH` to select an existing file. Missing files are never created.
+
+The isolated runner excludes credentials and saved data, ignores unrelated global pytest plugins, and blocks inherited integration settings by default. PostgreSQL and Neo4j integration tests require explicit test connection settings **and** `--with-integrations`. `verify_neon_e2e.py` requires a separate disposable PostgreSQL `TEST_DATABASE_URL` in the shell; it never uses the application `DATABASE_URL`. See [validation evidence](docs/VALIDATION.md) and the [runbook](docs/PUBLIC_ALPHA.md) for scope and commands. The local CI workflow also validates the shared client and both extensions; it does not publish anything.
 
 ## Project map
 

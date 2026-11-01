@@ -55,6 +55,9 @@ def _init_default_users():
     with _USERS_LOCK:
         if _USERS_INITIALIZED:
             return
+        if not settings.PASSWORD_AUTH_ENABLED:
+            _USERS_INITIALIZED = True
+            return
 
         if USERS_FILE.exists():
             try:
@@ -109,7 +112,9 @@ def _persist_registered_users() -> None:
 
 
 def register_user(username: str, plain_password: str, role: str = "viewer") -> UserOut:
-    """Create a durable viewer account without allowing privilege escalation."""
+    """Create a durable test account without allowing privilege escalation."""
+    if not settings.PASSWORD_AUTH_ENABLED:
+        raise ValueError("Password accounts are disabled; use Google sign-in")
     _init_default_users()
     cleaned_username = username.strip()
     if not re.fullmatch(r"[A-Za-z0-9_.-]{3,100}", cleaned_username):
@@ -139,10 +144,11 @@ def register_user(username: str, plain_password: str, role: str = "viewer") -> U
 
 def _account(username):
     # Environment administrators remain managed by deployment configuration.
-    if username == settings.ADMIN_USERNAME or (settings.ENABLE_DEFAULT_VIEWER and username == settings.AUDITOR_USERNAME):
+    if settings.PASSWORD_AUTH_ENABLED and (username == settings.ADMIN_USERNAME or (settings.ENABLE_DEFAULT_VIEWER and username == settings.AUDITOR_USERNAME)):
         return _USERS_DB.get(username)
     from core.store import get_store
-    return get_store().get("account", username, "auth") or _USERS_DB.get(username)
+    account = get_store().get("account", username, "auth")
+    return account or (_USERS_DB.get(username) if settings.PASSWORD_AUTH_ENABLED else None)
 
 
 # Initialize default user
@@ -151,12 +157,14 @@ _init_default_users()
 
 def authenticate_user(username: str, plain_password: str) -> Optional[UserOut]:
     """Verify credentials and return user model or None."""
+    if not settings.PASSWORD_AUTH_ENABLED:
+        return None
     _init_default_users()
     user_record = _account(username)
     if not user_record:
         return None
 
-    if not verify_password(plain_password, user_record["password_hash"]):
+    if not verify_password(plain_password, user_record.get("password_hash", "")):
         return None
 
     if not user_record.get("is_active", True):
@@ -198,6 +206,8 @@ def decode_access_token(token: str) -> dict:
     """
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"require": ["exp", "iat", "sub", "jti"]})
+        if not settings.PASSWORD_AUTH_ENABLED and payload.get("auth_method") != "google":
+            raise jwt.InvalidTokenError("Sign in with Google to continue")
         from core.store import get_store
         if get_store().get("revoked", payload["jti"], "auth"):
             raise jwt.InvalidTokenError("Session has been revoked")

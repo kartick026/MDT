@@ -83,8 +83,13 @@ async def import_repo(payload: ImportRepoRequest, current_user: UserOut = Depend
         result = await onboarder.import_from_repo(payload.repo_url, payload.branch or "main")
         RegistryManager.set_connection_bugs(result.get("connection_bugs", []))
         return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Repository import failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Repository import failed. Please try again later.") from None
 
 
 @router.get("/connection-bugs")

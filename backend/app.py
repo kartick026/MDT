@@ -13,6 +13,8 @@ for _p in (_backend_dir, _root_dir):
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from api import webhook, analysis, services, health, registry, auth, projects
@@ -20,7 +22,7 @@ from core.auth import get_current_user, get_current_user_optional
 from core.store import get_store
 from core.config import settings
 from core.database import init_databases
-from core.middleware import RequestTracingMiddleware, JSONLogFormatter, RequestSizeLimitMiddleware
+from core.middleware import RequestTracingMiddleware, JSONLogFormatter, RequestSizeLimitMiddleware, SecurityHeadersMiddleware
 import logging
 
 # Configure root logger format & level
@@ -68,12 +70,17 @@ app = FastAPI(
     title="Microservice Drift Tracker",
     description="AI-Assisted Cross-Service Impact Analysis Framework",
     version="1.0.0",
+    docs_url=None if settings.published_deployment else "/docs",
+    redoc_url=None if settings.published_deployment else "/redoc",
+    openapi_url=None if settings.published_deployment else "/openapi.json",
+    debug=False,
     lifespan=lifespan
 )
 
 # Request tracing and latency logging middleware
 app.add_middleware(RequestTracingMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS middleware
 app.add_middleware(
@@ -100,11 +107,18 @@ if settings.RUNTIME_PROFILE == "local":
 @app.get("/")
 async def root():
     """Root endpoint"""
+    if settings.STATIC_FRONTEND_DIR:
+        return FileResponse(os.path.join(settings.STATIC_FRONTEND_DIR, "index.html"))
     return {
         "name": "Microservice Drift Tracker",
         "version": "1.0.0",
         "status": "running"
     }
+
+
+if settings.STATIC_FRONTEND_DIR:
+    # Register last: API/auth/health routes retain priority over static assets.
+    app.mount("/", StaticFiles(directory=settings.STATIC_FRONTEND_DIR, html=True), name="frontend")
 
 
 if __name__ == "__main__":

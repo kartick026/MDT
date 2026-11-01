@@ -233,7 +233,7 @@ def test_viewer_cannot_mutate_registry(client):
     """Viewer credentials must not bypass the UI's read-only contract."""
     login_res = client.post("/auth/login", json={
         "username": "auditor",
-        "password": "auditor123",
+        "password": settings.AUDITOR_PASSWORD,
     })
     token = login_res.json()["access_token"]
 
@@ -275,6 +275,10 @@ def test_production_rejects_insecure_or_missing_secrets():
     # Valid production settings pass
     prod_settings = Settings(
         ENVIRONMENT="production",
+        PASSWORD_AUTH_ENABLED=False,
+        ALLOWED_ORIGINS=["https://app.example.com"],
+        NEON_AUTH_URL="https://provider.example/neondb/auth",
+        NEON_JWKS_URL="https://provider.example/neondb/auth/jwks",
         JWT_SECRET_KEY="a-sufficiently-long-production-key-at-least-32-characters!",
         GITHUB_WEBHOOK_SECRET="a-valid-high-entropy-webhook-secret-string",
         ADMIN_PASSWORD="super-strong-production-admin-password",

@@ -11,6 +11,39 @@ from starlette.responses import JSONResponse
 logger = logging.getLogger("mdt.access")
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Apply API/static security headers while preserving OAuth popup behavior."""
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        from core.config import settings
+        from urllib.parse import urlsplit
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        auth = urlsplit(settings.NEON_AUTH_URL)
+        provider_origin = f"https://{auth.hostname}" if auth.scheme == "https" and auth.hostname and not auth.username and not auth.password else ""
+        if provider_origin and auth.port:
+            provider_origin += f":{auth.port}"
+        if request.url.path not in {"/docs", "/redoc", "/openapi.json"} or settings.published_deployment:
+            response.headers["Content-Security-Policy"] = "; ".join((
+                "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data: https://*.googleusercontent.com", "font-src 'self' data:",
+                "connect-src 'self'" + (" " + provider_origin if provider_origin else ""),
+                "frame-src " + (provider_origin or "'none'"), "worker-src 'self' blob:",
+                "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'"))
+        if settings.published_deployment:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+        if request.url.path.startswith("/assets/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+        elif request.url.path == "/" and settings.STATIC_FRONTEND_DIR:
+            response.headers["Cache-Control"] = "no-cache"
+        else:
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 class RequestSizeLimitMiddleware:
     """Bound buffered request bytes, including chunked bodies without Content-Length."""
     def __init__(self, app):
@@ -73,9 +106,8 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
         except Exception as exc:
             duration_ms = (time.perf_counter() - start_time) * 1000
             logger.error(
-                f"{request.method} {request.url.path} 500 Internal Error [{duration_ms:.2f}ms] (id={request_id}): {exc}",
+                f"{request.method} {request.url.path} 500 Internal Error [{duration_ms:.2f}ms] (id={request_id}) ({type(exc).__name__})",
                 extra={"request_id": request_id, "latency_ms": round(duration_ms, 2)},
-                exc_info=True
             )
             raise exc
 

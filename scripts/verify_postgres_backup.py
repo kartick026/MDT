@@ -3,14 +3,21 @@
 Set MDT_BACKUP_SOURCE_URL and MDT_BACKUP_RESTORE_URL to quiet databases. URLs
 must point to different databases. This does not create, restore or drop tables.
 """
+import argparse
 import hashlib
 import json
 import os
+from pathlib import Path
+import sys
 
-import psycopg
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._runtime import ensure_runtime
+from scripts._database import diagnostic_main
 
 
 def fingerprints(url):
+    import psycopg
     result = {}
     with psycopg.connect(url, connect_timeout=10) as db:
         db.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
@@ -27,7 +34,13 @@ def fingerprints(url):
     return result
 
 
-if __name__ == "__main__":
+def main():
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    ensure_runtime(("dotenv", "psycopg"))
+    from dotenv import load_dotenv
+    from scripts._runtime import ROOT
+    load_dotenv(ROOT / '.env')
+    load_dotenv(ROOT / 'backend' / '.env')
     source, restored = os.environ.get("MDT_BACKUP_SOURCE_URL"), os.environ.get("MDT_BACKUP_RESTORE_URL")
     if not source or not restored or source == restored:
         raise SystemExit("Set distinct MDT_BACKUP_SOURCE_URL and MDT_BACKUP_RESTORE_URL values.")
@@ -35,3 +48,7 @@ if __name__ == "__main__":
     if before != after:
         raise SystemExit("Restore differs from source. Keep the original database; inspect the restore while writes are paused.")
     print(json.dumps({"verified": True, "tables": before}))
+
+
+if __name__ == "__main__":
+    raise SystemExit(diagnostic_main(main))

@@ -1,18 +1,25 @@
 """Append a legacy SQLite store to the active store, without overwrites/deletes.
 
-Run with PYTHONPATH=backend python scripts/restore_legacy_store.py SOURCE
+Run with python scripts/restore_legacy_store.py SOURCE
 for a dry run; add --apply to commit the transaction. Back up both stores first.
 Conflicting saved content aborts the entire transaction. The source is read-only.
 """
 import argparse
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
+import sys
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._runtime import add_backend_path, ensure_runtime
+from scripts._database import ReadonlyStore, configured_database_url, diagnostic_main
 
 
 def read_legacy(path):
     path = Path(path).resolve(strict=True)
-    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
         db.row_factory = sqlite3.Row
         db.execute('BEGIN')
         data = {table: [dict(row) for row in db.execute('SELECT * FROM ' + table)] for table in ['records', 'jobs']}
@@ -24,8 +31,8 @@ def read_legacy(path):
 def restore_legacy(path, store, apply=False):
     data = read_legacy(path)
     pending, unchanged = {'records': [], 'jobs': []}, {'records': 0, 'jobs': 0}
-    with store.connection(write=True) as db:
-        if store.postgres:
+    with store.connection(write=apply) as db:
+        if store.postgres and apply:
             db.execute('LOCK TABLE records, jobs IN SHARE ROW EXCLUSIVE MODE')
         for table, rows in data.items():
             for row in rows:
@@ -58,10 +65,21 @@ def restore_legacy(path, store, apply=False):
     return {'applied': apply, 'added': {table: len(rows) for table, rows in pending.items()}, 'unchanged': unchanged}
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
-    from core.store import get_store
-    print(json.dumps(restore_legacy(args.source, get_store(), args.apply)))
+    ensure_runtime(('dotenv', 'psycopg', 'pydantic_settings'))
+    url = configured_database_url()
+    if args.apply:
+        add_backend_path()
+        from core.store import Store
+        store = Store(url)
+    else:
+        store = ReadonlyStore(url)
+    print(json.dumps(restore_legacy(args.source, store, args.apply)))
+
+
+if __name__ == '__main__':
+    raise SystemExit(diagnostic_main(main))

@@ -3,9 +3,10 @@ services:
   - type: web
     name: mdt-alpha-api
     runtime: docker
+    region: singapore
     plan: free
-    dockerContext: ./backend
-    dockerfilePath: ./backend/Dockerfile.hosted
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health/ready
     autoDeployTrigger: "off"
     envVars:
@@ -15,6 +16,10 @@ services:
         value: production
       - key: AUTH_REQUIRED
         value: "true"
+      - key: PASSWORD_AUTH_ENABLED
+        value: "false"
+      - key: SOCIAL_SIGNUP_ROLE
+        value: analyst
       - key: ALLOW_SELF_SIGNUP
         value: "false"
       - key: ENABLE_DEFAULT_VIEWER
@@ -23,12 +28,18 @@ services:
         generateValue: true
       - key: GITHUB_WEBHOOK_SECRET
         generateValue: true
-      - key: ADMIN_PASSWORD
-        sync: false
       - key: ALLOWED_ORIGINS
-        sync: false
+        value: ""
       - key: DATABASE_URL
         sync: false
+      - key: NEON_AUTH_URL
+        sync: false
+      - key: NEON_JWKS_URL
+        sync: false
+      - key: JOB_RETENTION_DAYS
+        value: "0"
+      - key: STATIC_FRONTEND_DIR
+        value: /app/web
       - key: OPENAI_API_KEY
         value: ""
       - key: ACCESS_TOKEN_EXPIRE_MINUTES

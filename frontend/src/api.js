@@ -30,12 +30,6 @@ api.interceptors.response.use(
 );
 
 // Auth endpoints
-export const loginUser = (username, password) =>
-  api.post('/auth/login', { username, password }, { skipSession: true }).then(r => r.data);
-
-export const registerUser = (username, password) =>
-  api.post('/auth/register', { username, password }, { skipSession: true }).then(r => r.data);
-
 export const getCurrentUser = () =>
   api.get('/auth/me').then(r => r.data);
 

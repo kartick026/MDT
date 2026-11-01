@@ -27,41 +27,15 @@ Every HTTP response returns tracing and latency metrics:
 
 ## 2. Authentication & Authorization
 
-### `POST /auth/login`
-Authenticates user with username and password, returning an encrypted HS256 JWT access token.
+### Google-only sign-in
 
-#### Request Body
-```json
-{
-  "username": "admin",
-  "password": "admin123"
-}
-```
+The browser starts Google OAuth through the Neon SDK. `GET /auth/oauth/config` supplies public provider configuration. `POST /auth/oauth-login` accepts a signed Neon `id_token`; the server verifies its signature, issuer, expiry, subject and trusted Google account linkage before issuing an application bearer token.
 
-#### Response `200 OK`
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "expires_in": 86400,
-  "user": {
-    "username": "admin",
-    "role": "admin",
-    "is_active": true
-  }
-}
-```
+Password login, password registration, form login and password invitations are disabled by default. No seeded administrator password is available in a published deployment.
 
-### `POST /auth/token`
-Standard OAuth2 form-urlencoded endpoint (`username`, `password`) providing compatibility with OpenAPI / Swagger UI.
+`GET /auth/me` returns the current server-verified role. `POST /auth/refresh` rotates the application session and revokes its predecessor; `POST /auth/logout` revokes the submitted session. Existing data owners and roles are preserved during the Google-only cutover.
 
-### `GET /auth/me`
-Retrieves identity and role information for the currently authenticated bearer session.
-*Requires `Authorization: Bearer <token>`.*
-
-### `POST /auth/refresh`
-Issues a fresh JWT token extending an active user session.
-*Requires `Authorization: Bearer <token>`.*
+See [Render + Neon setup](RENDER_NEON_PUBLICATION.md) for production secrets and trusted domains.
 
 ---
 

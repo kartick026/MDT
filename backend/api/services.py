@@ -285,7 +285,7 @@ async def get_service_health(service_name: str):
         return {
             "service": service_name,
             "status": "offline",
-            "error": str(exc),
+            "error": type(exc).__name__,
             "port": port,
         }
 
